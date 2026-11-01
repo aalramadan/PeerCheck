@@ -1,7 +1,7 @@
 # Hallucinator in PeerCheck
 
 PeerCheck runs Hallucinator, the reference checker of Stringhini and Blackburn, for its reference check
-(`peercheck/checks/references.py`). The program chairs of ACSAC 2025 and ICWSM 2026 ran this tool. PeerCheck
+(`peercheck/checks/references.py`). ACSAC 2025 and ICWSM 2026 ran this tool. PeerCheck
 calls the unchanged command-line binary and changes no file of the tool.
 
 ## Version and license

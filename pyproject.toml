@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "PeerCheck"
 version = "1.0.0"
-description = "Screens conference submissions and peer reviews on the program chair's own machine"
+description = "Local checks of conference submissions and peer reviews"
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
@@ -46,4 +46,4 @@ pythonpath = ["."]
 line-length = 120
 target-version = "py310"
 # The tools of other authors stay as their authors wrote them.
-extend-exclude = ["third_party"]
+extend-exclude = ["external"]

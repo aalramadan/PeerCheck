@@ -15,7 +15,7 @@ report*.json
 !tests/fixtures/**/*.csv
 !tests/fixtures/**/*.xlsx
 # Test resources of the revised SIGSOFT checker, from its upstream repository.
-!third_party/submission-checker/src/test/resources/*
+!external/submission-checker/src/test/resources/*
 
 # Downloaded models, databases, and tools.
 .cache/
@@ -28,7 +28,7 @@ build/
 dist/
 .pytest_cache/
 .ruff_cache/
-third_party/submission-checker/target/
+external/submission-checker/target/
 tests/fixtures/**/*.aux
 tests/fixtures/**/*.log
 tests/fixtures/**/*.out
