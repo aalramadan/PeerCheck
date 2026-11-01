@@ -3,7 +3,7 @@
 Binoculars (Hans et al., ICML 2024) divides the log-perplexity of a text under a performer model by the
 cross-perplexity between an observer model and the performer. Text that a language model wrote scores low, and a text
 whose score falls below the threshold reads as machine-written. This module ports the original code, which sits
-untouched in ``third_party/binoculars`` with each change listed in ``third_party/binoculars/PORT.md``. The texts never
+untouched in ``external/binoculars`` with each change listed in ``external/binoculars/PORT.md``. The texts never
 leave this machine. Only the model names reach Hugging Face, once, to download the weights.
 
 The default pair is Falcon-7B as the observer and Falcon-7B-Instruct as the performer, at the commits pinned in

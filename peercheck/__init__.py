@@ -1,3 +1,3 @@
-"""PeerCheck screens conference submissions and peer reviews on the program chair's own machine."""
+"""PeerCheck runs local checks of conference submissions and peer reviews."""
 
 __version__ = "1.0.0"

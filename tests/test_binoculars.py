@@ -25,7 +25,7 @@ TEXTS = [
 ]
 WORDS = ["<|endoftext|>", "[UNK]", *dict.fromkeys(" ".join(TEXTS).split())]
 TINY = {"observer": "tiny-observer", "performer": "tiny-performer", "threshold": 1.0, "device": "cpu"}
-ORIGINAL_METRICS = Path(__file__).resolve().parent.parent / "third_party" / "binoculars" / "binoculars" / "metrics.py"
+ORIGINAL_METRICS = Path(__file__).resolve().parent.parent / "external" / "binoculars" / "binoculars" / "metrics.py"
 
 
 def make_tokenizer(words=WORDS):

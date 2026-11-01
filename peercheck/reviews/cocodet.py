@@ -3,7 +3,7 @@
 CoCoDet (Chen et al., ACL 2026) is a ModernBERT-base encoder with four heads. It labels the content of a
 review as Human (written by a person, possibly translated or polished by a machine), Mix, or AI, and names
 the likely sources of the content and of the style. This module runs the inference of the original script,
-third_party/coconuts/infer.py, with the changes listed in third_party/coconuts/PORT.md. The weights come
+external/coconuts/infer.py, with the changes listed in external/coconuts/PORT.md. The weights come
 from a pinned revision on Hugging Face into its cache (HF_HOME, by default ~/.cache/huggingface) and are
 checked against their SHA-256 before loading. The model card
 states that CoCoDet "should not be used as the sole arbiter of academic misconduct", therefore PeerCheck

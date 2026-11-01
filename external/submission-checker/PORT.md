@@ -2,7 +2,7 @@
 
 This folder holds the Maven project of the ACM SIGSOFT Submission Checker, revised into the whole-paper anonymity scan of PeerCheck.
 The upstream project is <https://github.com/acmsigsoft/submission-checker> at commit `3ffa1ebbb772c9647eeab569c8119429844eb01c` (release v0.4.3, 2021-12-11), built by Arie van Deursen and Tao Xie for ICSE 2021 under the Apache License 2.0 in `LICENSE`.
-The original release jar stays untouched in `third_party/submission-checker-0.4.3/`.
+The original is release v0.4.3 of `github.com/acmsigsoft/submission-checker` at commit `3ffa1eb`.
 Every modified upstream file names the port in its license header, as section 4 of the license asks.
 
 ## Build and run
