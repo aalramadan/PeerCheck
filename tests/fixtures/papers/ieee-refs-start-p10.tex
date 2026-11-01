@@ -1,0 +1,24 @@
+% Ten pages of main text whose references start on page 10 and fill pages 11 and 12.
+\documentclass[conference,letterpaper]{IEEEtran}
+\usepackage{lipsum}
+\begin{document}
+\title{A Study of Maintenance Effort}
+\author{\IEEEauthorblockN{Anonymous Author(s)}}
+\maketitle
+\begin{abstract}
+\lipsum[1]
+\end{abstract}
+\section{Introduction}
+\lipsum[2-20]
+\section{Approach}
+\lipsum[21-50]
+\section{Evaluation}
+\lipsum[51-80]
+\section{Conclusion}
+\lipsum[81-96]
+\begin{thebibliography}{999}
+\newcount\n \n=1
+\loop \bibitem{x} A. Author and B. Author, ``Title of reference number \the\n\ on software maintenance,'' in \emph{Proc. ICSME}, 2020, pp. 1--10.
+\advance\n by 1 \ifnum\n<175 \repeat
+\end{thebibliography}
+\end{document}

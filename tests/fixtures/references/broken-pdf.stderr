@@ -1,0 +1,2 @@
+Config file: references/hallucinator.toml
+Error: PDF extraction error: backend error: failed to open PDF: MuPDF error, code: 7, message: no objects found

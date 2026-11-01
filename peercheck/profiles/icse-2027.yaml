@@ -1,0 +1,42 @@
+# ICSE 2027 Research Track.
+# Rules: https://conf.researchr.org/track/icse-2027/icse-2027-research-track
+name: ICSE 2027 Research Track
+source: https://conf.researchr.org/track/icse-2027/icse-2027-research-track
+submission_system: hotcrp
+# HotCRP names the downloaded PDFs such as icse2027-paper123.pdf.
+file_pattern: '-paper(\d+)\.pdf$'
+id_column: 'ID'
+
+format:
+  # "IEEE format is being used this year", with \documentclass[10pt,conference]{IEEEtran}.
+  style: IEEE
+  paper_size: [792, 612]
+  paper_size_tolerance: 5
+  columns: 2
+  # At most 10 pages including appendices, plus 2 pages of references only.
+  main_pages: 10
+  reference_pages: 2
+  # The same IEEEtran conference margins as the ICSME 2026 profile.
+  margins: [52, 48, 72, 48]
+  margin_tolerance: 18
+  # The call warns that altered spacing or font size may lead to desk rejection.
+  body_font_max: 10.5
+  reference_font_min: 8.0
+  page_numbers: warning
+  required_headings: [introduction, conclusion]
+  require_abstract: true
+
+checks:
+  sigsoft:
+    enabled: true
+  anonymity:
+    allowed_hosts: [anonymous.4open.science, zenodo.org, figshare.com, osf.io, doi.org]
+    flag_acknowledgments: true
+  hidden_text:
+    enabled: true
+  references:
+    # The call checks submissions "for hallucinated, fabricated, or unverifiable references".
+    enabled: true
+    # Offline by default. online sends DOIs and arXiv IDs only; online_titles also sends titles.
+    online: false
+    online_titles: false

@@ -1,0 +1,49 @@
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "PeerCheck"
+version = "1.0.0"
+description = "Screens conference submissions and peer reviews on the program chair's own machine"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "openpyxl>=3.1",
+    "pyyaml>=6",
+    "defusedxml>=0.7",
+    "lxml>=5",
+    "rapidfuzz>=3",
+    "datasketch>=1.6",
+    # The hidden-text check calls internal functions of this release.
+    "pdfguardrail==0.3.0",
+    # The clipped-text rule was tested on 1.28.2. PyMuPDF 2 pulls onnxruntime and layout models.
+    "pymupdf>=1.28.2,<2",
+]
+
+[project.optional-dependencies]
+# CoCoDet and Binoculars. Binoculars needs the dtype keyword of transformers 4.56 and accelerate to
+# stream layers from disk when a model does not fit on the GPU.
+reviews = ["torch>=2.6", "transformers>=4.56", "huggingface_hub>=0.23", "accelerate>=1.0", "numpy"]
+# 4-bit loading of the Binoculars models, which needs its own threshold.
+quantized = ["bitsandbytes>=0.45"]
+dev = ["pytest>=8", "ruff>=0.6", "pikepdf>=8"]
+
+[project.scripts]
+peercheck = "peercheck.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["peercheck*"]
+
+[tool.setuptools.package-data]
+peercheck = ["profiles/*.yaml", "vendor/**/*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+
+[tool.ruff]
+line-length = 120
+target-version = "py310"
+# The tools of other authors stay as their authors wrote them.
+extend-exclude = ["third_party"]

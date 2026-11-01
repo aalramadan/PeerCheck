@@ -1,0 +1,47 @@
+# ICSME 2026 Research Track.
+# Rules: https://conf.researchr.org/track/icsme-2026/icsme-2026-papers
+# Double-anonymous FAQ: https://icsme.github.io/faq_double_blind.html
+# Open science policy: https://conf.researchr.org/info/icsme-2026/open-science-policy
+name: ICSME 2026 Research Track
+source: https://conf.researchr.org/track/icsme-2026/icsme-2026-papers
+submission_system: easychair
+# EasyChair names the downloaded PDFs such as ICSME_2026_paper_108.pdf.
+file_pattern: '_paper_(\d+)\.pdf$'
+id_column: '#'
+
+format:
+  style: IEEE
+  # IEEEtran conference format on US Letter, given as banal reports it (height, width) in points.
+  paper_size: [792, 612]
+  paper_size_tolerance: 5
+  columns: 2
+  # "10 pages (including figures and appendices) plus up to 2 pages that contain ONLY references".
+  main_pages: 10
+  reference_pages: 2
+  # IEEEtran conference margins as banal measures them (top, right, bottom, left), with the
+  # 18 pt tolerance of the original suite for rounding and compiler noise.
+  margins: [52, 48, 72, 48]
+  margin_tolerance: 18
+  # IEEEtran sets the body in 10 pt, which banal reports as 10.3 pt.
+  body_font_max: 10.5
+  reference_font_min: 8.0
+  # The call states no rule on page numbers.
+  page_numbers: warning
+  required_headings: [introduction, conclusion]
+  require_abstract: true
+
+checks:
+  sigsoft:
+    enabled: true
+  anonymity:
+    # Hosts that the ICSME 2026 open science policy names for anonymous artifacts and archives.
+    allowed_hosts: [anonymous.4open.science, zenodo.org, figshare.com, osf.io, doi.org]
+    # The double-anonymous FAQ counts acknowledgments that give away identity as a violation.
+    flag_acknowledgments: true
+  hidden_text:
+    enabled: true
+  references:
+    enabled: true
+    # Offline by default. online sends DOIs and arXiv IDs only; online_titles also sends titles.
+    online: false
+    online_titles: false

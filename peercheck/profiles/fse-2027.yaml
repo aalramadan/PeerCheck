@@ -1,0 +1,49 @@
+# FSE 2027 Research Track.
+# Rules: https://conf.researchr.org/track/fse-2027/fse-2027-papers
+name: FSE 2027 Research Track
+source: https://conf.researchr.org/track/fse-2027/fse-2027-papers
+submission_system: hotcrp
+# HotCRP names the downloaded PDFs such as fse2027-paper123.pdf.
+file_pattern: '-paper(\d+)\.pdf$'
+id_column: 'ID'
+
+format:
+  # \documentclass[acmsmall,screen,review,anonymous]{acmart}, single column.
+  style: ACM
+  # acmsmall pages are 6.75 in x 10 in, given as banal reports them (height, width) in points.
+  paper_size: [720, 486]
+  paper_size_tolerance: 5
+  columns: 1
+  # At most 18 pages of text and figures plus 4 pages of references. A Data Availability
+  # section after the conclusion does not count toward the limit.
+  main_pages: 18
+  reference_pages: 4
+  # Margins of an acmart v2.20 acmsmall paper with the review and anonymous options, as banal
+  # measures them (top, right, bottom, left), with the tolerance of the IEEE profiles.
+  margins: [84, 42, 36, 44]
+  margin_tolerance: 18
+  # acmsmall sets the body in 10 pt and the references in 8 pt, which banal reports as 10.3 and 8.3 pt.
+  body_font_max: 10.5
+  reference_font_min: 8.0
+  # The review option of acmart prints page and line numbers.
+  page_numbers: ignore
+  required_headings: [introduction, conclusion]
+  # acmsmall prints the abstract without a label, therefore its first page holds no word Abstract.
+  require_abstract: false
+
+checks:
+  sigsoft:
+    enabled: true
+  anonymity:
+    allowed_hosts: [anonymous.4open.science, zenodo.org, figshare.com, osf.io, doi.org]
+    # The call encourages authors to omit acknowledgments.
+    flag_acknowledgments: true
+  hidden_text:
+    # The call prohibits "prompt injection or hidden instructions intended to manipulate
+    # reviewers or AI systems".
+    enabled: true
+  references:
+    enabled: true
+    # Offline by default. online sends DOIs and arXiv IDs only; online_titles also sends titles.
+    online: false
+    online_titles: false

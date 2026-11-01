@@ -1,0 +1,20 @@
+\input{common}
+\usepackage{tikz}
+\usetikzlibrary{positioning}
+\begin{document}
+\visibleintro
+
+\begin{center}
+\begin{tikzpicture}[stage/.style={draw=black, fill=black!80, text=white, minimum width=2.6cm, minimum height=0.9cm}]
+\node[stage] (a) {Test runner};
+\node[stage, right=0.8cm of a] (b) {Order shuffler};
+\node[stage, right=0.8cm of b] (c) {Flakiness labeler};
+\draw[->, thick] (a) -- (b);
+\draw[->, thick] (b) -- (c);
+\end{tikzpicture}
+
+\colorbox{black}{\textcolor{white}{\sffamily\bfseries Figure 1. Stages of the detector}}
+\end{center}
+
+\visibleresults
+\end{document}

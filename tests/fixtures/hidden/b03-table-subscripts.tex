@@ -1,0 +1,21 @@
+\input{common}
+\newcommand{\sub}[1]{\textsubscript{\fontsize{5pt}{6pt}\selectfont #1}}
+\begin{document}
+\visibleintro
+
+\begin{center}
+\begin{tabular}{lrrr}
+\hline
+Project & Stable & Flaky & Unclear \\
+\hline
+commons-lang\sub{3.12} & 120\sub{run 1} & 9\sub{run 1} & 4\sub{run 1} \\
+guava\sub{31.1} & 198\sub{run 1} & 25\sub{run 2} & 17\sub{run 2} \\
+jsoup\sub{1.15} & 132\sub{run 2} & 17\sub{run 2} & 11\sub{run 3} \\
+\hline
+Total & 450 & 51 & 32 \\
+\hline
+\end{tabular}
+\end{center}
+
+\visibleresults
+\end{document}
