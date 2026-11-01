@@ -1,0 +1,123 @@
+<?xml version="1.0" encoding="ISO-8859-1"?>
+<!DOCTYPE dblp SYSTEM "dblp.dtd">
+<dblp>
+<www mdate="2024-01-02" key="homepages/33/3333">
+<author>Kim Doe</author>
+<title>Home Page</title>
+<note type="affiliation">Synthetic Institute of Testing</note>
+</www>
+<inproceedings mdate="2024-05-01" key="conf/icse/MullerO24">
+<author>J&uuml;rgen M&uuml;ller</author>
+<author orcid="0000-0000-0000-0001">Robin X. Okafor</author>
+<title>Flaky Tests in <i>Synthetic</i> Projects.</title>
+<pages>1-12</pages>
+<year>2024</year>
+<booktitle>ICSE</booktitle>
+<ee>https://doi.org/10.1145/1111111.1111112</ee>
+<url>db/conf/icse/icse2024.html#MullerO24</url>
+</inproceedings>
+<article mdate="2020-07-01" key="journals/tse/PerezM20">
+<author>Ana P&eacute;rez 0001</author>
+<author>J&uuml;rgen M&uuml;ller</author>
+<title>An Old Study of Build Logs.</title>
+<year>2020</year>
+<journal>IEEE Trans. Software Eng.</journal>
+<ee>https://doi.org/10.1109/TSE.2020.0000001</ee>
+</article>
+<article mdate="2024-01-20" key="journals/corr/abs-2401-01234" publtype="informal">
+<author>Ana P&eacute;rez 0002</author>
+<author>Franz Lemaitre</author>
+<title>Mining Synthetic Repositories.</title>
+<year>2024</year>
+<journal>CoRR</journal>
+<ee type="oa">https://arxiv.org/abs/2401.01234</ee>
+</article>
+<inproceedings mdate="2023-11-01" key="conf/sigsoft/Lemaitre23">
+<author>Fran&ccedil;ois Lema&icirc;tre</author>
+<author>Kim Doe</author>
+<title>Program Repair for Toy Languages.</title>
+<year>2023</year>
+<booktitle>ESEC/SIGSOFT FSE</booktitle>
+<ee>https://doi.org/10.1145/2222222.2222223</ee>
+</inproceedings>
+<inproceedings mdate="2022-09-01" key="conf/kbse/Perez22">
+<author>Ana P&eacute;rez</author>
+<author>S&oslash;ren Gro&szlig;</author>
+<title>Unassigned Paper of a Homonym.</title>
+<year>2022</year>
+<booktitle>ASE</booktitle>
+</inproceedings>
+<inproceedings mdate="2025-03-01" key="conf/msr/Other25">
+<author>Unrelated Person</author>
+<title>A Paper Nobody Asked About.</title>
+<year>2025</year>
+<booktitle>MSR</booktitle>
+<ee>https://doi.org/10.1145/3333333.3333334</ee>
+</inproceedings>
+<proceedings mdate="2024-05-01" key="conf/icse/2024">
+<editor>J&uuml;rgen M&uuml;ller</editor>
+<title>Proceedings of a Synthetic Conference.</title>
+<year>2024</year>
+</proceedings>
+<www mdate="2023-02-01" key="homepages/11/1001">
+<author>J&uuml;rgen M&uuml;ller</author>
+<title>Home Page</title>
+<note type="affiliation">University of Testville, Germany</note>
+</www>
+<www mdate="2023-02-01" key="homepages/22/2001">
+<author>Ana P&eacute;rez 0001</author>
+<title>Home Page</title>
+<note type="affiliation">Universidad de Ejemplo, Spain</note>
+</www>
+<www mdate="2023-02-01" key="homepages/22/2002">
+<author>Ana P&eacute;rez 0002</author>
+<title>Home Page</title>
+<note type="affiliation">Example Labs Inc., USA</note>
+</www>
+<www mdate="2023-02-01" key="homepages/22/2000" publtype="disambiguation">
+<author>Ana P&eacute;rez</author>
+<title>Home Page</title>
+</www>
+<www mdate="2023-02-01" key="homepages/44/4444">
+<author>Robin X. Okafor</author>
+<title>Home Page</title>
+</www>
+<www mdate="2023-02-01" key="homepages/55/5555">
+<author>Fran&ccedil;ois Lema&icirc;tre</author>
+<author>Franz Lemaitre</author>
+<title>Home Page</title>
+</www>
+<www mdate="2023-02-01" key="homepages/66/6666">
+<author>S&oslash;ren Gro&szlig;</author>
+<title>Home Page</title>
+</www>
+<www mdate="2023-02-01" key="homepages/77/7777">
+<author>Unrelated Person</author>
+<title>Home Page</title>
+</www>
+<www mdate="2023-02-01" key="homepages/88/8801">
+<author>Lena Q. Brandt</author>
+<title>Home Page</title>
+<note type="affiliation">Synthetic University of Delft</note>
+</www>
+<www mdate="2026-01-10" key="homepages/88/8802">
+<author>Lena Brandt</author>
+<title>Home Page</title>
+</www>
+<inproceedings mdate="2025-06-01" key="conf/icse/Brandt25">
+<author>Lena Q. Brandt</author>
+<author>J&uuml;rgen M&uuml;ller</author>
+<title>Regression Test Selection for Synthetic Builds.</title>
+<year>2025</year>
+<booktitle>ICSE</booktitle>
+</inproceedings>
+<article mdate="2026-01-10" key="journals/corr/abs-2601-00001" publtype="informal">
+<author>Lena Brandt</author>
+<title>A Preprint Under a Second Profile.</title>
+<year>2026</year>
+<journal>CoRR</journal>
+</article>
+<www mdate="2024-02-01" key="homepages/99/9999">
+<crossref>homepages/33/3333</crossref>
+</www>
+</dblp>

@@ -1,0 +1,18 @@
+% Shared preamble of the one-page fixtures. The pdfTeX settings keep builds reproducible
+% and keep the build path out of the PDF.
+\pdftrailerid{}
+\pdfinfoomitdate=1
+\pdfsuppressptexinfo=-1
+\RequirePackage{fix-cm}
+\documentclass[letterpaper,11pt]{article}
+\usepackage[margin=1in]{geometry}
+\usepackage{xcolor}
+\pagestyle{empty}
+\newcommand{\visibleintro}{%
+Flaky tests pass and fail on the same code without any change to the program under test.
+This study runs each test of 26 open-source Java projects one hundred times and records
+every outcome together with the order in which the tests ran.}
+\newcommand{\visibleresults}{%
+The detector labels 450 of 533 tests as stable, 51 as flaky, and 32 as unclear. A manual
+check of the flaky tests confirms 47 of the 51 labels, and the remaining four tests depend
+on the system clock.}

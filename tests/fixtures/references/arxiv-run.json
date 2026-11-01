@@ -1,0 +1,58 @@
+[
+  {
+    "filename": "paper-2-arxiv.bib",
+    "verdict": null,
+    "stats": {
+      "total": 2,
+      "verified": 0,
+      "not_found": 1,
+      "author_mismatch": 1,
+      "retracted": 0,
+      "skipped": 0,
+      "inconclusive": 0,
+      "problematic_pct": 100.0
+    },
+    "references": [
+      {
+        "index": 1,
+        "original_number": 2,
+        "title": "Self-healing test oracles for microservice regression suites",
+        "raw_citation": "M. Hartmann, P. Venkataraman. Self-healing test oracles for microservice regression suites",
+        "status": "not_found",
+        "effective_status": "not_found",
+        "url_check_skipped": false,
+        "inconclusive": false,
+        "fp_reason": null,
+        "source": null,
+        "ref_authors": ["M. Hartmann", "P. Venkataraman"],
+        "found_authors": [],
+        "paper_url": null,
+        "failed_dbs": [],
+        "doi_info": null,
+        "arxiv_info": {"arxiv_id": "1706.03762", "valid": false, "title": null},
+        "retraction_info": null,
+        "db_results": [{"db": "arXiv", "status": "no_match", "elapsed_ms": 476, "authors": [], "url": null}]
+      },
+      {
+        "index": 0,
+        "original_number": 1,
+        "title": "Observation of a new particle in the search for the Standard Model Higgs boson with the ATLAS detector at the LHC",
+        "raw_citation": "G. Aad, T. Abajyan, B. Abbott. Observation of a new particle in the search for the Standard Model Higgs boson with the ATLAS detector at the LHC",
+        "status": "mismatch",
+        "effective_status": "mismatch",
+        "url_check_skipped": false,
+        "inconclusive": false,
+        "fp_reason": null,
+        "source": "arXiv",
+        "ref_authors": ["G. Aad", "T. Abajyan", "B. Abbott"],
+        "found_authors": ["The ATLAS Collaboration"],
+        "paper_url": "https://arxiv.org/abs/1207.7214v2",
+        "failed_dbs": [],
+        "doi_info": null,
+        "arxiv_info": {"arxiv_id": "1207.7214", "valid": true, "title": null},
+        "retraction_info": null,
+        "db_results": [{"db": "arXiv", "status": "author_mismatch", "elapsed_ms": 207, "authors": ["The ATLAS Collaboration"], "url": "https://arxiv.org/abs/1207.7214v2"}]
+      }
+    ]
+  }
+]
