@@ -21,7 +21,7 @@ from pathlib import Path
 import pytest
 
 from peercheck import profile as profile_module
-from peercheck import retractions, tools
+from peercheck import retraction_watch, tools
 from peercheck.checks import references
 from peercheck.findings import Severity
 from peercheck.models import Paper
@@ -276,7 +276,7 @@ def fake_release(monkeypatch, checksum=None):
     files = {
         f"{references.RELEASE_URL}/{name}": archive,
         references.DBLP_URL: gzip.compress(DUMP),
-        retractions.CSV_URL: (FIXTURES / "retraction_watch.csv").read_bytes(),
+        retraction_watch.CSV_URL: (FIXTURES / "retraction_watch.csv").read_bytes(),
     }
     fetched = []
 
@@ -309,7 +309,7 @@ def test_install_tools_installs_the_cli_and_builds_dblp_from_a_local_dump(tmp_pa
 def test_install_tools_downloads_the_dblp_dump_and_the_retraction_data_without_local_files(tmp_path, monkeypatch):
     fetched = fake_release(monkeypatch)
     _binary, database, csv_file = references.install_tools(tmp_path / "cache")
-    assert fetched[1:] == [references.DBLP_URL, retractions.CSV_URL]
+    assert fetched[1:] == [references.DBLP_URL, retraction_watch.CSV_URL]
     assert database.is_file() and csv_file.is_file()
     assert not (tmp_path / "cache" / "hallucinator" / "dblp.xml.gz").exists()
 

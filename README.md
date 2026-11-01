@@ -89,7 +89,7 @@ a likely problem. An info gives context.
 | icse-2027 | ICSE 2027 Research Track | IEEE, two columns, US Letter | 10 plus 2 of references |
 | fse-2027 | FSE 2027 Research Track | ACM acmsmall, one column | 18 plus 4 of references |
 
-A new venue needs a copy of a file in `peercheck/profiles/` with its own values, passed by path, such as
+A new venue needs a copy of a file in `src/peercheck/profiles/` with its own values, passed by path, such as
 `peercheck --profile myvenue.yaml papers pdfs/`.
 
 ## Privacy
@@ -102,27 +102,27 @@ A new venue needs a copy of a file in `peercheck/profiles/` with its own values,
 ## How it works
 
 `peercheck papers`
-1. `peercheck/inputs.py`, static. Maps each PDF to a paper ID and reads the submission sheet and the author list.
-2. `peercheck/checks/sigsoft.py`, static. Runs the revised SIGSOFT jar over all PDFs.
-3. `peercheck/checks/layout.py`, static. Runs banal and checks the format rules of the profile.
-4. `peercheck/checks/hidden_text.py`, static. Runs pdfguardrail and a clip test with PyMuPDF.
-5. `peercheck/checks/references.py` and `peercheck/retractions.py`, static. Run Hallucinator offline and match DOIs against Retraction Watch.
-6. `peercheck/report.py`, static. Writes the workbook and the optional JSON file.
+1. `src/peercheck/inputs.py`, static. Maps each PDF to a paper ID and reads the submission sheet and the author list.
+2. `src/peercheck/checks/sigsoft.py`, static. Runs the revised SIGSOFT jar over all PDFs.
+3. `src/peercheck/checks/layout.py`, static. Runs banal and checks the format rules of the profile.
+4. `src/peercheck/checks/hidden_text.py`, static. Runs pdfguardrail and a clip test with PyMuPDF.
+5. `src/peercheck/checks/references.py` and `src/peercheck/retraction_watch.py`, static. Run Hallucinator offline and match DOIs against Retraction Watch.
+6. `src/peercheck/report.py`, static. Writes the workbook and the optional JSON file.
 
 `peercheck reviews`
-1. `peercheck/inputs.py`, static. Reads the review XML files.
-2. `peercheck/reviews/cocodet.py`, call of a local model. Labels each review with CoCoDet.
-3. `peercheck/reviews/binoculars.py`, call of two local models. Scores each review with Binoculars.
-4. `peercheck/reviews/duplicates.py`, static. Finds paragraphs that appear in two reviews.
-5. `peercheck/reviews/citations.py`, static. Finds citation requests.
-6. `peercheck/report.py`, static. Writes the workbook.
+1. `src/peercheck/inputs.py`, static. Reads the review XML files.
+2. `src/peercheck/reviews/cocodet.py`, call of a local model. Labels each review with CoCoDet.
+3. `src/peercheck/reviews/binoculars.py`, call of two local models. Scores each review with Binoculars.
+4. `src/peercheck/reviews/duplicates.py`, static. Finds paragraphs that appear in two reviews.
+5. `src/peercheck/reviews/citations.py`, static. Finds citation requests.
+6. `src/peercheck/report.py`, static. Writes the workbook.
 
 `peercheck conflicts`
-1. `peercheck/dblp.py`, static. Builds a publication index of the authors and the committee from the DBLP dump.
-2. `peercheck/conflicts.py`, static. Applies the conflict rules.
-3. `peercheck/report.py`, static. Writes the workbook.
+1. `src/peercheck/dblp.py`, static. Builds a publication index of the authors and the committee from the DBLP dump.
+2. `src/peercheck/conflicts.py`, static. Applies the conflict rules.
+3. `src/peercheck/report.py`, static. Writes the workbook.
 
-`peercheck/cli.py` and `peercheck/reviews/cli.py` hold the command line and the menu. `peercheck/vendor/`
+`src/peercheck/cli.py` and `src/peercheck/reviews/cli.py` hold the command line and the menu. `src/peercheck/vendor/`
 holds banal and the revised SIGSOFT jar. `external/` holds the original tools, with a `PORT.md` for each
 change.
 
