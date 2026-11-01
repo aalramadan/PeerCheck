@@ -19,7 +19,7 @@ class ToolError(RuntimeError):
 
 
 def vendor(relative: str) -> Path:
-    """Return the path of a file bundled under peercheck/vendor."""
+    """Return the path of a file bundled under src/peercheck/vendor."""
     return Path(str(resources.files("peercheck") / "vendor" / relative))
 
 

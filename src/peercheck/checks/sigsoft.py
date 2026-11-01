@@ -1,7 +1,7 @@
 """Anonymity and template check with the SIGSOFT submission checker, revised for PeerCheck.
 
 The SIGSOFT submission checker was built for ICSE 2021 and reads each PDF with PDFBox. The revised jar
-under peercheck/vendor scans every page, the metadata, and the links of a PDF for the authors of the
+under src/peercheck/vendor scans every page, the metadata, and the links of a PDF for the authors of the
 paper, author emails, links that point to a person, acknowledgments, and self-citations, and prints one
 JSON object per PDF. Options come from the profile: style, page limits, and file pattern from the format
 rules, and allowed_hosts and flag_acknowledgments under checks.anonymity.

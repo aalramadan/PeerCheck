@@ -53,7 +53,7 @@ import zipfile
 from dataclasses import dataclass
 from pathlib import Path
 
-from peercheck import retractions, tools
+from peercheck import retraction_watch, tools
 from peercheck.findings import Finding, Severity
 from peercheck.models import Paper
 from peercheck.profile import Profile
@@ -205,7 +205,7 @@ def install_tools(cache: Path | None = None, dblp_dump: Path | None = None, retr
         if retraction_csv:
             shutil.copyfile(retraction_csv, partial)
         else:
-            _fetch(retractions.CSV_URL, partial)
+            _fetch(retraction_watch.CSV_URL, partial)
         partial.replace(csv_file)
     return [binary, database, csv_file]
 
@@ -264,7 +264,7 @@ def parse_report(data: list) -> list[Reference]:
     for entry in data[0].get("references", []) if data else []:
         text = entry.get("raw_citation") or ""
         doi_info, arxiv_info = entry.get("doi_info") or {}, entry.get("arxiv_info") or {}
-        dois = dict.fromkeys(d for d in [doi_info.get("doi", "")] + _dois(text) if retractions.normalize_doi(d))
+        dois = dict.fromkeys(d for d in [doi_info.get("doi", "")] + _dois(text) if retraction_watch.normalize_doi(d))
         arxiv = ARXIV_IN_TEXT.search(text)
         results = entry.get("db_results") or []
         refs.append(Reference(
@@ -344,13 +344,13 @@ def _retraction_findings(refs: list[Reference], path: Path) -> list[Finding]:
         return [Finding("references.error", Severity.WARNING,
                         f"The Retraction Watch data is missing at {path}; run peercheck setup references")]
     try:
-        index = retractions.load(path)
+        index = retraction_watch.load(path)
     except (OSError, ValueError) as exc:
         return [Finding("references.error", Severity.WARNING, f"The Retraction Watch data is unreadable: {exc}")]
     findings = []
     for ref in refs:
-        for doi, notices in retractions.match(ref.dois, index).items():
-            notice = retractions.in_force(notices)
+        for doi, notices in retraction_watch.match(ref.dois, index).items():
+            notice = retraction_watch.in_force(notices)
             if notice:
                 findings.append(Finding(
                     "references.retracted", Severity.WARNING,

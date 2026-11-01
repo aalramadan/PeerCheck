@@ -33,6 +33,7 @@ dev = ["pytest>=8", "ruff>=0.6", "pikepdf>=8"]
 peercheck = "peercheck.cli:main"
 
 [tool.setuptools.packages.find]
+where = ["src"]
 include = ["peercheck*"]
 
 [tool.setuptools.package-data]
@@ -40,7 +41,7 @@ peercheck = ["profiles/*.yaml", "vendor/**/*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-pythonpath = ["."]
+pythonpath = ["src"]
 
 [tool.ruff]
 line-length = 120

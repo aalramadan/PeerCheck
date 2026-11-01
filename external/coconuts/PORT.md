@@ -5,7 +5,7 @@ unchanged from `github.com/icip-cas/CoCoNUTS` at commit `25df60884f` (2025-09-11
 that repository. The repository has no license file. The model card of the weights
 (`huggingface.co/khaaaaaan/CoCoDet`) states the MIT license.
 
-PeerCheck runs the port in `peercheck/reviews/cocodet.py`. Each change from `infer.py` follows.
+PeerCheck runs the port in `src/peercheck/reviews/cocodet.py`. Each change from `infer.py` follows.
 
 1. The port keeps inference only. The training labels of `InferenceDataset`, the t-SNE plot, and the
    imports of scikit-learn, matplotlib, and seaborn that only the plot needs are left out.
