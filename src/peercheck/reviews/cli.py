@@ -42,7 +42,7 @@ def parser() -> argparse.ArgumentParser:
     top = argparse.ArgumentParser(prog="peercheck reviews", description="Check EasyChair review XML files.")
     top.add_argument("folder", help="folder with review XML files, or setup to download the models")
     top.add_argument("extra", nargs="*", help="after setup: cocodet or binoculars")
-    top.add_argument("--profile", default="icsme-2026", help="venue profile key or YAML file")
+    top.add_argument("--profile", default="icse-2027", help="venue profile key or YAML file")
     top.add_argument("--detectors", default="cocodet,binoculars", help="comma-separated subset of cocodet,binoculars")
     top.add_argument("--checks", default="duplicates,citations", help="comma-separated subset of duplicates,citations")
     top.add_argument("--device", default=None, help="cpu or cuda (default: cuda when available)")
@@ -103,7 +103,7 @@ def run(args: argparse.Namespace) -> int:
     if args.json:
         report.write_json(args.json, {"reviews": list(rows.values()), "findings": found})
     if args.html:
-        report.write_rows_html(args.html, "PeerCheck, reviews", list(rows.values()), found, "Review ID")
+        report.write_rows_html(args.html, "PeerCheck, Reviews", list(rows.values()), found, "Review ID")
     flagged = sum(1 for items in found.values() if needs_review(items))
     print(f"{len(reviews)} reviews checked, {flagged} need review. Report: {args.out}")
     return 0

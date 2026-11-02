@@ -95,4 +95,4 @@ def _guarded(name: str, check, paper: Paper, profile: Profile, workdir: Path) ->
 
 def _progress(number: int, total: int, paper: Paper, findings: list[Finding]) -> None:
     errors, warnings = count(findings, Severity.ERROR), count(findings, Severity.WARNING)
-    print(f"[{number}/{total}] {paper.pdf.name}: {errors} error(s), {warnings} warning(s)", file=sys.stderr)
+    print(f"[{number}/{total}] paper {paper.paper_id}: {errors} error(s), {warnings} warning(s)", file=sys.stderr)

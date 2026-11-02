@@ -72,7 +72,7 @@ def available() -> list[str]:
 
 
 def load(name_or_path: str) -> Profile:
-    """Load a shipped profile by its key, such as icsme-2026, or a profile file by its path."""
+    """Load a shipped profile by its key, such as icse-2027, or a profile file by its path."""
     path = Path(name_or_path)
     if path.suffix in (".yaml", ".yml") and path.is_file():
         return parse(yaml.safe_load(path.read_text(encoding="utf-8")), path.stem)
