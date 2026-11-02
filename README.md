@@ -1,8 +1,16 @@
 # PeerCheck
 
-PeerCheck checks conference submissions and peer reviews. It reports format violations, anonymity leaks,
-hidden text, unverifiable references, machine-written reviews, and conflicts of interest. Every check runs
-locally.
+PeerCheck checks the submissions and peer reviews of software engineering conferences. It reports format
+violations, anonymity leaks, hidden text, unverifiable references, machine-written reviews, and conflicts of
+interest. Its venue profiles follow the rules of ICSE and FSE. Its anonymity and conflict checks follow the
+policies of ACM SIGSOFT. Every check runs locally.
+
+![HTML report of peercheck papers on six example papers](docs/papers-report.png)
+
+![HTML report of peercheck reviews on eight example reviews](docs/reviews-report.png)
+
+The example papers are made up. The example reviews come from the public CoCoNUTS test set (MIT license),
+which holds peer reviews of ICLR and NeurIPS with labels for human and machine-written text.
 
 ## Install
 
@@ -27,13 +35,13 @@ PeerCheck requires Python 3.10 or newer, Perl, poppler, and Java 11 or newer. On
 peercheck papers submissions/ --submissions submissions.xlsx --authors authors.csv --out report.xlsx
 peercheck reviews reviews/ --out reviews.xlsx
 peercheck conflicts --authors authors.csv --pc pc.csv --dblp-dump dblp.xml.gz --out conflicts.xlsx
-peercheck --profile icse-2027 papers pdfs/
+peercheck --profile fse-2027 papers pdfs/
 python run.py                             # interactive menu
 ```
 
 Each command writes an Excel workbook. A paper or a review needs review when any of its findings is an error
 or a warning. The option `--json` also writes the results as JSON for further analysis. The option `--html`
-writes a page for viewing in a browser.
+writes a page for viewing in a browser, with a light and a dark theme.
 
 ## Checks
 
@@ -73,8 +81,8 @@ a likely problem. An info gives context.
 
 ## Inputs
 
-- PDFs. The file pattern of the profile maps each file to a paper ID, such as `CONF_2026_paper_108.pdf`
-  from EasyChair or `icse2027-paper108.pdf` from HotCRP.
+- PDFs. The file pattern of the profile maps each file to a paper ID, such as `CONF_2027_paper_12.pdf`
+  from EasyChair or `conf2027-paper12.pdf` from HotCRP.
 - Submission sheet, optional. The EasyChair Excel export or a CSV file with the ID column of the profile.
 - Author list. A CSV or Excel file with the columns paper, first, last, email, and affiliation.
 - Reviews. The XML files that EasyChair exports. Confidential remarks for the program committee are left out
@@ -86,8 +94,7 @@ a likely problem. An info gives context.
 
 | Profile | Venue | Format | Pages |
 |---|---|---|---|
-| conf-2026 (default) | CONF 2026 Research Track | IEEE, two columns, US Letter | 10 plus 2 of references |
-| icse-2027 | ICSE 2027 Research Track | IEEE, two columns, US Letter | 10 plus 2 of references |
+| icse-2027 (default) | ICSE 2027 Research Track | IEEE, two columns, US Letter | 10 plus 2 of references |
 | fse-2027 | FSE 2027 Research Track | ACM acmsmall, one column | 18 plus 4 of references |
 
 A new venue needs a copy of a file in `src/peercheck/profiles/` with its own values, passed by path, such as

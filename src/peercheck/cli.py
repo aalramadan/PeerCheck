@@ -41,7 +41,7 @@ def parser() -> argparse.ArgumentParser:
     """Build the parser of the command line."""
     top = argparse.ArgumentParser(prog="peercheck", description="Screen submissions and reviews locally.")
     top.add_argument("--version", action="version", version=f"PeerCheck {__version__}")
-    top.add_argument("--profile", default="conf-2026", help="venue profile key or YAML file (default conf-2026)")
+    top.add_argument("--profile", default="icse-2027", help="venue profile key or YAML file (default icse-2027)")
     commands = top.add_subparsers(dest="command")
 
     papers = commands.add_parser("papers", help="check the submission PDFs of a folder")
@@ -94,7 +94,7 @@ def run_papers(args: argparse.Namespace) -> int:
     if args.json:
         report.write_json(args.json, run)
     if args.html:
-        report.write_papers_html(args.html, run, venue)
+        report.write_papers_html(args.html, run)
     flagged = sum(1 for result in run.results if needs_review(result.findings))
     print(f"{len(run.results)} papers checked, {flagged} need review. Report: {args.out}")
     for name in run.unmatched + run.duplicates:
