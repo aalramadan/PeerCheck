@@ -51,6 +51,7 @@ def parser() -> argparse.ArgumentParser:
     papers.add_argument("--checks", help=f"comma-separated subset of {', '.join(pipeline.PAPER_CHECKS)}")
     papers.add_argument("--out", type=Path, default=Path("report.xlsx"), help="Excel report (default report.xlsx)")
     papers.add_argument("--json", type=Path, help="also write the results as JSON")
+    papers.add_argument("--html", type=Path, help="also write an HTML page for viewing in a browser")
     papers.set_defaults(handler=run_papers)
 
     reviews = commands.add_parser("reviews", help="check the EasyChair review XML files of a folder",
@@ -92,6 +93,8 @@ def run_papers(args: argparse.Namespace) -> int:
     report.write_papers(args.out, run, venue, args.submissions)
     if args.json:
         report.write_json(args.json, run)
+    if args.html:
+        report.write_papers_html(args.html, run, venue)
     flagged = sum(1 for result in run.results if needs_review(result.findings))
     print(f"{len(run.results)} papers checked, {flagged} need review. Report: {args.out}")
     for name in run.unmatched + run.duplicates:

@@ -32,7 +32,8 @@ python run.py                             # interactive menu
 ```
 
 Each command writes an Excel workbook. A paper or a review needs review when any of its findings is an error
-or a warning. The option `--json` also writes the results as JSON.
+or a warning. The option `--json` also writes the results as JSON for further analysis. The option `--html`
+writes a page for viewing in a browser.
 
 ## Checks
 
