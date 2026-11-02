@@ -70,3 +70,25 @@ def test_json_report_holds_plain_values(tmp_path):
     data = json.loads(out.read_text())
     assert data["results"][0]["findings"][0]["severity"] == "error"
     assert data["results"][0]["paper"]["pdf"] == "CONF_2026_paper_7.pdf"
+
+
+def test_html_page_escapes_text_from_pdfs_and_loads_nothing_from_the_web(tmp_path):
+    out = tmp_path / "report.html"
+    run = _run()
+    run.results[0].findings.append(Finding("hidden-text.white-text", Severity.ERROR, "hidden text",
+                                           evidence="<script>alert(1)</script>"))
+    report.write_papers_html(out, run, profile.load("conf-2026"))
+    page = out.read_text()
+    assert "&lt;script&gt;alert(1)&lt;/script&gt;" in page and "<script>alert(1)" not in page
+    assert 'src="http' not in page and 'href="http' not in page
+    assert "2 rows, 2 need review" in page
+
+
+def test_html_page_of_reviews_lists_each_review_with_its_findings(tmp_path):
+    out = tmp_path / "reviews.html"
+    finding = Finding("duplicates.near-duplicate", Severity.WARNING, "paragraph also in review r2")
+    report.write_rows_html(out, "PeerCheck, reviews", [{"Review ID": "r1"}, {"Review ID": "r2"}], {"r1": [finding]},
+                           "Review ID")
+    page = out.read_text()
+    assert "paragraph also in review r2" in page and "2 rows, 1 need review" in page
+
