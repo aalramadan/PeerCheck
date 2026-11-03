@@ -14,6 +14,8 @@ port keeps the original untouched beside it and lists its changes in a `PORT.md`
 | ModernBERT-base | Answer.AI, LightOn | encoder of CoCoDet | Apache-2.0 | downloaded from Hugging Face |
 | Binoculars | Hans et al. | second detector of AI-written reviews | BSD-3-Clause; its README calls the code "for academic purposes only" | `external/binoculars/`, port in `src/peercheck/reviews/binoculars.py` |
 | Falcon-7B and Falcon-7B-Instruct | Technology Innovation Institute | models of Binoculars | Apache-2.0 | downloaded from Hugging Face |
+| EditLens RoBERTa-large (Open Pangram) | Pangram Labs (Thai et al.) | optional detector of AI-written reviews | CC BY-NC-SA 4.0, gated, non-commercial use only | downloaded from `huggingface.co/pangram/editlens_roberta-large` at a pinned revision, never bundled; PeerCheck runs its own inference code, and its two thresholds come from the validation scores of `pangramlabs/EditLens` commit `05a588f` |
+| Frequently Occurring Surnames from the 2010 Census | U.S. Census Bureau | surnames of the canary citations | public domain, a work of the U.S. government | the 9,999 most common surnames in `src/peercheck/data/census_surnames.txt` |
 | Hallucinator | Stringhini and Blackburn | reference check | AGPL-3.0-or-later | downloaded by `peercheck setup references`, never bundled; see `external/hallucinator/PORT.md` |
 | pdfguardrail 0.3.0 | GitHub user sugannathan | hidden-text check | MIT | Python dependency |
 | PhantomLint phrase list | Toby Murray | phrases of the hidden-text check | BSD-3-Clause | copied into `src/peercheck/checks/hidden_text.py` |
