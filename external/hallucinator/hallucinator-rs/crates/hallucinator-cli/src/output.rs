@@ -1,0 +1,870 @@
+use std::io::Write;
+
+use hallucinator_core::{MismatchKind, ProgressEvent, SkipStats, Status, ValidationResult};
+use owo_colors::OwoColorize;
+
+/// Whether to use colored output.
+#[derive(Debug, Clone, Copy)]
+pub struct ColorMode(pub bool);
+
+impl ColorMode {
+    pub fn enabled(&self) -> bool {
+        self.0
+    }
+}
+
+/// Print the extraction summary after PDF parsing.
+pub fn print_extraction_summary(
+    w: &mut dyn Write,
+    pdf_name: &str,
+    total_refs: usize,
+    skip_stats: &SkipStats,
+    color: ColorMode,
+) -> std::io::Result<()> {
+    writeln!(w, "Extracting references from {}...", pdf_name)?;
+    writeln!(w, "Found {} references to check", total_refs)?;
+
+    let skipped = skip_stats.url_only + skip_stats.short_title;
+    if skipped > 0 {
+        if color.enabled() {
+            writeln!(
+                w,
+                "{}",
+                format!(
+                    "(Skipped {} URLs, {} short titles)",
+                    skip_stats.url_only, skip_stats.short_title
+                )
+                .dimmed()
+            )?;
+        } else {
+            writeln!(
+                w,
+                "(Skipped {} URLs, {} short titles)",
+                skip_stats.url_only, skip_stats.short_title
+            )?;
+        }
+    }
+    writeln!(w)?;
+    Ok(())
+}
+
+/// Print a real-time progress event.
+pub fn print_progress(
+    w: &mut dyn Write,
+    event: &ProgressEvent,
+    color: ColorMode,
+) -> std::io::Result<()> {
+    match event {
+        ProgressEvent::Checking {
+            index,
+            total,
+            title,
+        } => {
+            let short = if title.len() > 50 {
+                let end = title
+                    .char_indices()
+                    .map(|(i, _)| i)
+                    .find(|&i| i >= 50)
+                    .unwrap_or(title.len());
+                format!("{}...", &title[..end])
+            } else {
+                title.clone()
+            };
+            writeln!(w, "[{}/{}] Checking: \"{}\"", index + 1, total, short)?;
+        }
+        ProgressEvent::Result {
+            index,
+            total,
+            result,
+        } => {
+            let idx = index + 1;
+            match result.status {
+                Status::Verified => {
+                    let source = result.source.as_deref().unwrap_or("unknown");
+                    if color.enabled() {
+                        writeln!(
+                            w,
+                            "[{}/{}] -> {} ({})",
+                            idx,
+                            total,
+                            "VERIFIED".green(),
+                            source
+                        )?;
+                    } else {
+                        writeln!(w, "[{}/{}] -> VERIFIED ({})", idx, total, source)?;
+                    }
+                }
+                Status::Mismatch(kind) => {
+                    let source = result.source.as_deref().unwrap_or("unknown");
+                    let mismatch_desc = kind.description().to_uppercase();
+                    if color.enabled() {
+                        writeln!(
+                            w,
+                            "[{}/{}] -> {} ({})",
+                            idx,
+                            total,
+                            format!("{} MISMATCH", mismatch_desc).yellow(),
+                            source
+                        )?;
+                    } else {
+                        writeln!(
+                            w,
+                            "[{}/{}] -> {} MISMATCH ({})",
+                            idx, total, mismatch_desc, source
+                        )?;
+                    }
+                }
+                Status::NotFound => {
+                    // If URL matching was disabled and the ref still
+                    // carried a (non-academic) URL, report it as
+                    // skipped — the red "NOT FOUND" would over-alarm
+                    // the user for a citation they chose not to
+                    // URL-verify.
+                    if result.url_check_skipped {
+                        if color.enabled() {
+                            writeln!(
+                                w,
+                                "[{}/{}] -> {} (URL check disabled)",
+                                idx,
+                                total,
+                                "SKIPPED".yellow()
+                            )?;
+                        } else {
+                            writeln!(w, "[{}/{}] -> SKIPPED (URL check disabled)", idx, total)?;
+                        }
+                    } else if color.enabled() {
+                        writeln!(w, "[{}/{}] -> {}", idx, total, "NOT FOUND".red())?;
+                    } else {
+                        writeln!(w, "[{}/{}] -> NOT FOUND", idx, total)?;
+                    }
+                }
+            }
+        }
+        ProgressEvent::Warning { message, .. } => {
+            if color.enabled() {
+                writeln!(w, "{} {}", "WARNING:".yellow(), message)?;
+            } else {
+                writeln!(w, "WARNING: {}", message)?;
+            }
+        }
+        ProgressEvent::RetryPass { count } => {
+            writeln!(w)?;
+            writeln!(
+                w,
+                "Retrying {} references that had database errors...",
+                count
+            )?;
+        }
+        ProgressEvent::Retrying { .. }
+        | ProgressEvent::DatabaseQueryComplete { .. }
+        | ProgressEvent::RateLimitWait { .. }
+        | ProgressEvent::RateLimitRetry { .. } => {
+            // Not displayed in CLI output
+        }
+    }
+    Ok(())
+}
+
+/// Print the detailed hallucination/mismatch report for all problematic references.
+pub fn print_hallucination_report(
+    w: &mut dyn Write,
+    results: &[ValidationResult],
+    searched_openalex: bool,
+    color: ColorMode,
+) -> std::io::Result<()> {
+    for result in results {
+        // Suppress the full "POTENTIAL HALLUCINATION" block for refs
+        // whose NotFound outcome was demoted to "skipped" by the
+        // `--url-match` gate. The ref is already accounted for in
+        // CheckStats.skipped; the verbose hallucination block would
+        // falsely flag a URL-bearing citation the user explicitly
+        // chose not to verify via URL Check.
+        if result.url_check_skipped {
+            continue;
+        }
+        // Same reasoning as the summary: an unverifiable ref must not get
+        // the "potential hallucination" write-up.
+        if result.is_inconclusive() {
+            print_inconclusive_block(w, result, color)?;
+            continue;
+        }
+        match &result.status {
+            Status::NotFound => {
+                print_not_found_block(w, result, searched_openalex, color)?;
+            }
+            Status::Mismatch(kind) => {
+                print_mismatch_block(w, result, *kind, color)?;
+            }
+            Status::Verified => {}
+        }
+    }
+    Ok(())
+}
+
+/// Render a reference whose lookup failed rather than came back empty.
+///
+/// Deliberately phrased as a tooling problem, not a citation problem: the
+/// user should reach for their network config, not for the author.
+fn print_inconclusive_block(
+    w: &mut dyn Write,
+    result: &ValidationResult,
+    color: ColorMode,
+) -> std::io::Result<()> {
+    let header = format!("[?] INCONCLUSIVE: {}", result.title);
+    if color.enabled() {
+        writeln!(w, "{}", header.yellow())?;
+    } else {
+        writeln!(w, "{}", header)?;
+    }
+    writeln!(
+        w,
+        "    Could not check \u{2014} these databases failed after retries: {}",
+        result.failed_dbs.join(", ")
+    )?;
+    writeln!(
+        w,
+        "    This is NOT evidence the reference is wrong. Re-run when the databases are reachable."
+    )?;
+    writeln!(w)?;
+    Ok(())
+}
+
+fn print_not_found_block(
+    w: &mut dyn Write,
+    result: &ValidationResult,
+    searched_openalex: bool,
+    color: ColorMode,
+) -> std::io::Result<()> {
+    writeln!(w)?;
+    let sep = "=".repeat(60);
+    if color.enabled() {
+        writeln!(w, "{}", sep.bold().red())?;
+        writeln!(w, "{}", "POTENTIAL HALLUCINATION DETECTED".bold().red())?;
+        writeln!(w, "{}", sep.bold().red())?;
+    } else {
+        writeln!(w, "{}", sep)?;
+        writeln!(w, "POTENTIAL HALLUCINATION DETECTED")?;
+        writeln!(w, "{}", sep)?;
+    }
+    writeln!(w)?;
+
+    if color.enabled() {
+        writeln!(w, "{}:", "Title".bold())?;
+        writeln!(w, "  {}", result.title.cyan())?;
+    } else {
+        writeln!(w, "Title:")?;
+        writeln!(w, "  {}", result.title)?;
+    }
+    writeln!(w)?;
+
+    if color.enabled() {
+        writeln!(w, "{} Reference not found in any database", "Status:".red())?;
+    } else {
+        writeln!(w, "Status: Reference not found in any database")?;
+    }
+
+    let dbs = if searched_openalex {
+        "Searched: OpenAlex, CrossRef, arXiv, DBLP, Semantic Scholar, ACL, Europe PMC, PubMed"
+    } else {
+        "Searched: CrossRef, arXiv, DBLP, Semantic Scholar, ACL, Europe PMC, PubMed"
+    };
+    if color.enabled() {
+        writeln!(w, "{}", dbs.dimmed())?;
+    } else {
+        writeln!(w, "{}", dbs)?;
+    }
+
+    writeln!(w)?;
+    let dash_sep = "-".repeat(60);
+    if color.enabled() {
+        writeln!(w, "{}", dash_sep.bold().red())?;
+    } else {
+        writeln!(w, "{}", dash_sep)?;
+    }
+    writeln!(w)?;
+    Ok(())
+}
+
+fn print_mismatch_block(
+    w: &mut dyn Write,
+    result: &ValidationResult,
+    kind: MismatchKind,
+    color: ColorMode,
+) -> std::io::Result<()> {
+    writeln!(w)?;
+    let sep = "=".repeat(60);
+    if color.enabled() {
+        writeln!(w, "{}", sep.bold().red())?;
+        writeln!(w, "{}", "POTENTIAL HALLUCINATION DETECTED".bold().red())?;
+        writeln!(w, "{}", sep.bold().red())?;
+    } else {
+        writeln!(w, "{}", sep)?;
+        writeln!(w, "POTENTIAL HALLUCINATION DETECTED")?;
+        writeln!(w, "{}", sep)?;
+    }
+    writeln!(w)?;
+
+    let source = result.source.as_deref().unwrap_or("unknown");
+
+    if color.enabled() {
+        writeln!(w, "{}:", "Title".bold())?;
+        writeln!(w, "  {}", result.title.cyan())?;
+    } else {
+        writeln!(w, "Title:")?;
+        writeln!(w, "  {}", result.title)?;
+    }
+    writeln!(w)?;
+
+    // Build status message based on mismatch kind
+    let status_msg = build_mismatch_status_message(result, kind, source);
+    if color.enabled() {
+        writeln!(w, "{} {}", "Status:".yellow(), status_msg)?;
+    } else {
+        writeln!(w, "Status: {}", status_msg)?;
+    }
+    writeln!(w)?;
+
+    // Show author mismatch details if applicable
+    if kind.contains(MismatchKind::AUTHOR) {
+        // PDF Authors (from the parsed reference)
+        if !result.ref_authors.is_empty() {
+            if color.enabled() {
+                writeln!(w, "{}", "PDF Authors:".bold())?;
+                for author in &result.ref_authors {
+                    writeln!(w, "  {}", format!("• {}", author).cyan())?;
+                }
+            } else {
+                writeln!(w, "PDF Authors:")?;
+                for author in &result.ref_authors {
+                    writeln!(w, "  • {}", author)?;
+                }
+            }
+            writeln!(w)?;
+        }
+
+        // DB Authors (from the database)
+        if color.enabled() {
+            writeln!(w, "{}", format!("DB Authors ({}):", source).bold())?;
+            if result.found_authors.is_empty() {
+                writeln!(w, "  {}", "(no authors returned)".dimmed())?;
+            } else {
+                for author in &result.found_authors {
+                    writeln!(w, "  {}", format!("• {}", author).magenta())?;
+                }
+            }
+        } else {
+            writeln!(w, "DB Authors ({}):", source)?;
+            if result.found_authors.is_empty() {
+                writeln!(w, "  (no authors returned)")?;
+            } else {
+                for author in &result.found_authors {
+                    writeln!(w, "  • {}", author)?;
+                }
+            }
+        }
+        writeln!(w)?;
+    }
+
+    // Show DOI mismatch details if applicable
+    if kind.contains(MismatchKind::DOI)
+        && let Some(doi_info) = &result.doi_info
+    {
+        if color.enabled() {
+            writeln!(w, "{} {} (invalid)", "DOI:".bold(), doi_info.doi)?;
+        } else {
+            writeln!(w, "DOI: {} (invalid)", doi_info.doi)?;
+        }
+        writeln!(w)?;
+    }
+
+    // Show arXiv ID mismatch details if applicable
+    if kind.contains(MismatchKind::ARXIV_ID)
+        && let Some(arxiv_info) = &result.arxiv_info
+    {
+        if color.enabled() {
+            writeln!(
+                w,
+                "{} {} (invalid)",
+                "arXiv ID:".bold(),
+                arxiv_info.arxiv_id
+            )?;
+        } else {
+            writeln!(w, "arXiv ID: {} (invalid)", arxiv_info.arxiv_id)?;
+        }
+        writeln!(w)?;
+    }
+
+    let dash_sep = "-".repeat(60);
+    if color.enabled() {
+        writeln!(w, "{}", dash_sep.bold().red())?;
+    } else {
+        writeln!(w, "{}", dash_sep)?;
+    }
+    writeln!(w)?;
+    Ok(())
+}
+
+/// Build a status message describing the mismatch.
+fn build_mismatch_status_message(
+    result: &ValidationResult,
+    kind: MismatchKind,
+    source: &str,
+) -> String {
+    let mut issues = Vec::new();
+
+    if kind.contains(MismatchKind::AUTHOR) {
+        issues.push("authors don't match");
+    }
+    if kind.contains(MismatchKind::DOI) {
+        if let Some(doi_info) = &result.doi_info {
+            issues.push("DOI doesn't resolve");
+            let _ = doi_info; // use to avoid warning
+        } else {
+            issues.push("DOI is invalid");
+        }
+    }
+    if kind.contains(MismatchKind::ARXIV_ID) {
+        issues.push("arXiv ID doesn't resolve");
+    }
+
+    if issues.is_empty() {
+        format!("Mismatch detected on {}", source)
+    } else {
+        format!("Title found on {} but {}", source, issues.join(", "))
+    }
+}
+
+/// Print DOI-related issues.
+pub fn print_doi_issues(
+    w: &mut dyn Write,
+    results: &[ValidationResult],
+    color: ColorMode,
+) -> std::io::Result<()> {
+    let issues: Vec<_> = results
+        .iter()
+        .filter(|r| r.doi_info.as_ref().is_some_and(|d| !d.valid))
+        .collect();
+
+    if issues.is_empty() {
+        return Ok(());
+    }
+
+    writeln!(w)?;
+    let sep = "=".repeat(60);
+    if color.enabled() {
+        writeln!(w, "{}", sep.bold().red())?;
+        writeln!(
+            w,
+            "{}",
+            "DOI ISSUES - POTENTIAL HALLUCINATIONS".bold().red()
+        )?;
+        writeln!(w, "{}", sep.bold().red())?;
+    } else {
+        writeln!(w, "{}", sep)?;
+        writeln!(w, "DOI ISSUES - POTENTIAL HALLUCINATIONS")?;
+        writeln!(w, "{}", sep)?;
+    }
+
+    for result in issues {
+        let doi_info = result.doi_info.as_ref().unwrap();
+        let short_title = truncate(&result.title, 70);
+        writeln!(w)?;
+        if color.enabled() {
+            writeln!(w, "{} {}", "Reference:".bold(), short_title)?;
+            writeln!(w, "{} {}", "DOI:".bold(), doi_info.doi)?;
+            writeln!(w, "{} DOI does not resolve", "Issue:".red())?;
+        } else {
+            writeln!(w, "Reference: {}", short_title)?;
+            writeln!(w, "DOI: {}", doi_info.doi)?;
+            writeln!(w, "Issue: DOI does not resolve")?;
+        }
+    }
+    writeln!(w)?;
+    Ok(())
+}
+
+/// Print retraction warnings.
+pub fn print_retraction_warnings(
+    w: &mut dyn Write,
+    results: &[ValidationResult],
+    color: ColorMode,
+) -> std::io::Result<()> {
+    let retracted: Vec<_> = results
+        .iter()
+        .filter(|r| r.retraction_info.as_ref().is_some_and(|ri| ri.is_retracted))
+        .collect();
+
+    if retracted.is_empty() {
+        return Ok(());
+    }
+
+    writeln!(w)?;
+    let sep = "=".repeat(60);
+    if color.enabled() {
+        writeln!(w, "{}", sep.bold().red())?;
+        writeln!(w, "{}", "RETRACTED PAPERS".bold().red())?;
+        writeln!(w, "{}", sep.bold().red())?;
+    } else {
+        writeln!(w, "{}", sep)?;
+        writeln!(w, "RETRACTED PAPERS")?;
+        writeln!(w, "{}", sep)?;
+    }
+
+    for result in &retracted {
+        let ri = result.retraction_info.as_ref().unwrap();
+        let short_title = truncate(&result.title, 70);
+        writeln!(w)?;
+        if color.enabled() {
+            writeln!(w, "{} {}", "Reference:".bold(), short_title)?;
+            writeln!(
+                w,
+                "{} {}",
+                "Status:".red().bold(),
+                ri.retraction_source.as_deref().unwrap_or("Retraction")
+            )?;
+        } else {
+            writeln!(w, "Reference: {}", short_title)?;
+            writeln!(
+                w,
+                "Status: {}",
+                ri.retraction_source.as_deref().unwrap_or("Retraction")
+            )?;
+        }
+        if let Some(ref doi) = ri.retraction_doi {
+            if color.enabled() {
+                writeln!(w, "{} https://doi.org/{}", "Retraction notice:".bold(), doi)?;
+            } else {
+                writeln!(w, "Retraction notice: https://doi.org/{}", doi)?;
+            }
+        }
+    }
+    writeln!(w)?;
+    Ok(())
+}
+
+/// Print the final summary.
+pub fn print_summary(
+    w: &mut dyn Write,
+    results: &[ValidationResult],
+    skip_stats: &SkipStats,
+    color: ColorMode,
+) -> std::io::Result<()> {
+    let verified = results
+        .iter()
+        .filter(|r| r.status == Status::Verified)
+        .count();
+    // A NotFound ref with `url_check_skipped` is bucketed under
+    // "skipped (URL check disabled)" below and MUST NOT also count
+    // toward the hallucination total — otherwise the summary would
+    // double-count URL-bearing misses against the user who explicitly
+    // chose not to URL-verify them.
+    // Refs where a database failed after retries prove nothing, so they
+    // are excluded here and reported on their own line below. Without
+    // this a network outage renders as a wall of "potential
+    // hallucinations" — the exact false accusation this bucket exists to
+    // prevent.
+    let not_found = results
+        .iter()
+        .filter(|r| r.status == Status::NotFound && !r.url_check_skipped && !r.is_inconclusive())
+        .count();
+    let inconclusive = results
+        .iter()
+        .filter(|r| !r.url_check_skipped && r.is_inconclusive())
+        .count();
+    let skipped_url_match_gate = results.iter().filter(|r| r.url_check_skipped).count();
+    let mismatched = results.iter().filter(|r| r.status.is_mismatch()).count();
+    // Count specific mismatch types
+    let author_mismatches = results
+        .iter()
+        .filter(|r| {
+            r.status
+                .mismatch_kind()
+                .is_some_and(|k| k.contains(MismatchKind::AUTHOR))
+        })
+        .count();
+    let doi_mismatches = results
+        .iter()
+        .filter(|r| {
+            r.status
+                .mismatch_kind()
+                .is_some_and(|k| k.contains(MismatchKind::DOI))
+        })
+        .count();
+    let arxiv_mismatches = results
+        .iter()
+        .filter(|r| {
+            r.status
+                .mismatch_kind()
+                .is_some_and(|k| k.contains(MismatchKind::ARXIV_ID))
+        })
+        .count();
+    let retracted = results
+        .iter()
+        .filter(|r| r.retraction_info.as_ref().is_some_and(|ri| ri.is_retracted))
+        .count();
+
+    writeln!(w)?;
+    let sep = "=".repeat(60);
+    if color.enabled() {
+        writeln!(w, "{}", sep.bold())?;
+        writeln!(w, "{}", "SUMMARY".bold())?;
+        writeln!(w, "{}", sep.bold())?;
+    } else {
+        writeln!(w, "{}", sep)?;
+        writeln!(w, "SUMMARY")?;
+        writeln!(w, "{}", sep)?;
+    }
+
+    let total_skipped = skip_stats.url_only + skip_stats.short_title;
+    writeln!(w, "  Total references found: {}", skip_stats.total_raw)?;
+    writeln!(w, "  References analyzed: {}", results.len())?;
+    if total_skipped > 0 {
+        let msg = format!(
+            "Skipped: {} (URLs: {}, short titles: {})",
+            total_skipped, skip_stats.url_only, skip_stats.short_title
+        );
+        if color.enabled() {
+            writeln!(w, "  {}", msg.dimmed())?;
+        } else {
+            writeln!(w, "  {}", msg)?;
+        }
+    }
+    // Separate bucket so the user can tell a URL-gate skip from a
+    // parse-time skip. Shown only when `--url-match` was off and at
+    // least one ref got demoted — otherwise the line is noise.
+    if skipped_url_match_gate > 0 {
+        let msg = format!("Skipped (URL check disabled): {}", skipped_url_match_gate);
+        if color.enabled() {
+            writeln!(w, "  {}", msg.dimmed())?;
+        } else {
+            writeln!(w, "  {}", msg)?;
+        }
+    }
+    if skip_stats.no_authors > 0 {
+        let msg = format!(
+            "Title-only (no authors extracted): {}",
+            skip_stats.no_authors
+        );
+        if color.enabled() {
+            writeln!(w, "  {}", msg.dimmed())?;
+        } else {
+            writeln!(w, "  {}", msg)?;
+        }
+    }
+    writeln!(w)?;
+
+    if color.enabled() {
+        writeln!(w, "  {} {}", "Verified:".green(), verified)?;
+    } else {
+        writeln!(w, "  Verified: {}", verified)?;
+    }
+    if mismatched > 0 {
+        if color.enabled() {
+            writeln!(w, "  {} {}", "Mismatches:".yellow(), mismatched)?;
+        } else {
+            writeln!(w, "  Mismatches: {}", mismatched)?;
+        }
+        // Show breakdown by type
+        if author_mismatches > 0 {
+            let msg = format!("    Author: {}", author_mismatches);
+            if color.enabled() {
+                writeln!(w, "{}", msg.dimmed())?;
+            } else {
+                writeln!(w, "{}", msg)?;
+            }
+        }
+        if doi_mismatches > 0 {
+            let msg = format!("    DOI: {}", doi_mismatches);
+            if color.enabled() {
+                writeln!(w, "{}", msg.dimmed())?;
+            } else {
+                writeln!(w, "{}", msg)?;
+            }
+        }
+        if arxiv_mismatches > 0 {
+            let msg = format!("    arXiv ID: {}", arxiv_mismatches);
+            if color.enabled() {
+                writeln!(w, "{}", msg.dimmed())?;
+            } else {
+                writeln!(w, "{}", msg)?;
+            }
+        }
+    }
+    if not_found > 0 {
+        if color.enabled() {
+            writeln!(
+                w,
+                "  {} {}",
+                "Not found (potential hallucinations):".red(),
+                not_found
+            )?;
+        } else {
+            writeln!(w, "  Not found (potential hallucinations): {}", not_found)?;
+        }
+    }
+    if inconclusive > 0 {
+        let msg = format!(
+            "Inconclusive (database lookup failed): {} \u{2014} re-run when reachable",
+            inconclusive
+        );
+        if color.enabled() {
+            writeln!(w, "  {}", msg.yellow())?;
+        } else {
+            writeln!(w, "  {}", msg)?;
+        }
+    }
+    if retracted > 0 {
+        if color.enabled() {
+            writeln!(w, "  {} {}", "Retracted papers:".red(), retracted)?;
+        } else {
+            writeln!(w, "  Retracted papers: {}", retracted)?;
+        }
+    }
+
+    // DOI stats
+    let dois_found = results.iter().filter(|r| r.doi_info.is_some()).count();
+    let dois_valid = results
+        .iter()
+        .filter(|r| r.doi_info.as_ref().is_some_and(|d| d.valid))
+        .count();
+    if dois_found > 0 && dois_valid > 0 {
+        let msg = format!("DOIs validated: {}/{}", dois_valid, dois_found);
+        writeln!(w)?;
+        if color.enabled() {
+            writeln!(w, "  {}", msg.dimmed())?;
+        } else {
+            writeln!(w, "  {}", msg)?;
+        }
+    }
+
+    writeln!(w)?;
+    Ok(())
+}
+
+fn truncate(s: &str, max: usize) -> String {
+    if s.len() > max {
+        format!("{}...", &s[..max])
+    } else {
+        s.to_string()
+    }
+}
+
+#[cfg(test)]
+mod inconclusive_tests {
+    //! Regression guards for the CLI summary, the surface a user actually
+    //! reads. Reported symptom: a user on a filtered network saw a wall of
+    //! "potential hallucinations" for a paper that came back clean when the
+    //! same PDF was re-run elsewhere — every database had timed out, and a
+    //! NotFound produced with zero successful lookups printed identically
+    //! to one where every database answered.
+
+    use super::*;
+
+    fn result(title: &str, status: Status, failed_dbs: &[&str]) -> ValidationResult {
+        ValidationResult {
+            title: title.to_string(),
+            raw_citation: String::new(),
+            ref_authors: vec![],
+            status,
+            source: None,
+            found_authors: vec![],
+            paper_url: None,
+            failed_dbs: failed_dbs.iter().map(|s| s.to_string()).collect(),
+            db_results: vec![],
+            doi_info: None,
+            arxiv_info: None,
+            retraction_info: None,
+            url_check_skipped: false,
+        }
+    }
+
+    fn summary(results: &[ValidationResult]) -> String {
+        let mut buf: Vec<u8> = Vec::new();
+        print_summary(&mut buf, results, &SkipStats::default(), ColorMode(false)).unwrap();
+        String::from_utf8(buf).unwrap()
+    }
+
+    #[test]
+    fn total_outage_reports_zero_hallucinations() {
+        // The reported bug end to end: nothing reachable, ten refs, and the
+        // summary must not accuse a single one of them.
+        let results: Vec<_> = (0..10)
+            .map(|i| {
+                result(
+                    &format!("Paper {}", i),
+                    Status::NotFound,
+                    &["CrossRef", "arXiv", "Semantic Scholar"],
+                )
+            })
+            .collect();
+        let out = summary(&results);
+        assert!(
+            !out.contains("Not found (potential hallucinations)"),
+            "a network outage must never print the hallucination line:\n{}",
+            out
+        );
+        assert!(
+            out.contains("Inconclusive (database lookup failed): 10"),
+            "missing inconclusive line:\n{}",
+            out
+        );
+    }
+
+    #[test]
+    fn genuine_misses_are_still_reported() {
+        // The other half of the contract: suppressing real findings would
+        // make the tool useless. A NotFound with every database answering
+        // must still be called out.
+        let results = vec![result("Fabricated Paper", Status::NotFound, &[])];
+        let out = summary(&results);
+        assert!(
+            out.contains("Not found (potential hallucinations): 1"),
+            "a clean not-found must still be reported:\n{}",
+            out
+        );
+        assert!(!out.contains("Inconclusive"), "{}", out);
+    }
+
+    #[test]
+    fn mixed_run_splits_the_two_buckets() {
+        let results = vec![
+            result("Fabricated Paper", Status::NotFound, &[]),
+            result("Unreachable Paper", Status::NotFound, &["CrossRef"]),
+            result("Real Paper", Status::Verified, &[]),
+        ];
+        let out = summary(&results);
+        assert!(
+            out.contains("Not found (potential hallucinations): 1"),
+            "{}",
+            out
+        );
+        assert!(
+            out.contains("Inconclusive (database lookup failed): 1"),
+            "{}",
+            out
+        );
+    }
+
+    #[test]
+    fn inconclusive_ref_gets_a_non_accusatory_detail_block() {
+        // Wording matters here: the block has to point at the network, not
+        // at the citation, and it must name the databases that failed so
+        // the user can act on it.
+        let results = vec![result(
+            "Unreachable Paper",
+            Status::NotFound,
+            &["CrossRef", "PubMed"],
+        )];
+        let mut buf: Vec<u8> = Vec::new();
+        print_hallucination_report(&mut buf, &results, false, ColorMode(false)).unwrap();
+        let out = String::from_utf8(buf).unwrap();
+        assert!(out.contains("INCONCLUSIVE"), "{}", out);
+        assert!(out.contains("CrossRef"), "must name what failed:\n{}", out);
+        assert!(out.contains("PubMed"), "{}", out);
+        assert!(
+            out.contains("NOT evidence"),
+            "must say plainly this is not a finding:\n{}",
+            out
+        );
+    }
+}

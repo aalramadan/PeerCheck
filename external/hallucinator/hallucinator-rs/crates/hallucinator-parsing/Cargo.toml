@@ -1,0 +1,29 @@
+[package]
+name = "hallucinator-parsing"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Reference section parsing and extraction for hallucinated reference detection"
+
+[package.metadata.dist]
+dist = false
+
+[dependencies]
+hallucinator-core.workspace = true
+regex.workspace = true
+once_cell.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+hallucinator-bbl = { workspace = true }
+hallucinator-core = { workspace = true }
+hallucinator-scowl = { workspace = true }
+mupdf = { workspace = true }
+rapidfuzz = { workspace = true }
+tar = { workspace = true }
+flate2 = { workspace = true }
+anyhow = { workspace = true }
+dirs = { workspace = true }
+rusqlite = { workspace = true }
+regex = { workspace = true }
+strsim = "0.11"

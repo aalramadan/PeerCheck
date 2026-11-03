@@ -1,0 +1,449 @@
+// Licensed under either AGPL-3.0-or-later or MIT license, at your option.
+
+//! Offline IACR Cryptology ePrint Archive database.
+//!
+//! IACR ePrint exposes an OAI-PMH 2.0 feed at
+//! `https://eprint.iacr.org/oai` with `oai_dc` (Dublin Core) records
+//! for every paper. The archive is small (~25–30k papers as of
+//! 2026), so a full harvest is a minutes-scale build producing a
+//! SQLite + FTS5 index of similar shape to `hallucinator-acl` and
+//! `hallucinator-arxiv-offline`.
+//!
+//! Unlike those cousins, IACR ePrint has *no* public search API:
+//! title search is only possible via a local FTS index, so the
+//! offline backend is the only way to resolve title-only references
+//! against the archive. ID-based lookup (`YYYY/N`) is also served
+//! from the same local index — extracting the ID from the raw
+//! citation and calling [`IacrDatabase::lookup_by_id`] skips title
+//! matching entirely.
+//!
+//! Metadata is CC0 per the IACR harvesting-policy page
+//! (<https://eprint.iacr.org/rss>), and the site asks harvesters to
+//! refresh no more than once per day — the builder supports
+//! incremental updates via OAI-PMH `from=` to honour that.
+
+pub mod builder;
+pub mod db;
+
+use std::path::{Path, PathBuf};
+use std::sync::Mutex;
+use std::sync::atomic::{AtomicUsize, Ordering};
+
+use rusqlite::Connection;
+use thiserror::Error;
+
+#[derive(Error, Debug)]
+pub enum IacrError {
+    #[error("database error: {0}")]
+    Database(#[from] rusqlite::Error),
+    #[error("harvest error: {0}")]
+    Harvest(String),
+    #[error("XML parse error: {0}")]
+    Xml(String),
+    #[error("IO error: {0}")]
+    Io(#[from] std::io::Error),
+}
+
+/// One IACR ePrint paper. The OAI-PMH feed emits `oai_dc` (Dublin
+/// Core), which is flat and string-typed — no separate forename /
+/// surname splits, no DOIs (ePrint preprints generally aren't
+/// DOI-registered until they're republished in a venue), no per-
+/// revision metadata. We store just what's needed for title +
+/// author matching.
+#[derive(Debug, Clone)]
+pub struct IacrRecord {
+    /// Canonical ePrint identifier, e.g. `"2022/252"`.
+    pub id: String,
+    /// Paper title (latest revision).
+    pub title: String,
+    /// Authors in listed order — free-form strings, exactly as the
+    /// submitter entered them.
+    pub authors: Vec<String>,
+    /// IACR category (`Applications`, `Attacks`, `Foundations`,
+    /// `Implementation`, `Protocols`, `Public-key cryptography`,
+    /// `Secret-key cryptography`, …), or `None` if unclassified.
+    pub category: Option<String>,
+    /// ISO-8601 submission / last-revision timestamp as reported by
+    /// the feed. Free-form; not parsed downstream, used for
+    /// diagnostics and as a tiebreaker if multiple records match.
+    pub date: Option<String>,
+}
+
+/// Result of a staleness check on an offline IACR database.
+#[derive(Debug, Clone)]
+pub struct StalenessCheck {
+    pub is_stale: bool,
+    pub age_days: Option<u64>,
+    pub build_date: Option<String>,
+}
+
+/// Progress events emitted by the builder so the CLI / TUI can show
+/// a live status line during the harvest.
+#[derive(Debug, Clone)]
+pub enum BuildProgress {
+    Starting { incremental_from: Option<String> },
+    Fetched { records: u64, pages: u64 },
+    Indexed { records: u64 },
+    Complete { records: u64, skipped: bool },
+}
+
+/// Open a connection to `path` and verify it is a built offline IACR
+/// ePrint database, applying read-heavy pragmas (matches dblp/acl/arxiv
+/// setup, plus `mmap_size` for large-database read performance).
+fn open_and_verify(path: &Path) -> Result<Connection, IacrError> {
+    let conn = Connection::open(path)?;
+    let exists: bool = conn.query_row(
+        "SELECT COUNT(*) > 0 FROM sqlite_master WHERE type='table' AND name='papers'",
+        [],
+        |row| row.get(0),
+    )?;
+    if !exists {
+        return Err(IacrError::Database(rusqlite::Error::QueryReturnedNoRows));
+    }
+    conn.execute_batch(
+        "PRAGMA journal_mode = WAL; PRAGMA synchronous = NORMAL; PRAGMA cache_size = -64000;",
+    )?;
+    let _ = conn.pragma_update(None, "mmap_size", 268_435_456i64);
+    Ok(conn)
+}
+
+/// Handle to an opened offline IACR ePrint database.
+pub struct IacrDatabase {
+    conn: Connection,
+    #[allow(dead_code)] // Retained for parity with sibling crates (dblp/arxiv/acl).
+    path: PathBuf,
+}
+
+impl IacrDatabase {
+    /// Open an existing offline database. Fails if the schema hasn't
+    /// been initialized — callers get a clear error rather than
+    /// silent empty results.
+    pub fn open(path: &Path) -> Result<Self, IacrError> {
+        let conn = open_and_verify(path)?;
+        Ok(Self {
+            conn,
+            path: path.to_path_buf(),
+        })
+    }
+
+    /// Create a fresh database with the IACR schema applied.
+    pub fn create(path: &Path) -> Result<Self, IacrError> {
+        if let Some(parent) = path.parent()
+            && !parent.as_os_str().is_empty()
+        {
+            std::fs::create_dir_all(parent)?;
+        }
+        let conn = Connection::open(path)?;
+        db::create_schema(&conn)?;
+        db::set_metadata(&conn, "schema_version", db::SCHEMA_VERSION)?;
+        Ok(Self {
+            conn,
+            path: path.to_path_buf(),
+        })
+    }
+
+    /// Exact-ID lookup (e.g. `"2022/252"`). Returns `None` when the
+    /// archive doesn't carry that paper.
+    pub fn lookup_by_id(&self, id: &str) -> Result<Option<IacrRecord>, IacrError> {
+        db::lookup_by_id(&self.conn, id)
+    }
+
+    /// Title search. Returns up to `limit` full records in BM25-rank
+    /// order; caller does its own fuzzy title + author match.
+    pub fn search_by_title(&self, query: &str, limit: usize) -> Result<Vec<IacrRecord>, IacrError> {
+        db::search_by_title(&self.conn, query, limit)
+    }
+
+    /// Insert / replace a single record. Used by the OAI-PMH
+    /// harvester; keeps the FTS5 index in sync on every write.
+    pub fn upsert(&self, rec: &IacrRecord) -> Result<(), IacrError> {
+        db::upsert_record(&self.conn, rec)
+    }
+
+    /// Borrow the underlying SQLite connection — useful for the
+    /// builder's resumption-token bookkeeping.
+    pub fn connection(&self) -> &Connection {
+        &self.conn
+    }
+
+    /// Record a metadata value (used by the builder to persist the
+    /// OAI-PMH `from` timestamp for incremental refreshes).
+    pub fn set_metadata(&self, key: &str, value: &str) -> Result<(), IacrError> {
+        db::set_metadata(&self.conn, key, value)
+    }
+
+    /// Read a metadata value previously stored via [`set_metadata`].
+    pub fn get_metadata(&self, key: &str) -> Result<Option<String>, IacrError> {
+        db::get_metadata(&self.conn, key)
+    }
+
+    /// Record the last-successful-harvest ISO-8601 timestamp. Used
+    /// by [`staleness`](Self::staleness) and as the starting point
+    /// for incremental refreshes.
+    pub fn record_build_date(&self, iso_date: &str) -> Result<(), IacrError> {
+        db::set_metadata(&self.conn, "build_date", iso_date)
+    }
+
+    /// Number of papers in the database.
+    pub fn paper_count(&self) -> Result<u64, IacrError> {
+        let n: i64 = self
+            .conn
+            .query_row("SELECT COUNT(*) FROM papers", [], |row| row.get(0))?;
+        Ok(n as u64)
+    }
+
+    /// Whether the database is older than `threshold_days`. Matches
+    /// the shape used by the sibling offline DBs so the CLI staleness
+    /// banner code can treat them uniformly.
+    pub fn staleness(&self, threshold_days: u64) -> Result<StalenessCheck, IacrError> {
+        let build_date = db::get_metadata(&self.conn, "build_date")?;
+        let Some(date) = &build_date else {
+            return Ok(StalenessCheck {
+                is_stale: false,
+                age_days: None,
+                build_date: None,
+            });
+        };
+        let age_days = iso_date_age_days(date);
+        Ok(StalenessCheck {
+            is_stale: age_days.is_some_and(|d| d >= threshold_days),
+            age_days,
+            build_date,
+        })
+    }
+}
+
+/// Default number of read connections held by [`IacrPool`]. See
+/// `hallucinator_dblp::DEFAULT_POOL_SIZE` for the rationale.
+pub const DEFAULT_POOL_SIZE: usize = 4;
+
+/// A small fixed pool of read connections to an offline IACR ePrint
+/// database. Mirrors `hallucinator_dblp::DblpPool` — only wraps the read
+/// path used by the runtime backend (lookup/search/staleness); the
+/// harvester keeps using [`IacrDatabase`] directly, not through this pool.
+pub struct IacrPool {
+    conns: Vec<Mutex<Connection>>,
+    next: AtomicUsize,
+    path: PathBuf,
+}
+
+impl IacrPool {
+    /// Open a pool of [`DEFAULT_POOL_SIZE`] read connections.
+    pub fn open(path: &Path) -> Result<Self, IacrError> {
+        Self::open_with_size(path, DEFAULT_POOL_SIZE)
+    }
+
+    /// Open a pool of `size` read connections (minimum 1).
+    pub fn open_with_size(path: &Path, size: usize) -> Result<Self, IacrError> {
+        let size = size.max(1);
+        let mut conns = Vec::with_capacity(size);
+        for _ in 0..size {
+            conns.push(Mutex::new(open_and_verify(path)?));
+        }
+        Ok(Self {
+            conns,
+            next: AtomicUsize::new(0),
+            path: path.to_path_buf(),
+        })
+    }
+
+    fn with_conn<T>(
+        &self,
+        f: impl FnOnce(&Connection) -> Result<T, IacrError>,
+    ) -> Result<T, IacrError> {
+        let idx = self.next.fetch_add(1, Ordering::Relaxed) % self.conns.len();
+        let conn = self.conns[idx]
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        f(&conn)
+    }
+
+    /// Exact-ID lookup. See [`IacrDatabase::lookup_by_id`].
+    pub fn lookup_by_id(&self, id: &str) -> Result<Option<IacrRecord>, IacrError> {
+        self.with_conn(|conn| db::lookup_by_id(conn, id))
+    }
+
+    /// Title search. See [`IacrDatabase::search_by_title`].
+    pub fn search_by_title(&self, query: &str, limit: usize) -> Result<Vec<IacrRecord>, IacrError> {
+        self.with_conn(|conn| db::search_by_title(conn, query, limit))
+    }
+
+    /// Number of papers in the database.
+    pub fn paper_count(&self) -> Result<u64, IacrError> {
+        self.with_conn(|conn| {
+            let n: i64 = conn.query_row("SELECT COUNT(*) FROM papers", [], |row| row.get(0))?;
+            Ok(n as u64)
+        })
+    }
+
+    /// Whether the database is older than `threshold_days`.
+    pub fn staleness(&self, threshold_days: u64) -> Result<StalenessCheck, IacrError> {
+        self.with_conn(|conn| {
+            let build_date = db::get_metadata(conn, "build_date")?;
+            let Some(date) = &build_date else {
+                return Ok(StalenessCheck {
+                    is_stale: false,
+                    age_days: None,
+                    build_date: None,
+                });
+            };
+            let age_days = iso_date_age_days(date);
+            Ok(StalenessCheck {
+                is_stale: age_days.is_some_and(|d| d >= threshold_days),
+                age_days,
+                build_date,
+            })
+        })
+    }
+
+    /// Get the path to the database file.
+    pub fn path(&self) -> &Path {
+        &self.path
+    }
+}
+
+/// Days between an ISO `YYYY-MM-DD` string and today. Returns `None`
+/// on parse failure so the caller treats the age as unknown rather
+/// than warning spuriously.
+fn iso_date_age_days(s: &str) -> Option<u64> {
+    let parts: Vec<&str> = s.split('-').collect();
+    if parts.len() != 3 {
+        return None;
+    }
+    let year: i32 = parts[0].parse().ok()?;
+    let month: u32 = parts[1].parse().ok()?;
+    let day: u32 = parts[2].parse().ok()?;
+    let then = ymd_to_days(year, month, day)?;
+    let now_secs = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .ok()?
+        .as_secs();
+    let now_days = (now_secs / 86_400) as i64;
+    // ymd_to_days returns era*146097 + doe = days-since-1970 + 719_468
+    // (Hinnant's constant), so subtract 719_468 to put `then` on the same
+    // Unix-epoch basis as now_days.
+    let epoch_days_to_then = then - 719_468;
+    Some((now_days - epoch_days_to_then).max(0) as u64)
+}
+
+fn ymd_to_days(year: i32, month: u32, day: u32) -> Option<i64> {
+    if month == 0 || month > 12 || day == 0 || day > 31 {
+        return None;
+    }
+    let (y, m) = if month > 2 {
+        (year as i64, month as i64 - 3)
+    } else {
+        (year as i64 - 1, month as i64 + 9)
+    };
+    let era = if y >= 0 { y } else { y - 399 } / 400;
+    let yoe = (y - era * 400) as u64;
+    let doy = (153 * m as u64 + 2) / 5 + (day as u64 - 1);
+    let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+    Some(era * 146097 + doe as i64)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::tempdir;
+
+    #[test]
+    fn ymd_to_days_matches_hinnant_anchors() {
+        // ymd_to_days returns era*146097 + doe, i.e. days-since-1970 plus
+        // Hinnant's 719_468 offset. Pin that with known anchors so the
+        // constant can't silently drift again.
+        assert_eq!(ymd_to_days(1970, 1, 1), Some(719_468)); // days-since-1970 = 0
+        assert_eq!(ymd_to_days(2000, 1, 1), Some(730_425)); // 10_957 days later
+        assert_eq!(ymd_to_days(2026, 7, 9), Some(719_468 + 20_643));
+    }
+
+    #[test]
+    fn iso_date_age_days_zero_for_today() {
+        // Regression: a build_date equal to today must read as 0 days old,
+        // not ~60 (the symptom of the mismatched epoch constants). Derive
+        // "today" from the same clock the function uses.
+        let now_secs = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
+        let now_days = (now_secs / 86_400) as i64;
+        // Rebuild the ISO string for `now_days` via a fixed reference date.
+        // 2026-07-09 is day 20_643; offset from there keeps this stable.
+        let today = day_number_to_iso(now_days);
+        assert_eq!(iso_date_age_days(&today), Some(0));
+    }
+
+    // Test-only inverse of ymd_to_days for the day-since-1970 count.
+    fn day_number_to_iso(days_since_1970: i64) -> String {
+        let mut z = days_since_1970 + 719_468;
+        let era = if z >= 0 { z } else { z - 146096 } / 146097;
+        let doe = z - era * 146097;
+        let yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365;
+        let y = yoe + era * 400;
+        let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+        let mp = (5 * doy + 2) / 153;
+        let d = doy - (153 * mp + 2) / 5 + 1;
+        let m = if mp < 10 { mp + 3 } else { mp - 9 };
+        z = if m <= 2 { y + 1 } else { y };
+        format!("{:04}-{:02}-{:02}", z, m, d)
+    }
+
+    #[test]
+    fn create_then_open_roundtrip() {
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("iacr.db");
+        {
+            let db = IacrDatabase::create(&path).unwrap();
+            db.upsert(&IacrRecord {
+                id: "2022/252".into(),
+                title: "Handcrafting Masked AES".into(),
+                authors: vec!["Charles Momin".into(), "Gaëtan Cassiers".into()],
+                category: Some("Implementation".into()),
+                date: Some("2022-03-02T13:58:42Z".into()),
+            })
+            .unwrap();
+            db.record_build_date("2026-04-24").unwrap();
+        }
+        let reopened = IacrDatabase::open(&path).unwrap();
+        assert_eq!(reopened.paper_count().unwrap(), 1);
+        let got = reopened.lookup_by_id("2022/252").unwrap().unwrap();
+        assert_eq!(got.title, "Handcrafting Masked AES");
+        assert_eq!(got.authors.len(), 2);
+    }
+
+    #[test]
+    fn fts_finds_records_by_title_tokens() {
+        // Minimal end-to-end: FTS5 must return a seeded record for a
+        // non-exact title query so the DatabaseBackend's fuzzy match
+        // has candidates to compare against.
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("iacr.db");
+        let db = IacrDatabase::create(&path).unwrap();
+        db.upsert(&IacrRecord {
+            id: "2024/100".into(),
+            title: "Efficient zero-knowledge proofs of knowledge".into(),
+            authors: vec!["A. Author".into()],
+            category: None,
+            date: None,
+        })
+        .unwrap();
+        let results = db.search_by_title("zero knowledge proofs", 5).unwrap();
+        assert!(
+            results.iter().any(|r| r.id == "2024/100"),
+            "expected ID 2024/100, got {:?}",
+            results.iter().map(|r| &r.id).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn open_rejects_fresh_file_without_schema() {
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("empty.db");
+        let _ = rusqlite::Connection::open(&path).unwrap();
+        match IacrDatabase::open(&path) {
+            Err(IacrError::Database(_)) => {}
+            Err(other) => panic!("expected Database error, got {other:?}"),
+            Ok(_) => panic!("open() on an empty file should fail"),
+        }
+    }
+}

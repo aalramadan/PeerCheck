@@ -1,0 +1,820 @@
+use ratatui::Frame;
+use ratatui::layout::{Constraint, Layout, Rect};
+use ratatui::style::{Modifier, Style};
+use ratatui::text::{Line, Span};
+use ratatui::widgets::{Block, Borders, Paragraph, Wrap};
+
+use hallucinator_core::authors::get_last_name_public;
+use hallucinator_core::{DbStatus, MismatchKind, Status};
+
+use crate::app::App;
+use crate::model::paper::RefPhase;
+use crate::theme::Theme;
+use crate::view::truncate;
+
+struct LinkEntry {
+    label: String,
+    url: String,
+}
+
+/// Render the Reference Detail screen into the given area.
+/// `footer_area` is a full-width row below the main content + activity panel.
+pub fn render_in(
+    f: &mut Frame,
+    app: &App,
+    paper_index: usize,
+    ref_index: usize,
+    area: Rect,
+    footer_area: Rect,
+) {
+    let theme = &app.theme;
+    let paper = &app.papers[paper_index];
+    let refs = &app.ref_states[paper_index];
+    let rs = &refs[ref_index];
+
+    let links = collect_links(rs);
+
+    let chunks = Layout::vertical([
+        Constraint::Length(1), // breadcrumb
+        Constraint::Min(5),    // scrollable content
+    ])
+    .split(area);
+
+    // --- Breadcrumb ---
+    let title_short = truncate(&rs.title, 40);
+    let breadcrumb = Line::from(vec![
+        Span::styled(" Reference ", theme.header_style()),
+        Span::styled(" > ", Style::default().fg(theme.dim)),
+        Span::styled(
+            &paper.filename,
+            Style::default().fg(theme.text).add_modifier(Modifier::BOLD),
+        ),
+        Span::styled(" > ", Style::default().fg(theme.dim)),
+        Span::styled(
+            format!("#{} {}", rs.index + 1, title_short),
+            Style::default().fg(theme.text),
+        ),
+    ]);
+    f.render_widget(Paragraph::new(breadcrumb), chunks[0]);
+
+    // --- Content ---
+    let mut lines: Vec<Line> = Vec::new();
+
+    // Safe marker (FP reason)
+    if let Some(reason) = rs.fp_reason {
+        lines.push(Line::from(Span::styled(
+            format!(
+                "  \u{2713} Marked as SAFE \u{2014} {}",
+                reason.description()
+            ),
+            Style::default()
+                .fg(theme.verified)
+                .add_modifier(Modifier::BOLD),
+        )));
+        lines.push(Line::from(""));
+    }
+
+    // Skipped reference banner
+    if let RefPhase::Skipped(reason) = &rs.phase {
+        let reason_desc = match reason.as_str() {
+            "url_only" => "URL-only (non-academic URL)",
+            "short_title" => "Short title (fewer than minimum words)",
+            "no_title" => "No title could be extracted",
+            other => other,
+        };
+        lines.push(Line::from(Span::styled(
+            format!("  Skipped: {}", reason_desc),
+            Style::default().fg(theme.dim).add_modifier(Modifier::BOLD),
+        )));
+        lines.push(Line::from(""));
+    }
+
+    // CITATION section
+    section_header(&mut lines, "CITATION", theme);
+    labeled_line(&mut lines, "Title", &rs.title, theme);
+
+    // Show raw citation and authors from RefState (always available, even for skipped refs)
+    if !rs.raw_citation.is_empty() {
+        labeled_line(&mut lines, "Raw Citation", &rs.raw_citation, theme);
+    }
+    if !rs.authors.is_empty() {
+        labeled_line(&mut lines, "Authors", &rs.authors.join(", "), theme);
+    }
+    if let Some(doi) = &rs.doi {
+        labeled_line(&mut lines, "DOI", doi, theme);
+    }
+    if let Some(arxiv) = &rs.arxiv_id {
+        labeled_line(&mut lines, "arXiv ID", arxiv, theme);
+    }
+
+    if let Some(result) = &rs.result {
+        lines.push(Line::from(""));
+
+        // VALIDATION section
+        section_header(&mut lines, "VALIDATION", theme);
+
+        let (status_text, status_color) = if result
+            .retraction_info
+            .as_ref()
+            .is_some_and(|ri| ri.is_retracted)
+        {
+            ("\u{2620} RETRACTED".to_string(), theme.retracted)
+        } else if result.url_check_skipped {
+            // URL-gated NotFound: render with the skipped palette so
+            // the detail view doesn't contradict the row-level
+            // "(skipped: URL check disabled)" verdict in the table.
+            ("Skipped (URL check disabled)".to_string(), theme.skipped)
+        } else {
+            match &result.status {
+                Status::Verified => ("\u{2713} Verified".to_string(), theme.verified),
+                Status::NotFound => ("\u{2717} Not Found".to_string(), theme.not_found),
+                Status::Mismatch(kind) => (
+                    format!("\u{26A0} Mismatch ({})", kind.description()),
+                    theme.mismatch,
+                ),
+            }
+        };
+
+        lines.push(Line::from(vec![
+            Span::styled("  Status:        ", Style::default().fg(theme.dim)),
+            Span::styled(
+                status_text,
+                Style::default()
+                    .fg(status_color)
+                    .add_modifier(Modifier::BOLD),
+            ),
+        ]));
+
+        if let Some(source) = &result.source {
+            labeled_line(&mut lines, "Source", source, theme);
+        }
+        // Author comparison for mismatches: always show both rows
+        let is_author_mismatch = result
+            .status
+            .mismatch_kind()
+            .is_some_and(|k| k.contains(MismatchKind::AUTHOR));
+        if is_author_mismatch {
+            // PDF Authors (what was extracted from the paper)
+            if !result.ref_authors.is_empty() {
+                labeled_line(
+                    &mut lines,
+                    "PDF Authors",
+                    &result.ref_authors.join(", "),
+                    theme,
+                );
+            }
+
+            // DB Authors (what the database returned) — always show, even if empty
+            if !result.found_authors.is_empty() {
+                let overlap = author_overlap_label(&result.ref_authors, &result.found_authors);
+                labeled_line(
+                    &mut lines,
+                    "DB Authors",
+                    &format!("{}{}", result.found_authors.join(", "), overlap),
+                    theme,
+                );
+            } else {
+                lines.push(Line::from(vec![
+                    Span::styled("  DB Authors        ", Style::default().fg(theme.dim)),
+                    Span::styled(
+                        "(no authors returned)",
+                        Style::default()
+                            .fg(theme.dim)
+                            .add_modifier(Modifier::ITALIC),
+                    ),
+                ]));
+            }
+        } else if !result.found_authors.is_empty() {
+            // For Verified status, just show DB Authors if present
+            labeled_line(
+                &mut lines,
+                "DB Authors",
+                &result.found_authors.join(", "),
+                theme,
+            );
+        }
+
+        // DATABASE RESULTS section (per-DB table)
+        if !result.db_results.is_empty() {
+            lines.push(Line::from(""));
+            section_header(&mut lines, "DATABASE RESULTS", theme);
+
+            // Header
+            lines.push(Line::from(vec![Span::styled(
+                format!(
+                    "  {:<20}{:<16}{:<8}{}",
+                    "Database", "Result", "Time", "Notes"
+                ),
+                Style::default().fg(theme.dim).add_modifier(Modifier::BOLD),
+            )]));
+            lines.push(Line::from(Span::styled(
+                "  \u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}",
+                Style::default().fg(theme.dim),
+            )));
+
+            for db_result in &result.db_results {
+                let (result_text, result_color) = match db_result.status {
+                    DbStatus::Match => ("\u{2713} match".to_string(), theme.verified),
+                    DbStatus::NoMatch => ("no match".to_string(), theme.dim),
+                    DbStatus::AuthorMismatch => ("\u{26A0} mismatch".to_string(), theme.mismatch),
+                    DbStatus::Timeout => ("timeout".to_string(), theme.not_found),
+                    DbStatus::RateLimited => {
+                        ("\u{2717} 429 rate limited".to_string(), theme.mismatch)
+                    }
+                    DbStatus::Error => {
+                        let msg = db_result.error_message.as_deref().unwrap_or("error");
+                        (format!("\u{2717} {}", msg), theme.not_found)
+                    }
+                    DbStatus::Skipped => ("(skipped)".to_string(), theme.dim),
+                };
+
+                let time_str = match db_result.elapsed {
+                    Some(d) => format!("{:.1}s", d.as_secs_f64()),
+                    None => "\u{2014}".to_string(),
+                };
+
+                let mut notes = String::new();
+                if db_result.status == DbStatus::Match
+                    && result.source.as_deref() == Some(&db_result.db_name)
+                {
+                    notes = "\u{2190} verified (early exit)".to_string();
+                } else if db_result.status == DbStatus::Skipped {
+                    notes = "early exit".to_string();
+                }
+
+                lines.push(Line::from(vec![
+                    Span::styled(
+                        format!("  {:<20}", db_result.db_name),
+                        Style::default().fg(theme.text),
+                    ),
+                    Span::styled(
+                        format!("{:<16}", result_text),
+                        Style::default().fg(result_color),
+                    ),
+                    Span::styled(format!("{:<8}", time_str), Style::default().fg(theme.dim)),
+                    Span::styled(notes, Style::default().fg(theme.dim)),
+                ]));
+
+                // Show per-DB found authors for mismatch rows
+                if db_result.status == DbStatus::AuthorMismatch
+                    && !db_result.found_authors.is_empty()
+                {
+                    lines.push(Line::from(Span::styled(
+                        format!("    Authors: {}", db_result.found_authors.join(", ")),
+                        Style::default().fg(theme.dim),
+                    )));
+                }
+            }
+        }
+
+        // IDENTIFIERS section
+        let has_doi = result.doi_info.is_some();
+        let has_arxiv = result.arxiv_info.is_some();
+        let has_url = result.paper_url.is_some();
+        if has_doi || has_arxiv || has_url {
+            lines.push(Line::from(""));
+            section_header(&mut lines, "IDENTIFIERS", theme);
+
+            if let Some(doi) = &result.doi_info {
+                let validity = if doi.valid { "valid" } else { "invalid" };
+                labeled_line(
+                    &mut lines,
+                    "DOI",
+                    &format!("{} ({})", doi.doi, validity),
+                    theme,
+                );
+            }
+            if let Some(arxiv) = &result.arxiv_info {
+                let validity = if arxiv.valid { "valid" } else { "invalid" };
+                labeled_line(
+                    &mut lines,
+                    "arXiv",
+                    &format!("{} ({})", arxiv.arxiv_id, validity),
+                    theme,
+                );
+            }
+            if let Some(url) = &result.paper_url {
+                labeled_line(&mut lines, "Paper URL", url, theme);
+            }
+        }
+
+        // RETRACTION section
+        if let Some(retraction) = &result.retraction_info
+            && retraction.is_retracted
+        {
+            lines.push(Line::from(""));
+            // Heavy box border for retraction
+            lines.push(Line::from(Span::styled(
+                    "  \u{2554}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2557}",
+                    Style::default().fg(theme.retracted),
+                )));
+            lines.push(Line::from(Span::styled(
+                "  \u{2551} \u{26A0} WARNING: This paper has been retracted!  \u{2551}",
+                Style::default()
+                    .fg(theme.retracted)
+                    .add_modifier(Modifier::BOLD),
+            )));
+            if let Some(rdoi) = &retraction.retraction_doi {
+                lines.push(Line::from(Span::styled(
+                    format!("  \u{2551} DOI: {:<38}\u{2551}", rdoi),
+                    Style::default().fg(theme.retracted),
+                )));
+            }
+            if let Some(rsrc) = &retraction.retraction_source {
+                lines.push(Line::from(Span::styled(
+                    format!("  \u{2551} Source: {:<35}\u{2551}", rsrc),
+                    Style::default().fg(theme.retracted),
+                )));
+            }
+            lines.push(Line::from(Span::styled(
+                    "  \u{255A}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{255D}",
+                    Style::default().fg(theme.retracted),
+                )));
+        }
+
+        // FAILED DATABASES section
+        if !result.failed_dbs.is_empty() {
+            lines.push(Line::from(""));
+            section_header(&mut lines, "FAILED DATABASES", theme);
+            for db in &result.failed_dbs {
+                lines.push(Line::from(Span::styled(
+                    format!("  - {db}"),
+                    Style::default().fg(theme.not_found),
+                )));
+            }
+        }
+    } else if matches!(rs.phase, RefPhase::Skipped(_)) {
+        // No extra content for skipped refs (links added below)
+    } else {
+        lines.push(Line::from(""));
+        lines.push(Line::from(Span::styled(
+            "  Result pending...",
+            Style::default().fg(theme.dim),
+        )));
+    }
+
+    // LINKS section (inside scrollable content, OSC 8 applied after render)
+    if !links.is_empty() {
+        lines.push(Line::from(""));
+        section_header(&mut lines, "LINKS", theme);
+        for link in &links {
+            lines.push(Line::from(Span::styled(
+                format!("  {}", link.label),
+                Style::default().fg(theme.active),
+            )));
+        }
+    }
+
+    let content = Paragraph::new(lines)
+        .block(
+            Block::default()
+                .borders(Borders::ALL)
+                .border_style(theme.border_style()),
+        )
+        .wrap(Wrap { trim: false })
+        .scroll((app.detail_scroll, 0));
+
+    f.render_widget(content, chunks[1]);
+
+    // Apply OSC 8 hyperlinks to link rows visible in the rendered buffer
+    apply_osc8_links(f, chunks[1], &links);
+
+    // --- Footer ---
+    render_footer(f, footer_area, theme);
+}
+
+fn section_header<'a>(lines: &mut Vec<Line<'a>>, title: &'a str, theme: &Theme) {
+    lines.push(Line::from(Span::styled(
+        format!("  {title}"),
+        Style::default()
+            .fg(theme.active)
+            .add_modifier(Modifier::BOLD),
+    )));
+}
+
+fn labeled_line<'a>(lines: &mut Vec<Line<'a>>, label: &'a str, value: &str, theme: &Theme) {
+    lines.push(Line::from(vec![
+        Span::styled(format!("  {label:<16}"), Style::default().fg(theme.dim)),
+        Span::styled(value.to_string(), Style::default().fg(theme.text)),
+    ]));
+}
+
+/// Build the trailing " (N/M)" overlap count shown after the "DB Authors"
+/// line on a mismatch, or "" if `ref_authors` is empty.
+///
+/// Compares by surname (via the same `get_last_name_public` the real
+/// matcher uses), not the raw lowercased full name string. A naive
+/// full-string comparison called any formatting difference — a DBLP
+/// disambiguation suffix ("Wenbo Guo 0001"), an initial vs. a full first
+/// name ("J. Smith" vs "John Smith"), a diacritic — a non-match, so this
+/// count routinely showed something alarming like "(0/7)" for authors that
+/// actually agree. That's misleading on its own, and disconnected from
+/// `validate_authors_with_source` (the real mismatch decision), which
+/// already normalizes all of this — surname comparison is a much closer
+/// approximation of what that function actually considers a match.
+fn author_overlap_label(ref_authors: &[String], found_authors: &[String]) -> String {
+    if ref_authors.is_empty() {
+        return String::new();
+    }
+    let ref_set: std::collections::HashSet<String> = ref_authors
+        .iter()
+        .map(|a| get_last_name_public(a))
+        .filter(|s| !s.is_empty())
+        .collect();
+    let found_set: std::collections::HashSet<String> = found_authors
+        .iter()
+        .map(|a| get_last_name_public(a))
+        .filter(|s| !s.is_empty())
+        .collect();
+    let overlap_count = ref_set.intersection(&found_set).count();
+    format!(" ({}/{})", overlap_count, ref_authors.len())
+}
+
+/// Scan the rendered buffer inside a bordered content area for link display text
+/// and overwrite matching cells with OSC 8 terminal hyperlink escape sequences.
+fn apply_osc8_links(f: &mut Frame, content_area: Rect, links: &[LinkEntry]) {
+    if links.is_empty() || content_area.height < 3 || content_area.width < 3 {
+        return;
+    }
+
+    // Inner area (inside the border)
+    let inner_x = content_area.x + 1;
+    let inner_y = content_area.y + 1;
+    let inner_w = content_area.width - 2;
+    let inner_h = content_area.height - 2;
+
+    let buf = f.buffer_mut();
+
+    for link in links {
+        let display = format!("  {}", link.label);
+        let display_chars: Vec<char> = display.chars().collect();
+
+        // Scan visible rows for this link's display text
+        for row in 0..inner_h {
+            let y = inner_y + row;
+
+            // Check if this row starts with the display text
+            let matches = display_chars.iter().enumerate().all(|(col, &ch)| {
+                let x = inner_x + col as u16;
+                if x >= inner_x + inner_w {
+                    return false;
+                }
+                let sym = buf[(x, y)].symbol();
+                sym.len() == 1 && sym.as_bytes()[0] as char == ch
+            });
+
+            if !matches || display_chars.is_empty() {
+                continue;
+            }
+
+            // Overwrite label cells with OSC 8 hyperlink in 2-char chunks
+            // (workaround for ratatui#902 — ANSI width miscalculation)
+            let label_chars: Vec<char> = link.label.chars().collect();
+            let mut pos = 0usize;
+            while pos < label_chars.len() {
+                let end = (pos + 2).min(label_chars.len());
+                let chunk: String = label_chars[pos..end].iter().collect();
+                let cell_x = inner_x + 2 + pos as u16;
+                if cell_x >= inner_x + inner_w {
+                    break;
+                }
+                let hyperlink = format!("\x1B]8;;{}\x07{}\x1B]8;;\x07", link.url, chunk);
+                buf[(cell_x, y)].set_symbol(&hyperlink);
+                pos = end;
+            }
+            break; // Found this link, move to next
+        }
+    }
+}
+
+fn render_footer(f: &mut Frame, area: Rect, theme: &Theme) {
+    let footer = Line::from(Span::styled(
+        " j/k:scroll  Space:cycle FP reason  Ctrl+r:retry  y:copy ref  e:export  Esc:back  ?:help",
+        theme.footer_style(),
+    ));
+    f.render_widget(Paragraph::new(footer), area);
+}
+
+/// Build the list of external links shown in the detail view's LINKS
+/// section. Pure function of the reference state so it can be unit-tested
+/// without constructing a ratatui Frame.
+///
+/// Order of links (top-down):
+///   1. Google Scholar verbatim-title query       (always, if title)
+///   2. Google Web verbatim-title query           (always, if title)
+///   3. DOI resolver URL                          (if validation found a DOI)
+///   4. arXiv abs URL                             (if validation found an arXiv ID)
+///   5. Each URL extracted from the reference     (all of rs.urls, in order)
+///
+/// The two search queries use `%22…%22` quoting so the engines treat
+/// the title as a literal phrase. Google Web catches things Scholar
+/// misses — GitHub READMEs, tech reports, vendor docs, blog posts —
+/// and is especially useful when all academic DBs came back not-found.
+///
+/// The reference-level URLs (`rs.urls`) come from the PDF reference
+/// text itself (e.g., `https://github.com/user/repo`). They're surfaced
+/// as clickable links alongside DOI/arXiv so the user can jump
+/// straight to the cited page.
+fn collect_links(rs: &crate::model::paper::RefState) -> Vec<LinkEntry> {
+    let mut links: Vec<LinkEntry> = Vec::new();
+
+    if !rs.title.is_empty() {
+        let title_query = encode_url_param(&rs.title);
+        links.push(LinkEntry {
+            label: "Open in Google Scholar".into(),
+            url: format!("https://scholar.google.com/scholar?q=%22{}%22", title_query),
+        });
+        links.push(LinkEntry {
+            label: "Open in Google".into(),
+            url: format!("https://www.google.com/search?q=%22{}%22", title_query),
+        });
+    }
+
+    if let Some(result) = &rs.result {
+        if let Some(doi) = &result.doi_info {
+            let url = format!("https://doi.org/{}", doi.doi);
+            links.push(LinkEntry {
+                label: format!("DOI: {url}"),
+                url,
+            });
+        }
+        if let Some(arxiv) = &result.arxiv_info {
+            let url = format!("https://arxiv.org/abs/{}", arxiv.arxiv_id);
+            links.push(LinkEntry {
+                label: format!("arXiv: {url}"),
+                url,
+            });
+        }
+    }
+
+    for url in &rs.urls {
+        links.push(LinkEntry {
+            label: format!("URL: {url}"),
+            url: url.clone(),
+        });
+    }
+
+    links
+}
+
+/// Percent-encode a string for use in a URL query parameter.
+fn encode_url_param(s: &str) -> String {
+    let mut out = String::with_capacity(s.len() * 3);
+    for b in s.bytes() {
+        match b {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
+                out.push(b as char);
+            }
+            b' ' => out.push('+'),
+            _ => {
+                out.push('%');
+                out.push(char::from(HEX[(b >> 4) as usize]));
+                out.push(char::from(HEX[(b & 0xf) as usize]));
+            }
+        }
+    }
+    out
+}
+
+const HEX: &[u8; 16] = b"0123456789ABCDEF";
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::model::paper::{RefPhase, RefState};
+    use hallucinator_core::{ArxivInfo, DoiInfo, Status, ValidationResult};
+
+    fn ref_state_with(
+        title: &str,
+        urls: Vec<String>,
+        result: Option<ValidationResult>,
+    ) -> RefState {
+        RefState {
+            index: 0,
+            title: title.to_string(),
+            phase: RefPhase::Pending,
+            result,
+            fp_reason: None,
+            raw_citation: String::new(),
+            authors: Vec::new(),
+            doi: None,
+            arxiv_id: None,
+            urls,
+        }
+    }
+
+    fn empty_val_result() -> ValidationResult {
+        ValidationResult {
+            title: String::new(),
+            raw_citation: String::new(),
+            ref_authors: Vec::new(),
+            status: Status::NotFound,
+            source: None,
+            found_authors: Vec::new(),
+            paper_url: None,
+            failed_dbs: Vec::new(),
+            db_results: Vec::new(),
+            doi_info: None,
+            arxiv_info: None,
+            retraction_info: None,
+            url_check_skipped: false,
+        }
+    }
+
+    fn val_result_doi(doi: &str) -> ValidationResult {
+        ValidationResult {
+            doi_info: Some(DoiInfo {
+                doi: doi.to_string(),
+                valid: true,
+                title: None,
+            }),
+            ..empty_val_result()
+        }
+    }
+
+    fn val_result_arxiv(id: &str) -> ValidationResult {
+        ValidationResult {
+            arxiv_info: Some(ArxivInfo {
+                arxiv_id: id.to_string(),
+                valid: true,
+                title: None,
+            }),
+            ..empty_val_result()
+        }
+    }
+
+    #[test]
+    fn title_yields_scholar_and_google_search_links() {
+        // Both search engines should be offered for any ref with a
+        // title — Scholar for academic hits, Google Web for tech
+        // reports / GitHub READMEs / blog posts that Scholar misses.
+        let rs = ref_state_with("Attention Is All You Need", vec![], None);
+        let links = collect_links(&rs);
+        assert_eq!(links.len(), 2);
+        assert_eq!(links[0].label, "Open in Google Scholar");
+        assert!(
+            links[0]
+                .url
+                .starts_with("https://scholar.google.com/scholar?q=%22")
+        );
+        assert!(links[0].url.contains("Attention+Is+All+You+Need"));
+        assert_eq!(links[1].label, "Open in Google");
+        assert!(
+            links[1]
+                .url
+                .starts_with("https://www.google.com/search?q=%22")
+        );
+        assert!(links[1].url.contains("Attention+Is+All+You+Need"));
+        // Both queries wrap the title in %22 (URL-encoded double quotes)
+        // so the engines treat it as a literal phrase search.
+        assert!(links[0].url.ends_with("%22"));
+        assert!(links[1].url.ends_with("%22"));
+    }
+
+    #[test]
+    fn empty_title_skips_search_links() {
+        // No point offering `scholar.google.com/scholar?q=%22%22`.
+        let rs = ref_state_with("", vec![], None);
+        let links = collect_links(&rs);
+        assert!(links.is_empty());
+    }
+
+    #[test]
+    fn reference_urls_become_clickable_links() {
+        // `rs.urls` (from the PDF reference text) should appear as
+        // `URL: <url>` entries alongside the search/DOI/arXiv ones.
+        let rs = ref_state_with(
+            "bluesky_downloader: Tools to Download the Bluesky Network",
+            vec!["https://github.com/mrd0ll4r/bluesky_downloader".into()],
+            None,
+        );
+        let links = collect_links(&rs);
+        // 2 search + 1 url
+        assert_eq!(links.len(), 3);
+        assert_eq!(
+            links[2].label,
+            "URL: https://github.com/mrd0ll4r/bluesky_downloader"
+        );
+        assert_eq!(
+            links[2].url,
+            "https://github.com/mrd0ll4r/bluesky_downloader"
+        );
+    }
+
+    #[test]
+    fn multiple_reference_urls_preserved_in_order() {
+        // References occasionally list more than one URL (e.g., a
+        // main URL plus a mirror or a related tracker issue). All of
+        // them should be surfaced in extraction order.
+        let rs = ref_state_with(
+            "Some paper",
+            vec![
+                "https://github.com/a/repo".into(),
+                "https://example.com/blog/post".into(),
+            ],
+            None,
+        );
+        let links = collect_links(&rs);
+        assert_eq!(links.len(), 4);
+        assert_eq!(links[2].label, "URL: https://github.com/a/repo");
+        assert_eq!(links[3].label, "URL: https://example.com/blog/post");
+    }
+
+    #[test]
+    fn doi_and_arxiv_and_url_all_coexist_in_expected_order() {
+        // Verified ref with a DOI from validation, an arXiv ID from
+        // validation, AND a reference-level URL: all three must show
+        // up, with DOI / arXiv sitting between the search queries and
+        // the reference URLs (matches the order in the comment on
+        // collect_links).
+        let rs = ref_state_with(
+            "A paper",
+            vec!["https://github.com/x/y".into()],
+            Some(ValidationResult {
+                doi_info: Some(DoiInfo {
+                    doi: "10.1234/foo".into(),
+                    valid: true,
+                    title: None,
+                }),
+                arxiv_info: Some(ArxivInfo {
+                    arxiv_id: "2101.00001".into(),
+                    valid: true,
+                    title: None,
+                }),
+                ..empty_val_result()
+            }),
+        );
+        let links = collect_links(&rs);
+        assert_eq!(links.len(), 5);
+        assert_eq!(links[0].label, "Open in Google Scholar");
+        assert_eq!(links[1].label, "Open in Google");
+        assert_eq!(links[2].label, "DOI: https://doi.org/10.1234/foo");
+        assert_eq!(links[3].label, "arXiv: https://arxiv.org/abs/2101.00001");
+        assert_eq!(links[4].label, "URL: https://github.com/x/y");
+    }
+
+    #[test]
+    fn doi_alone_from_validation_adds_doi_link() {
+        // Regression: DOI/arXiv come from the *validation result*, not
+        // from the pre-validation rs.doi/rs.arxiv_id fields. Make sure
+        // the collect_links path still consults result.doi_info.
+        let rs = ref_state_with("Some title", vec![], Some(val_result_doi("10.5/test")));
+        let links = collect_links(&rs);
+        // Scholar + Google + DOI
+        assert_eq!(links.len(), 3);
+        assert_eq!(links[2].label, "DOI: https://doi.org/10.5/test");
+        assert_eq!(links[2].url, "https://doi.org/10.5/test");
+    }
+
+    #[test]
+    fn arxiv_alone_from_validation_adds_arxiv_link() {
+        let rs = ref_state_with("Some title", vec![], Some(val_result_arxiv("2305.12345")));
+        let links = collect_links(&rs);
+        assert_eq!(links.len(), 3);
+        assert_eq!(links[2].label, "arXiv: https://arxiv.org/abs/2305.12345");
+        assert_eq!(links[2].url, "https://arxiv.org/abs/2305.12345");
+    }
+
+    #[test]
+    fn url_only_with_empty_title_still_shown() {
+        // Skipped-with-URL refs (e.g., short-title refs that still
+        // have a cited GitHub link) should at minimum expose that
+        // URL clickably, even when Scholar/Google are suppressed for
+        // lack of a title.
+        let rs = ref_state_with("", vec!["https://github.com/a/b".into()], None);
+        let links = collect_links(&rs);
+        assert_eq!(links.len(), 1);
+        assert_eq!(links[0].label, "URL: https://github.com/a/b");
+    }
+
+    // Regression: the "(N/M)" overlap count used a naive lowercased
+    // full-string comparison, so a DBLP disambiguation suffix made a
+    // genuinely-matching author show as zero overlap.
+    #[test]
+    fn overlap_label_ignores_dblp_disambiguation_suffix() {
+        let ref_authors = vec!["Wenbo Guo".to_string()];
+        let found_authors = vec!["Wenbo Guo 0001".to_string()];
+        assert_eq!(author_overlap_label(&ref_authors, &found_authors), " (1/1)");
+    }
+
+    // Regression: same naive comparison also called an initial vs. a full
+    // first name a non-match, even though it's the same person.
+    #[test]
+    fn overlap_label_ignores_initial_vs_full_first_name() {
+        let ref_authors = vec!["J. Smith".to_string()];
+        let found_authors = vec!["John Smith".to_string()];
+        assert_eq!(author_overlap_label(&ref_authors, &found_authors), " (1/1)");
+    }
+
+    #[test]
+    fn overlap_label_counts_genuine_non_overlap() {
+        let ref_authors = vec!["Alice Jones".to_string()];
+        let found_authors = vec!["Bob Kim".to_string()];
+        assert_eq!(author_overlap_label(&ref_authors, &found_authors), " (0/1)");
+    }
+
+    #[test]
+    fn overlap_label_empty_ref_authors_is_empty_string() {
+        assert_eq!(author_overlap_label(&[], &["Someone".to_string()]), "");
+    }
+}

@@ -1,0 +1,571 @@
+//! Download and build pipeline for the offline DBLP database.
+//!
+//! Downloads `dblp.xml.gz` from dblp.org (~1 GB), parses it with a SAX-style
+//! XML parser, and builds a normalized SQLite database with FTS5 full-text search.
+
+use std::cell::Cell;
+use std::collections::HashMap;
+use std::fs::File;
+use std::io::{BufReader, Read, Write};
+use std::path::Path;
+use std::rc::Rc;
+
+use futures_util::StreamExt;
+use rusqlite::Connection;
+
+use crate::db;
+use crate::xml_parser;
+use crate::{BuildProgress, DblpError};
+
+/// Default DBLP XML dump URL (~1 GB compressed).
+pub const DEFAULT_DBLP_URL: &str = "https://dblp.uni-trier.de/xml/dblp.xml.gz";
+
+/// How many publication records to process before committing the transaction.
+/// Keeps WAL size reasonable while avoiding per-record fsync overhead.
+const COMMIT_INTERVAL: u64 = 50_000;
+
+/// Sanity floor for [`build`]'s downloaded record count. The real
+/// dblp.xml.gz has held several million records for years; this is set
+/// far enough below that to never reject a genuine (even badly
+/// truncated) download, while still catching a near-empty parse of
+/// something that wasn't the real file at all.
+const MIN_EXPECTED_RECORDS: u64 = 100_000;
+
+/// Reject a suspiciously small record count from [`build`]'s network
+/// download. A healthy dblp.xml.gz has held several million records for
+/// years; anything near-empty almost always means the download wasn't
+/// the real file at all — e.g. dblp.org serving an Anubis
+/// (<https://anubis.techaro.lol/>) bot-protection challenge page with a
+/// normal 200 status instead of the ~1 GB dump, which a plain HTTP
+/// client can silently "succeed" at fetching (see
+/// <https://github.com/gianlucasb/hallucinator/issues/326>).
+fn check_record_count_sane(records_parsed: u64) -> Result<(), DblpError> {
+    if records_parsed < MIN_EXPECTED_RECORDS {
+        return Err(DblpError::Parse(format!(
+            "only {records_parsed} record(s) parsed from the download — expected several \
+             million. dblp.org may be serving a bot-protection challenge page instead of \
+             the real dblp.xml.gz. Try downloading it manually in a browser and passing \
+             --from-file <path> instead."
+        )));
+    }
+    Ok(())
+}
+
+/// Build (or update) the offline DBLP database by downloading from dblp.org.
+///
+/// Phase 1: Downloads `dblp.xml.gz` to a temporary file with progress reporting.
+/// Phase 2: Parses the XML and inserts into SQLite (runs in a blocking thread).
+///
+/// Uses ETag/Last-Modified headers for conditional requests — if the remote
+/// file hasn't changed since the last build, returns `Ok(false)`.
+pub async fn build(
+    db_path: &Path,
+    mut progress: impl FnMut(BuildProgress),
+) -> Result<bool, DblpError> {
+    let conn = Connection::open(db_path)?;
+    db::init_database(&conn)?;
+
+    // Check stored ETag/Last-Modified for conditional request
+    let stored_etag = db::get_metadata(&conn, "etag")?;
+    let stored_last_modified = db::get_metadata(&conn, "last_modified")?;
+
+    // Build HTTP client
+    let client = reqwest::Client::builder()
+        .user_agent("hallucinator-dblp/0.1.0")
+        .build()
+        .map_err(|e| DblpError::Download(e.to_string()))?;
+
+    // Conditional GET
+    let mut request = client.get(DEFAULT_DBLP_URL);
+    if let Some(ref etag) = stored_etag {
+        request = request.header("If-None-Match", etag.as_str());
+    }
+    if let Some(ref lm) = stored_last_modified {
+        request = request.header("If-Modified-Since", lm.as_str());
+    }
+
+    let response = request
+        .send()
+        .await
+        .map_err(|e| DblpError::Download(e.to_string()))?;
+
+    if response.status() == reqwest::StatusCode::NOT_MODIFIED {
+        progress(BuildProgress::Complete {
+            publications: 0,
+            authors: 0,
+            skipped: true,
+        });
+        return Ok(false);
+    }
+
+    if !response.status().is_success() {
+        return Err(DblpError::Download(format!(
+            "HTTP error: {}",
+            response.status()
+        )));
+    }
+
+    // Capture new ETag/Last-Modified from response
+    let new_etag = response
+        .headers()
+        .get("etag")
+        .and_then(|v| v.to_str().ok())
+        .map(String::from);
+    let new_last_modified = response
+        .headers()
+        .get("last-modified")
+        .and_then(|v| v.to_str().ok())
+        .map(String::from);
+
+    let total_bytes = response.content_length();
+
+    // Phase 1: Download .xml.gz to a temporary file
+    let db_dir = db_path.parent().unwrap_or(Path::new("."));
+    let tmp_dir = tempfile::TempDir::new_in(db_dir).map_err(DblpError::Io)?;
+    let gz_path = tmp_dir.path().join("dblp.xml.gz");
+
+    progress(BuildProgress::Downloading {
+        bytes_downloaded: 0,
+        total_bytes,
+        bytes_decompressed: 0,
+    });
+
+    {
+        let mut out = File::create(&gz_path)?;
+        let mut stream = response.bytes_stream();
+        let mut bytes_downloaded: u64 = 0;
+
+        while let Some(chunk) = stream.next().await {
+            let chunk = chunk.map_err(|e| DblpError::Download(e.to_string()))?;
+            out.write_all(&chunk)?;
+            bytes_downloaded += chunk.len() as u64;
+
+            progress(BuildProgress::Downloading {
+                bytes_downloaded,
+                total_bytes,
+                bytes_decompressed: 0,
+            });
+        }
+        out.flush()?;
+    }
+
+    // Phase 2: Parse XML and insert into SQLite.
+    // Runs in a blocking thread since XML parsing and SQLite writes are sync I/O.
+    let (progress_tx, mut progress_rx) = tokio::sync::mpsc::channel::<BuildProgress>(64);
+
+    let parse_handle = tokio::task::spawn_blocking(move || {
+        let _tmp_dir = tmp_dir; // keep temp directory alive until parsing is done
+
+        db::begin_bulk_load(&conn)?;
+
+        let records_parsed = parse_and_insert(&conn, &gz_path, |evt| {
+            let _ = progress_tx.blocking_send(evt);
+        })?;
+
+        // Erroring out here — before any metadata gets written — is what
+        // turns a bad download into a loud failure instead of a database
+        // quietly replaced by an empty one under a fresh "last_updated"
+        // stamp. (The few records already committed by `parse_and_insert`
+        // itself aren't rolled back; the goal is surfacing the failure,
+        // not perfect atomicity on an already-rare failure path.)
+        check_record_count_sane(records_parsed)?;
+
+        let _ = progress_tx.blocking_send(BuildProgress::RebuildingIndex);
+        db::rebuild_fts_index(&conn)?;
+
+        // Update metadata
+        let timestamp = now_unix_timestamp();
+        db::set_metadata(&conn, "last_updated", &timestamp)?;
+        db::set_metadata(&conn, "schema_version", "3")?;
+
+        if let Some(etag) = new_etag {
+            db::set_metadata(&conn, "etag", &etag)?;
+        }
+        if let Some(lm) = new_last_modified {
+            db::set_metadata(&conn, "last_modified", &lm)?;
+        }
+
+        let (pubs, authors, _) = db::get_counts(&conn)?;
+        db::set_metadata(&conn, "publication_count", &pubs.to_string())?;
+        db::set_metadata(&conn, "author_count", &authors.to_string())?;
+
+        let _ = progress_tx.blocking_send(BuildProgress::Compacting);
+        db::vacuum(&conn)?;
+
+        Ok::<(i64, i64), DblpError>((pubs, authors))
+    });
+
+    // Forward progress events from the blocking task to the caller
+    while let Some(evt) = progress_rx.recv().await {
+        progress(evt);
+    }
+
+    let (pubs, authors) = parse_handle
+        .await
+        .map_err(|e| DblpError::Download(format!("parse task panicked: {}", e)))??;
+
+    progress(BuildProgress::Complete {
+        publications: pubs as u64,
+        authors: authors as u64,
+        skipped: false,
+    });
+
+    Ok(true)
+}
+
+/// Build the offline DBLP database from a local `.xml.gz` file.
+pub fn build_from_file(
+    db_path: &Path,
+    xml_gz_path: &Path,
+    mut progress: impl FnMut(BuildProgress),
+) -> Result<(), DblpError> {
+    let conn = Connection::open(db_path)?;
+    db::init_database(&conn)?;
+    db::begin_bulk_load(&conn)?;
+
+    parse_and_insert(&conn, xml_gz_path, &mut progress)?;
+
+    progress(BuildProgress::RebuildingIndex);
+    db::rebuild_fts_index(&conn)?;
+
+    let timestamp = now_unix_timestamp();
+    db::set_metadata(&conn, "last_updated", &timestamp)?;
+    db::set_metadata(&conn, "schema_version", "3")?;
+
+    let (pubs, authors, _) = db::get_counts(&conn)?;
+    db::set_metadata(&conn, "publication_count", &pubs.to_string())?;
+    db::set_metadata(&conn, "author_count", &authors.to_string())?;
+
+    progress(BuildProgress::Compacting);
+    db::vacuum(&conn)?;
+
+    progress(BuildProgress::Complete {
+        publications: pubs as u64,
+        authors: authors as u64,
+        skipped: false,
+    });
+
+    Ok(())
+}
+
+/// Wrapper around a `Read` that tracks how many bytes have been consumed.
+struct CountingReader<R> {
+    inner: R,
+    bytes_read: Rc<Cell<u64>>,
+}
+
+impl<R: Read> Read for CountingReader<R> {
+    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+        let n = self.inner.read(buf)?;
+        self.bytes_read.set(self.bytes_read.get() + n as u64);
+        Ok(n)
+    }
+}
+
+/// Parse a `.xml.gz` file and insert publications into the database.
+///
+/// All inserts run inside an explicit transaction (committed every `COMMIT_INTERVAL`
+/// records) so individual writes don't trigger per-statement fsync. ID resolution
+/// uses `RETURNING` for a single round-trip and a HashMap cache for repeats.
+///
+/// Returns the number of publication records parsed (not the DB's total row
+/// count — this run's count only, so a caller can tell a near-empty parse
+/// of a corrupt/truncated input apart from a healthy re-import of a file
+/// whose records already exist).
+fn parse_and_insert(
+    conn: &Connection,
+    gz_path: &Path,
+    mut progress: impl FnMut(BuildProgress),
+) -> Result<u64, DblpError> {
+    let file = File::open(gz_path)?;
+    let file_size = file.metadata().map(|m| m.len()).unwrap_or(0);
+
+    let bytes_read_counter = Rc::new(Cell::new(0u64));
+    let bytes_read_for_progress = Rc::clone(&bytes_read_counter);
+
+    let counting = CountingReader {
+        inner: file,
+        bytes_read: bytes_read_counter,
+    };
+    let decoder = flate2::read::GzDecoder::new(counting);
+    let reader = BufReader::with_capacity(1024 * 1024, decoder);
+
+    // In-memory cache for author name→integer ID resolution.
+    // Publications are rarely duplicated in the DBLP XML, so caching their IDs
+    // isn't worth the ~450MB of RAM it costs.
+    let mut author_ids: HashMap<String, i64> = HashMap::new();
+
+    let mut records_inserted: u64 = 0;
+    let mut insert_error: Option<DblpError> = None;
+
+    // Start a long-running transaction — individual inserts are fast within a
+    // transaction because SQLite only fsyncs on COMMIT, not per-statement.
+    conn.execute_batch("BEGIN")?;
+
+    xml_parser::parse_xml(reader, |pub_record| {
+        if insert_error.is_some() {
+            return;
+        }
+
+        records_inserted += 1;
+
+        // Resolve author IDs (insert-or-get + cache)
+        let mut author_id_list = Vec::with_capacity(pub_record.authors.len());
+        for author in &pub_record.authors {
+            let aid = if let Some(&cached) = author_ids.get(author) {
+                cached
+            } else {
+                match db::insert_or_get_author(conn, author) {
+                    Ok(id) => {
+                        author_ids.insert(author.clone(), id);
+                        id
+                    }
+                    Err(e) => {
+                        insert_error = Some(e);
+                        return;
+                    }
+                }
+            };
+            author_id_list.push(aid);
+        }
+
+        // Resolve publication ID (always hits SQLite — pubs rarely repeat)
+        let pub_id = match db::insert_or_get_publication(conn, &pub_record.key, &pub_record.title) {
+            Ok(id) => id,
+            Err(e) => {
+                insert_error = Some(e);
+                return;
+            }
+        };
+
+        // Insert publication_authors directly (within the active transaction)
+        {
+            let pa_stmt = conn.prepare_cached(
+                "INSERT OR IGNORE INTO publication_authors (pub_id, author_id) VALUES (?1, ?2)",
+            );
+            let mut pa_stmt = match pa_stmt {
+                Ok(s) => s,
+                Err(e) => {
+                    insert_error = Some(e.into());
+                    return;
+                }
+            };
+            for aid in author_id_list {
+                if let Err(e) = pa_stmt.execute(rusqlite::params![pub_id, aid]) {
+                    insert_error = Some(e.into());
+                    return;
+                }
+            }
+        }
+
+        // Periodic commit to keep WAL size reasonable + report progress
+        if records_inserted.is_multiple_of(COMMIT_INTERVAL) {
+            if let Err(e) = conn.execute_batch("COMMIT; BEGIN") {
+                insert_error = Some(e.into());
+                return;
+            }
+            progress(BuildProgress::Parsing {
+                records_inserted,
+                bytes_read: bytes_read_for_progress.get(),
+                bytes_total: file_size,
+            });
+        }
+    });
+
+    if let Some(err) = insert_error {
+        let _ = conn.execute_batch("ROLLBACK");
+        return Err(err);
+    }
+
+    // Final commit
+    conn.execute_batch("COMMIT")?;
+
+    progress(BuildProgress::Parsing {
+        records_inserted,
+        bytes_read: file_size, // done
+        bytes_total: file_size,
+    });
+
+    Ok(records_inserted)
+}
+
+/// Unix timestamp as a string (seconds since epoch).
+fn now_unix_timestamp() -> String {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs()
+        .to_string()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::Write;
+
+    /// Create a minimal .xml.gz file for testing.
+    fn create_test_xml_gz() -> Vec<u8> {
+        use flate2::Compression;
+        use flate2::write::GzEncoder;
+
+        let mut encoder = GzEncoder::new(Vec::new(), Compression::fast());
+        let xml = r#"<?xml version="1.0" encoding="UTF-8"?>
+<dblp>
+<article key="journals/cacm/Knuth74" mdate="2020-01-01">
+  <author>Donald E. Knuth</author>
+  <title>Computer Programming as an Art.</title>
+  <ee>https://doi.org/10.1145/361604.361612</ee>
+</article>
+<inproceedings key="conf/nips/VaswaniSPUJGKP17" mdate="2023-03-30">
+  <author>Ashish Vaswani</author>
+  <author>Noam Shazeer</author>
+  <title>Attention is All you Need.</title>
+</inproceedings>
+</dblp>"#;
+        encoder.write_all(xml.as_bytes()).unwrap();
+        encoder.finish().unwrap()
+    }
+
+    #[test]
+    fn test_build_from_xml_gz() {
+        let gz_data = create_test_xml_gz();
+
+        let dir = tempfile::tempdir().unwrap();
+        let xml_gz_path = dir.path().join("test.xml.gz");
+        let db_path = dir.path().join("test.db");
+
+        std::fs::write(&xml_gz_path, &gz_data).unwrap();
+
+        let mut progress_events = Vec::new();
+        build_from_file(&db_path, &xml_gz_path, |evt| {
+            progress_events.push(format!("{:?}", evt));
+        })
+        .unwrap();
+
+        // Verify database contents
+        let conn = Connection::open(&db_path).unwrap();
+        let (pubs, authors, rels) = db::get_counts(&conn).unwrap();
+        assert_eq!(pubs, 2);
+        assert_eq!(authors, 3); // Knuth, Vaswani, Shazeer
+        assert_eq!(rels, 3);
+
+        // Verify metadata
+        let schema = db::get_metadata(&conn, "schema_version").unwrap();
+        assert_eq!(schema, Some("3".into()));
+
+        let last_updated = db::get_metadata(&conn, "last_updated").unwrap();
+        assert!(last_updated.is_some());
+
+        // Verify FTS works
+        let mut stmt = conn
+            .prepare(
+                "SELECT p.title FROM publications p \
+                 WHERE p.id IN (SELECT rowid FROM publications_fts WHERE title MATCH ?1)",
+            )
+            .unwrap();
+        let results: Vec<String> = stmt
+            .query_map(["attention"], |row| row.get(0))
+            .unwrap()
+            .filter_map(|r| r.ok())
+            .collect();
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0], "Attention is All you Need.");
+
+        // Verify progress was reported (should include Compacting)
+        assert!(!progress_events.is_empty());
+        assert!(progress_events.iter().any(|e| e.contains("Compacting")));
+    }
+
+    #[test]
+    fn test_parse_and_insert() {
+        let gz_data = create_test_xml_gz();
+
+        let dir = tempfile::tempdir().unwrap();
+        let xml_gz_path = dir.path().join("test.xml.gz");
+        std::fs::write(&xml_gz_path, &gz_data).unwrap();
+
+        let conn = Connection::open_in_memory().unwrap();
+        db::init_database(&conn).unwrap();
+
+        let records_parsed = parse_and_insert(&conn, &xml_gz_path, |_| {}).unwrap();
+        assert_eq!(records_parsed, 2);
+
+        let (pubs, authors, rels) = db::get_counts(&conn).unwrap();
+        assert_eq!(pubs, 2);
+        assert_eq!(authors, 3);
+        assert_eq!(rels, 3);
+
+        // Verify author lookup works with integer IDs
+        let pub_id: i64 = conn
+            .query_row(
+                "SELECT id FROM publications WHERE key = ?1",
+                rusqlite::params!["conf/nips/VaswaniSPUJGKP17"],
+                |row| row.get(0),
+            )
+            .unwrap();
+        let mut paper_authors = db::get_authors_for_publication(&conn, pub_id).unwrap();
+        paper_authors.sort();
+        assert_eq!(paper_authors, vec!["Ashish Vaswani", "Noam Shazeer"]);
+    }
+
+    // Regression (issue #326): dblp.org started serving an Anubis
+    // bot-protection challenge page with a normal 200 status instead of
+    // the real dblp.xml.gz, which `build()` was silently accepting as a
+    // successful (empty) rebuild — replacing a working database with an
+    // empty one under a fresh "last_updated" timestamp, no error at all.
+    #[test]
+    fn test_check_record_count_sane_rejects_near_empty_download() {
+        // The exact failure mode from the issue: a bot-protection
+        // challenge page parses as zero DBLP records.
+        assert!(check_record_count_sane(0).is_err());
+        // A badly truncated download (e.g. connection dropped
+        // mid-stream) shouldn't be accepted either.
+        assert!(check_record_count_sane(500).is_err());
+    }
+
+    #[test]
+    fn test_check_record_count_sane_error_message_is_actionable() {
+        let err = check_record_count_sane(0).unwrap_err();
+        let msg = err.to_string();
+        assert!(msg.contains("bot-protection"), "message was: {msg}");
+        assert!(msg.contains("--from-file"), "message was: {msg}");
+    }
+
+    #[test]
+    fn test_check_record_count_sane_accepts_healthy_count() {
+        assert!(check_record_count_sane(MIN_EXPECTED_RECORDS).is_ok());
+        assert!(check_record_count_sane(9_000_000).is_ok());
+    }
+
+    #[test]
+    fn test_parse_proceedings_with_editors() {
+        use flate2::Compression;
+        use flate2::write::GzEncoder;
+
+        let mut encoder = GzEncoder::new(Vec::new(), Compression::fast());
+        let xml = r#"<?xml version="1.0" encoding="UTF-8"?>
+<dblp>
+<proceedings key="conf/test/2024">
+  <editor>Alice Smith</editor>
+  <editor>Bob Jones</editor>
+  <title>Proceedings of Test Conference 2024.</title>
+</proceedings>
+</dblp>"#;
+        encoder.write_all(xml.as_bytes()).unwrap();
+        let gz_data = encoder.finish().unwrap();
+
+        let dir = tempfile::tempdir().unwrap();
+        let xml_gz_path = dir.path().join("test.xml.gz");
+        std::fs::write(&xml_gz_path, &gz_data).unwrap();
+
+        let conn = Connection::open_in_memory().unwrap();
+        db::init_database(&conn).unwrap();
+
+        parse_and_insert(&conn, &xml_gz_path, |_| {}).unwrap();
+
+        let (pubs, authors, rels) = db::get_counts(&conn).unwrap();
+        assert_eq!(pubs, 1);
+        assert_eq!(authors, 2);
+        assert_eq!(rels, 2);
+    }
+}

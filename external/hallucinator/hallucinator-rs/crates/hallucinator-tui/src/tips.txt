@@ -1,0 +1,71 @@
+# Tips for the Hallucinator TUI Pro-tips pane.
+# One tip per line. Lines starting with # are comments. Blank lines are ignored.
+# The "Pro-tip: " prefix is stripped in the bordered pane (header already says "Pro-tips")
+# but kept for narrow-terminal fallback display.
+
+# === Config & Usage ===
+Pro-tip: Press , to open config -- set API keys, concurrency, timeouts
+Pro-tip: Set an OpenAlex key for broader coverage (--openalex-key or config)
+Pro-tip: Build an offline DBLP database for instant local lookups (hallucinator-tui update-dblp)
+Pro-tip: Increase concurrent papers in config to process batches faster
+Pro-tip: Press Space on a reference to cycle FP reasons (parse/GS/timeout/known/N/A) -- markings persist across sessions
+Pro-tip: Use s to cycle sort order, f to filter by status on queue/paper views
+Pro-tip: The Semantic Scholar API key improves rate limits (--s2-api-key)
+Pro-tip: Press e to export results as Markdown, JSON, or CSV
+Pro-tip: References with < 4 words are auto-skipped (too short for reliable matching)
+Pro-tip: Press Tab to toggle the activity panel and get more room for the paper queue
+Pro-tip: Press ? anywhere for a full keybinding reference
+Pro-tip: You can set API keys via environment variables or a .env file
+Pro-tip: Press o to add more PDFs to the queue without restarting
+Pro-tip: Build an offline ACL Anthology database for local lookups (hallucinator-tui update-acl)
+Pro-tip: Build an offline OpenAlex index for local lookups (hallucinator-tui update-openalex)
+Pro-tip: Build an offline arXiv database from the weekly Kaggle snapshot (hallucinator-tui update-arxiv)
+Pro-tip: Offline arXiv needs a Kaggle API token -- set KAGGLE_API_TOKEN or save it to ~/.kaggle/access_token
+Pro-tip: Filter OpenAlex imports by date (--since 2024-01-01) or publication year (--min-year 2020)
+Pro-tip: Enable SearxNG as a fallback web search source (--searxng or configure URL in config)
+Pro-tip: Get a free GovInfo API key at api.data.gov for US federal laws, regulations, and court opinions
+Pro-tip: Drop dblp.db / acl.db / arxiv.db in your working directory and they're picked up automatically
+Pro-tip: Settings persist in ~/.config/hallucinator/config.toml -- edit there or live via , in the TUI
+Pro-tip: Skip backends you don't need with --disable-dbs=OpenAlex,PubMed for faster runs on out-of-scope corpora
+Pro-tip: Launch with --mouse to enable click-to-select rows and scroll support
+Pro-tip: Switch palettes with --theme modern if hacker-green isn't your aesthetic
+Pro-tip: Press Space on a paper in the queue to cycle its verdict (Safe/Questionable)
+Pro-tip: Load previously saved results with --load FILE to review without re-processing
+Pro-tip: Clear stale cache entries via --clear-cache (all) or --clear-not-found (just misses)
+Pro-tip: Press Ctrl+r to retry a single reference, or R to retry all not-found references
+Pro-tip: Press y to copy a reference to the clipboard (OSC 52)
+Pro-tip: Press p to open the source PDF in your default viewer
+
+# === How It Works ===
+Pro-tip: Each reference is checked against up to 9 databases simultaneously
+Pro-tip: Databases: CrossRef, arXiv, DBLP, Semantic Scholar, ACL, PubMed, and more
+Pro-tip: Title matching uses fuzzy comparison at 95% similarity (rapidfuzz)
+Pro-tip: Author verification catches cases where a title exists but authors don't match
+Pro-tip: Retraction checking queries CrossRef for retraction notices on found papers
+Pro-tip: The retry pass re-checks "not found" refs against DBs that timed out earlier
+Pro-tip: PDF text extraction handles ligatures (fi, fl, ffi) and hyphenation artifacts
+Pro-tip: Archive uploads (ZIP/tar.gz) let you batch-check entire conference proceedings
+Pro-tip: Privacy-preserving -- your PDFs never leave your machine, we only query citation metadata
+Pro-tip: The query cache is write-through -- refs cited in multiple papers hit cache on the first check, instant on every reuse
+Pro-tip: Safe marks are keyed by (title, author fingerprint), not just title -- fake-cites with real titles don't inherit legit marks
+Pro-tip: Offline DBs older than 30 days show a staleness warning -- rerun update-dblp / update-acl / update-arxiv to refresh
+Pro-tip: The reference detail screen splits timeouts from genuine no-match results -- useful for flaky-network triage
+Pro-tip: When offline arXiv is configured, online arXiv is skipped -- same pattern as offline DBLP and ACL
+
+# === Rust & Performance ===
+Pro-tip: Written in Rust -- because memory safety is not optional when catching fraud
+Pro-tip: Zero-cost abstractions means your CPU cycles go to catching hallucinations, not GC pauses
+Pro-tip: Async I/O via Tokio means we're checking databases while you read these tips
+Pro-tip: The TUI targets 30 FPS with zero allocations per frame (ok, maybe a few)
+Pro-tip: Configure your target framerate in the Display tab of config (,)
+Pro-tip: MuPDF handles PDF extraction -- the same engine behind Sumatra PDF reader
+Pro-tip: Our fuzzy matching uses Jaro-Winkler distance, compiled to native SIMD instructions
+
+# === Fun Facts ===
+Pro-tip: Be careful, except for this one, the pro-tips were written by an LLM!
+Pro-tip: LLMs might hallucinate references 5-15% of the time in academic writing -- now you can catch them
+Pro-tip: The offline DBLP database indexes millions of CS publications for instant lookups
+Pro-tip: "Author mismatch" might mean the LLM invented a plausible-sounding author list
+Pro-tip: This project is AGPL-3.0 licensed -- free as in freedom, free as in catching fraud
+Pro-tip: Europe PMC and PubMed coverage means biomedical hallucinations don't escape either
+Pro-tip: The name "Hallucinator" is a portmanteau -- hallucination + terminator (approximately)

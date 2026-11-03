@@ -1,0 +1,393 @@
+use ratatui::Frame;
+use ratatui::layout::{Constraint, Layout, Rect};
+use ratatui::style::{Modifier, Style};
+use ratatui::text::{Line, Span};
+use ratatui::widgets::{Block, Borders, Cell, Paragraph, Row, Table, TableState};
+
+use crate::app::{App, InputMode};
+use crate::model::queue::{PaperPhase, PaperVerdict};
+use crate::theme::Theme;
+use crate::view::{spinner_char, truncate};
+
+/// Render the Queue screen into the given area.
+/// `footer_area` is a full-width row below the main content + activity panel.
+pub fn render_in(f: &mut Frame, app: &mut App, area: Rect, footer_area: Rect) {
+    let theme = &app.theme;
+
+    let has_search = app.input_mode == InputMode::Search || !app.search_query.is_empty();
+
+    let mut constraints = vec![
+        Constraint::Length(1), // header
+        Constraint::Length(1), // progress bar
+    ];
+    if has_search {
+        constraints.push(Constraint::Length(1)); // search bar
+    }
+    constraints.push(Constraint::Min(5)); // table (fills all available space)
+
+    let chunks = Layout::vertical(constraints).split(area);
+    let mut chunk_idx = 0;
+
+    render_header(f, chunks[chunk_idx], app, theme);
+    chunk_idx += 1;
+
+    render_progress_bar(f, chunks[chunk_idx], app, theme);
+    chunk_idx += 1;
+
+    if has_search {
+        render_search_bar(f, chunks[chunk_idx], app, theme);
+        chunk_idx += 1;
+    }
+
+    let table_area = chunks[chunk_idx];
+    render_table(f, table_area, app);
+    app.last_table_area = Some(table_area);
+
+    render_footer(f, footer_area, app);
+}
+
+fn render_header(f: &mut Frame, area: Rect, app: &App, theme: &Theme) {
+    let mut spans = vec![
+        Span::styled(" Queue ", theme.header_style()),
+        Span::styled(
+            " Queue",
+            Style::default().fg(theme.text).add_modifier(Modifier::BOLD),
+        ),
+    ];
+
+    // Filter indicator
+    if app.queue_filter != crate::model::queue::QueueFilter::All {
+        spans.push(Span::styled(
+            format!(" [filter: {}]", app.queue_filter.label()),
+            Style::default().fg(theme.active),
+        ));
+    }
+
+    let header = Paragraph::new(Line::from(spans));
+    f.render_widget(header, area);
+}
+
+fn render_progress_bar(f: &mut Frame, area: Rect, app: &App, theme: &Theme) {
+    let total = app.papers.len();
+    let done = app.papers.iter().filter(|p| p.phase.is_terminal()).count();
+    let ratio = if total > 0 {
+        done as f64 / total as f64
+    } else {
+        0.0
+    };
+
+    // Build a text progress bar: ██████░░░░ 12/50 0:30
+    let elapsed = app.elapsed();
+    let elapsed_str = format!("{}:{:02}", elapsed.as_secs() / 60, elapsed.as_secs() % 60);
+    let count_str = format!(" {}/{} ", done, total);
+    let non_bar = 1 + count_str.len() + elapsed_str.len(); // leading space + count + timer
+    let bar_width = (area.width as usize).saturating_sub(non_bar);
+    let filled = (ratio * bar_width as f64) as usize;
+    let empty = bar_width.saturating_sub(filled);
+
+    let bar: String = "\u{2588}".repeat(filled) + &"\u{2591}".repeat(empty);
+
+    let mut spans = vec![
+        Span::styled(" ", Style::default()),
+        Span::styled(&bar, Style::default().fg(theme.active)),
+        Span::styled(count_str, Style::default().fg(theme.text)),
+        Span::styled(elapsed_str, Style::default().fg(theme.dim)),
+    ];
+
+    // Show archive extraction indicator if active
+    if let Some(archive_name) = &app.extracting_archive {
+        let label = if app.extracted_count > 0 {
+            format!(
+                " {} Extracting {} ({} extracted)...",
+                spinner_char(app.tick),
+                archive_name,
+                app.extracted_count,
+            )
+        } else {
+            format!(" {} Extracting {}...", spinner_char(app.tick), archive_name,)
+        };
+        spans.push(Span::styled(
+            label,
+            Style::default()
+                .fg(theme.active)
+                .add_modifier(Modifier::BOLD),
+        ));
+    }
+
+    f.render_widget(Paragraph::new(Line::from(spans)), area);
+}
+
+fn render_search_bar(f: &mut Frame, area: Rect, app: &App, theme: &Theme) {
+    let cursor = if app.input_mode == InputMode::Search {
+        "\u{2588}"
+    } else {
+        ""
+    };
+    let line = Line::from(vec![
+        Span::styled(
+            " /",
+            Style::default()
+                .fg(theme.active)
+                .add_modifier(Modifier::BOLD),
+        ),
+        Span::styled(&app.search_query, Style::default().fg(theme.text)),
+        Span::styled(cursor, Style::default().fg(theme.active)),
+    ]);
+    f.render_widget(Paragraph::new(line), area);
+}
+
+fn render_table(f: &mut Frame, area: Rect, app: &App) {
+    let theme = &app.theme;
+    let wide = area.width >= 80;
+
+    // Build header row. `Safe` counts references the user has marked safe
+    // (any FpReason). Grouped next to `OK` because both represent
+    // references the user / auto-check believe to be legitimate.
+    let header_cells = if wide {
+        vec![
+            "#", "Paper", "Refs", "OK", "Safe", "Mis", "NF", "Skip", "%", "Ret", "Status",
+        ]
+    } else {
+        vec!["#", "Paper", "Refs", "Prob", "Status"]
+    };
+    let header = Row::new(header_cells.iter().map(|h| {
+        Cell::from(*h).style(Style::default().fg(theme.text).add_modifier(Modifier::BOLD))
+    }))
+    .height(1);
+
+    // Use the pre-computed sorted/filtered indices
+    let indices = &app.queue_sorted;
+
+    // Build data rows
+    let rows: Vec<Row> = indices
+        .iter()
+        .enumerate()
+        .map(|(display_idx, &paper_idx)| {
+            let paper = &app.papers[paper_idx];
+            let num = format!("{}", display_idx + 1);
+            let verdict_badge = match paper.verdict {
+                Some(PaperVerdict::Safe) => "[SAFE] ",
+                Some(PaperVerdict::Questionable) => "[?!] ",
+                None => "",
+            };
+            let raw_name = format!("{}{}", verdict_badge, paper.filename);
+            let name = truncate(&raw_name, (area.width as usize).saturating_sub(40));
+
+            let name_style = match paper.verdict {
+                Some(PaperVerdict::Safe) => Style::default().fg(theme.verified),
+                Some(PaperVerdict::Questionable) => Style::default().fg(theme.not_found),
+                None => Style::default(),
+            };
+
+            let phase_style = Style::default().fg(theme.paper_phase_color(&paper.phase));
+
+            let status_text = match &paper.phase {
+                PaperPhase::Retrying => {
+                    if paper.retry_total > 0 {
+                        format!(
+                            "{} Retrying {}/{}",
+                            spinner_char(app.tick),
+                            paper.retry_done,
+                            paper.retry_total
+                        )
+                    } else {
+                        format!("{} Retrying...", spinner_char(app.tick))
+                    }
+                }
+                PaperPhase::Checking => {
+                    let bar_w = 12;
+                    let (filled, empty) = if paper.total_refs > 0 {
+                        let done = paper.completed_count();
+                        let ratio = done as f64 / paper.total_refs as f64;
+                        let f = (ratio * bar_w as f64) as usize;
+                        (f, bar_w - f)
+                    } else {
+                        (0, bar_w)
+                    };
+                    format!(
+                        "{} {}{}",
+                        spinner_char(app.tick),
+                        "\u{2588}".repeat(filled),
+                        "\u{2591}".repeat(empty),
+                    )
+                }
+                PaperPhase::Extracting => {
+                    format!("{} {}", spinner_char(app.tick), paper.phase.label())
+                }
+                _ => paper.phase.label().to_string(),
+            };
+
+            if wide {
+                let refs = if paper.total_refs > 0 {
+                    format!("{}", paper.total_refs)
+                } else {
+                    "\u{2014}".to_string()
+                };
+                let pct = paper.problematic_pct();
+                let pct_text = if paper.total_refs > 0 && paper.completed_count() > 0 {
+                    if pct >= 10.0 {
+                        format!("{:.0}", pct)
+                    } else {
+                        format!("{:.1}", pct)
+                    }
+                } else {
+                    "\u{2014}".to_string()
+                };
+                let pct_style = if pct > 0.0 {
+                    Style::default().fg(theme.not_found)
+                } else {
+                    Style::default().fg(theme.dim)
+                };
+                let skip_text = format!("{}", paper.stats.skipped);
+                // `Safe` = count of refs where the user pressed Space to
+                // cycle an FP reason on. Derived on-the-fly from
+                // ref_states rather than stored on PaperState so it can
+                // never drift from the per-ref fp_reason source of truth.
+                let safe_count = app
+                    .ref_states
+                    .get(paper_idx)
+                    .map(|refs| refs.iter().filter(|rs| rs.is_marked_safe()).count())
+                    .unwrap_or(0);
+                let safe_style = if safe_count > 0 {
+                    Style::default().fg(theme.verified)
+                } else {
+                    Style::default().fg(theme.dim)
+                };
+                Row::new(vec![
+                    Cell::from(num),
+                    Cell::from(name).style(name_style),
+                    Cell::from(refs),
+                    Cell::from(format!("{}", paper.stats.verified))
+                        .style(Style::default().fg(theme.verified)),
+                    Cell::from(format!("{}", safe_count)).style(safe_style),
+                    Cell::from(format!("{}", paper.stats.mismatch))
+                        .style(Style::default().fg(theme.mismatch)),
+                    Cell::from(format!("{}", paper.stats.not_found))
+                        .style(Style::default().fg(theme.not_found)),
+                    Cell::from(skip_text).style(Style::default().fg(theme.dim)),
+                    Cell::from(pct_text).style(pct_style),
+                    Cell::from(format!("{}", paper.stats.retracted))
+                        .style(Style::default().fg(theme.retracted)),
+                    Cell::from(status_text).style(phase_style),
+                ])
+            } else {
+                let problems = paper.problems();
+                let prob_style = if problems > 0 {
+                    Style::default().fg(theme.not_found)
+                } else {
+                    Style::default().fg(theme.dim)
+                };
+                Row::new(vec![
+                    Cell::from(num),
+                    Cell::from(name).style(name_style),
+                    Cell::from(if paper.total_refs > 0 {
+                        format!("{}", paper.total_refs)
+                    } else {
+                        "\u{2014}".to_string()
+                    }),
+                    Cell::from(format!("{}", problems)).style(prob_style),
+                    Cell::from(status_text).style(phase_style),
+                ])
+            }
+        })
+        .collect();
+
+    let widths = if wide {
+        vec![
+            Constraint::Length(4),  // #
+            Constraint::Min(15),    // Paper
+            Constraint::Length(5),  // Refs
+            Constraint::Length(5),  // OK
+            Constraint::Length(5),  // Safe
+            Constraint::Length(5),  // Mis
+            Constraint::Length(5),  // NF
+            Constraint::Length(5),  // Skip
+            Constraint::Length(5),  // %
+            Constraint::Length(5),  // Ret
+            Constraint::Length(14), // Status
+        ]
+    } else {
+        vec![
+            Constraint::Length(4),
+            Constraint::Min(10),
+            Constraint::Length(5),
+            Constraint::Length(5),
+            Constraint::Length(14),
+        ]
+    };
+
+    let table = Table::new(rows, &widths)
+        .header(header)
+        .block(
+            Block::default()
+                .borders(Borders::ALL)
+                .border_style(theme.border_style())
+                .title(
+                    if app.sort_order == crate::model::queue::SortOrder::Original {
+                        format!(" Sort: {} (s) ", app.sort_order.label())
+                    } else if app.sort_reversed {
+                        format!(" Sort: {} \u{2191} (s) ", app.sort_order.label())
+                    } else {
+                        format!(" Sort: {} \u{2193} (s) ", app.sort_order.label())
+                    },
+                ),
+        )
+        .row_highlight_style(theme.highlight_style());
+
+    let mut state = TableState::default();
+    state.select(Some(app.queue_cursor));
+    f.render_stateful_widget(table, area, &mut state);
+}
+
+fn render_footer(f: &mut Frame, area: Rect, app: &App) {
+    let theme = &app.theme;
+
+    let mut spans: Vec<Span> = Vec::new();
+
+    // Show [r] Start/Stop indicator + keybindings
+    if !app.processing_started && !app.file_paths.is_empty() {
+        spans.push(Span::styled(
+            " [r] Start ",
+            Style::default()
+                .fg(theme.header_fg)
+                .bg(theme.active)
+                .add_modifier(Modifier::BOLD),
+        ));
+        spans.push(Span::styled(
+            " Space:mark  Enter:open  p:pdf  o:add  c:config  e:export  ?:help  q:quit",
+            theme.footer_style(),
+        ));
+    } else if app.processing_started && !app.batch_complete {
+        spans.push(Span::styled(
+            " [r] Stop ",
+            Style::default()
+                .fg(theme.header_fg)
+                .bg(theme.not_found)
+                .add_modifier(Modifier::BOLD),
+        ));
+        spans.push(Span::styled(
+            " Space:mark  Enter:open  p:pdf  s/S:sort  f:filter  c:config  e:export  ?:help",
+            theme.footer_style(),
+        ));
+    } else if app.batch_complete && !app.file_paths.is_empty() {
+        spans.push(Span::styled(
+            " [r] Start ",
+            Style::default()
+                .fg(theme.header_fg)
+                .bg(theme.active)
+                .add_modifier(Modifier::BOLD),
+        ));
+        spans.push(Span::styled(
+            " Space:mark  Enter:open  p:pdf  s/S:sort  f:filter  o:add  c:config  e:export  ?:help  q:quit",
+            theme.footer_style(),
+        ));
+    } else {
+        spans.push(Span::styled(
+            " Space:mark  Enter:open  p:pdf  s/S:sort  f:filter  o:add  c:config  e:export  ?:help  q:quit",
+            theme.footer_style(),
+        ));
+    }
+
+    let footer = Line::from(spans);
+    f.render_widget(Paragraph::new(footer), area);
+}

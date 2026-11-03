@@ -6,21 +6,21 @@ port keeps the original untouched beside it and lists its changes in a `PORT.md`
 
 | Component | Authors | Use in PeerCheck | License | Where |
 |---|---|---|---|---|
-| banal, the format analyzer of HotCRP | Geoffrey M. Voelker, Eddie Kohler | format check | GPL-2.0-or-later | `src/peercheck/vendor/banal/banal`, unchanged copy of `kohler/hotcrp` commit `4c1ef77` |
-| ACM SIGSOFT submission checker | Arie van Deursen, Tao Xie | anonymity and template check | Apache-2.0 | revised from release v0.4.3 of `acmsigsoft/submission-checker`, source in `external/submission-checker/`, built jar in `src/peercheck/vendor/submission-checker/` |
-| Apache PDFBox 2.0.37, Commons CLI 1.5.0, Commons CSV 1.9.0, Commons Text 1.15.0, Gson 2.15.0 | Apache Software Foundation, Google | libraries inside the jar | Apache-2.0 | `src/peercheck/vendor/submission-checker/submission-checker.jar` |
-| CoCoNUTS inference script | Chen et al. (icip-cas) | base of the CoCoDet port | no license file in the repository | `external/coconuts/infer.py`, port in `src/peercheck/reviews/cocodet.py` |
+| banal, the format analyzer of HotCRP | Geoffrey M. Voelker, Eddie Kohler | format check | GPL-2.0-or-later | `external/hotcrp/banal`, unchanged copy of `src/banal` of `kohler/hotcrp` commit `4c1ef77` |
+| ACM SIGSOFT submission checker | Arie van Deursen, Tao Xie | anonymity and template check | Apache-2.0 | revised from release v0.4.3 of `acmsigsoft/submission-checker`, source in `external/submission-checker/`, built jar `external/submission-checker/submission-checker.jar` |
+| Apache PDFBox 2.0.37, Commons CLI 1.5.0, Commons CSV 1.9.0, Commons Text 1.15.0, Gson 2.15.0 | Apache Software Foundation, Google | libraries inside the jar | Apache-2.0 | `external/submission-checker/submission-checker.jar` |
+| CoCoNUTS inference script | Chen et al. (icip-cas) | base of the CoCoDet port | no license file in the repository | `external/coconuts/infer.py`, port in `src/reviews/cocodet.py` |
 | CoCoDet weights | Chen et al. (icip-cas) | detector of AI-written reviews | MIT, per the model card | downloaded from `huggingface.co/khaaaaaan/CoCoDet` |
 | ModernBERT-base | Answer.AI, LightOn | encoder of CoCoDet | Apache-2.0 | downloaded from Hugging Face |
-| Binoculars | Hans et al. | second detector of AI-written reviews | BSD-3-Clause; its README calls the code "for academic purposes only" | `external/binoculars/`, port in `src/peercheck/reviews/binoculars.py` |
+| Binoculars | Hans et al. | second detector of AI-written reviews | BSD-3-Clause; its README calls the code "for academic purposes only" | `external/binoculars/`, port in `src/reviews/binoculars.py` |
 | Falcon-7B and Falcon-7B-Instruct | Technology Innovation Institute | models of Binoculars | Apache-2.0 | downloaded from Hugging Face |
-| EditLens RoBERTa-large (Open Pangram) | Pangram Labs (Thai et al.) | optional detector of AI-written reviews | CC BY-NC-SA 4.0, gated, non-commercial use only | downloaded from `huggingface.co/pangram/editlens_roberta-large` at a pinned revision, never bundled; PeerCheck runs its own inference code, and its two thresholds come from the validation scores of `pangramlabs/EditLens` commit `05a588f` |
-| Frequently Occurring Surnames from the 2010 Census | U.S. Census Bureau | surnames of the canary citations | public domain, a work of the U.S. government | the 9,999 most common surnames in `src/peercheck/data/census_surnames.txt` |
-| Hallucinator | Stringhini and Blackburn | reference check | AGPL-3.0-or-later | downloaded by `peercheck setup references`, never bundled; see `external/hallucinator/PORT.md` |
+| EditLens RoBERTa-large (Open Pangram) | Pangram Labs (Thai et al.) | optional detector of AI-written reviews | CC BY-NC-SA 4.0, gated, non-commercial use only | downloaded from `huggingface.co/pangram/editlens_roberta-large` at a pinned revision, never bundled; PeerCheck runs its own inference code, and its two thresholds come from the validation scores of `pangramlabs/EditLens` commit `05a588f`, whose code `external/editlens/` copies for reference |
+| Frequently Occurring Surnames from the 2010 Census | U.S. Census Bureau | surnames of the canary citations | public domain, a work of the U.S. government | the 9,999 most common surnames in `external/census-surnames/census_surnames.txt` |
+| Hallucinator | Stringhini and Blackburn | reference check | AGPL-3.0-or-later | binary downloaded by `peercheck setup references`; the source of release v0.2.4 sits in `external/hallucinator/` for reference, as its `PORT.md` describes |
 | pdfguardrail 0.3.0 | GitHub user sugannathan | hidden-text check | MIT | Python dependency |
-| PhantomLint phrase list | Toby Murray | phrases of the hidden-text check | BSD-3-Clause | copied into `src/peercheck/checks/hidden_text.py` |
-| HotCRP affiliation word lists | Eddie Kohler | affiliation matching of the conflict check | Click license (BSD style) | copied into `src/peercheck/conflicts.py` with its notice |
-| openreview-py webmail list | OpenReview | email domains of the conflict check | MIT | copied into `src/peercheck/conflicts.py` |
+| PhantomLint phrase list | Toby Murray | phrases of the hidden-text check | BSD-3-Clause | copied into `src/checks/hidden_text.py`; the package of `tobycmurray/phantom-lint` commit `7f62001` sits in `external/phantomlint/` for reference |
+| HotCRP affiliation word lists | Eddie Kohler | affiliation matching of the conflict check | Click license (BSD style) | copied into `src/conflicts.py` with its notice; `etc/affiliationmatchers.json` of commit `4c1ef77` sits in `external/hotcrp/` for reference |
+| openreview-py webmail list | OpenReview | email domains of the conflict check | MIT | copied into `src/conflicts.py`; `openreview/tools.py` of commit `9e8ba8e` sits in `external/openreview-py/` for reference |
 | PyMuPDF | Artifex | text and layout of PDFs | AGPL-3.0 or commercial | Python dependency |
 | datasketch, rapidfuzz, openpyxl, PyYAML, lxml, defusedxml | their authors | near-duplicate search, fuzzy matching, spreadsheets, profiles, XML | MIT, MIT, MIT, MIT, BSD-3-Clause, PSF | Python dependencies |
 | DBLP data | Schloss Dagstuhl, University of Trier | conflict check and reference check | CC0 1.0 | downloaded from `dblp.org/xml/` |

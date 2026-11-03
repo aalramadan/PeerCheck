@@ -17,7 +17,7 @@
 
 ## Port
 
-The port is `src/peercheck/reviews/binoculars.py`, with its tests in `tests/test_binoculars.py`. Two tests score five
+The port is `src/reviews/binoculars.py`, with its tests in `tests/test_binoculars.py`. Two tests score five
 texts with two tiny random models through `binoculars/metrics.py` of this folder and through the port. The scores agree
 within a relative difference of 1e-5 in float32 and of 1e-6 in bfloat16.
 

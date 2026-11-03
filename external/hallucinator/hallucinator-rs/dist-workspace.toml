@@ -1,0 +1,32 @@
+[workspace]
+members = ["cargo:."]
+
+# Config for 'dist'
+[dist]
+# The preferred dist version to use in CI (Cargo.toml SemVer syntax)
+cargo-dist-version = "0.30.3"
+# CI backends to support
+ci = "github"
+# The installers to generate for each app
+installers = ["shell", "powershell"]
+# Target platforms to build apps for (Rust target-triple syntax)
+# aarch64-unknown-linux-gnu excluded: ring crate cannot cross-compile ARM assembly
+targets = ["aarch64-apple-darwin", "x86_64-apple-darwin", "x86_64-unknown-linux-gnu", "x86_64-pc-windows-msvc"]
+# Path that installers should place binaries in
+install-path = "CARGO_HOME"
+# Where to host releases
+hosting = "github"
+# Whether to install an updater program
+install-updater = false
+# Don't overwrite our hand-edited CI workflow
+allow-dirty = ["ci"]
+# Only plan on PRs, don't build
+pr-run-mode = "plan"
+# mupdf-sys compiles MuPDF via MSBuild with /MD (dynamic CRT);
+# must disable dist's default +crt-static to avoid linker conflicts
+msvc-crt-static = false
+
+# System dependencies for Linux builds (mupdf needs fontconfig, scraper needs libclang)
+[dist.dependencies.apt]
+libfontconfig1-dev = '*'
+libclang-dev = '*'

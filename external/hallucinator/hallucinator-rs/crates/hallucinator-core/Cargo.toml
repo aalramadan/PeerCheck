@@ -1,0 +1,44 @@
+[package]
+name = "hallucinator-core"
+version.workspace = true
+edition.workspace = true
+license = "AGPL-3.0-or-later OR MIT"
+description = "Validation engine and database query backends for hallucinated reference detection"
+
+[package.metadata.dist]
+dist = false
+
+[dependencies]
+hallucinator-dblp.workspace = true
+hallucinator-acl.workspace = true
+hallucinator-arxiv-offline.workspace = true
+hallucinator-iacr-eprint.workspace = true
+hallucinator-openalex.workspace = true
+hallucinator-local-corpus.workspace = true
+tokio.workspace = true
+tokio-util.workspace = true
+reqwest.workspace = true
+scraper.workspace = true
+quick-xml.workspace = true
+rapidfuzz.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+regex.workspace = true
+once_cell.workspace = true
+thiserror.workspace = true
+governor.workspace = true
+arc-swap.workspace = true
+async-channel.workspace = true
+fastrand.workspace = true
+dashmap.workspace = true
+rusqlite.workspace = true
+toml.workspace = true
+dirs.workspace = true
+unicode-normalization = "0.1"
+bitflags = "2"
+urlencoding = "2"
+tracing.workspace = true
+
+[dev-dependencies]
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "test-util"] }
+http = "1"

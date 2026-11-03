@@ -1,0 +1,2802 @@
+use std::io::Write;
+use std::path::Path;
+
+use hallucinator_core::{CheckStats, DbStatus, MismatchKind, Status, ValidationResult};
+
+use crate::types::{ExportFormat, FpReason, PaperVerdict, ReportPaper, ReportRef};
+
+/// Export results for a set of papers to the given path.
+///
+/// `ref_states` is a parallel slice to `papers` — `ref_states[i]` are the ReportRefs
+/// for `papers[i]`. This is used to include FP reason overrides in the output.
+pub fn export_results(
+    papers: &[ReportPaper<'_>],
+    ref_states: &[&[ReportRef]],
+    format: ExportFormat,
+    path: &Path,
+    problematic_only: bool,
+) -> Result<(), String> {
+    let content = match format {
+        ExportFormat::Json => export_json(papers, ref_states, problematic_only),
+        ExportFormat::Csv => export_csv(papers, ref_states, problematic_only),
+        ExportFormat::Markdown => export_markdown(papers, ref_states, problematic_only),
+        ExportFormat::Text => export_text(papers, ref_states, problematic_only),
+        ExportFormat::Html => export_html(papers, ref_states, problematic_only),
+    };
+
+    let mut file =
+        std::fs::File::create(path).map_err(|e| format!("Failed to create file: {}", e))?;
+    file.write_all(content.as_bytes())
+        .map_err(|e| format!("Failed to write: {}", e))?;
+    Ok(())
+}
+
+fn status_str(s: &Status) -> &'static str {
+    match s {
+        Status::Verified => "verified",
+        Status::NotFound => "not_found",
+        Status::Mismatch(_) => "mismatch",
+    }
+}
+
+/// Effective status string used for the per-ref JSON field, taking into
+/// account the `--url-match` gate. A NotFound ref whose only remaining
+/// signal would have come from URL Check / Wayback (marked
+/// `url_check_skipped`) is serialized as `"skipped"` so JSON consumers
+/// and the TUI load path don't treat the run as having a potential
+/// hallucination the user chose not to verify.
+fn effective_status_str(r: &ValidationResult) -> &'static str {
+    if r.url_check_skipped {
+        return "skipped";
+    }
+    // A NotFound built on top of a failed lookup is "we could not check",
+    // not "this looks fabricated". Checked after the `url_check_skipped`
+    // gate so the existing gate semantics are untouched: that gate is a
+    // deliberate user opt-out, which is a stronger statement than a
+    // transient failure.
+    if r.is_inconclusive() {
+        return "inconclusive";
+    }
+    status_str(&r.status)
+}
+
+fn verdict_str(v: Option<PaperVerdict>) -> &'static str {
+    match v {
+        Some(PaperVerdict::Safe) => "safe",
+        Some(PaperVerdict::Questionable) => "questionable",
+        None => "",
+    }
+}
+
+fn is_retracted(r: &ValidationResult) -> bool {
+    r.retraction_info.as_ref().is_some_and(|ri| ri.is_retracted)
+}
+
+/// Whether a verified reference has an invalid DOI or arXiv ID.
+fn has_doi_arxiv_issue(r: &ValidationResult) -> bool {
+    r.status == Status::Verified
+        && (r.doi_info.as_ref().is_some_and(|d| !d.valid)
+            || r.arxiv_info.as_ref().is_some_and(|a| !a.valid))
+}
+
+/// Sort bucket for export ordering.
+///
+/// 0 = Retracted, 1 = Not Found, 2 = Author Mismatch,
+/// 3 = DOI/arXiv issues (verified but invalid DOI/arXiv),
+/// 4 = FP-overridden, 5 = Clean verified, 6 = Skipped,
+/// 7 = Inconclusive (NotFound with a failed lookup).
+///
+/// Inconclusive sorts below clean verified deliberately: it is not a
+/// finding, and putting it in the problems area is exactly the
+/// false-accusation behaviour this bucket exists to prevent.
+fn export_sort_key(r: &ValidationResult, fp: Option<FpReason>) -> u8 {
+    if fp.is_some() {
+        return 4;
+    }
+    if is_retracted(r) {
+        return 0;
+    }
+    if r.is_inconclusive() {
+        return 7;
+    }
+    // URL-gated NotFound refs are effectively skipped; group them with
+    // clean verified (5) rather than with the not-found bucket so they
+    // sort to the bottom of the per-paper section instead of cluttering
+    // the problems area with non-issues.
+    if r.url_check_skipped {
+        return 5;
+    }
+    match r.status {
+        Status::NotFound => 1,
+        Status::Mismatch(_) => 2,
+        Status::Verified => {
+            if has_doi_arxiv_issue(r) {
+                3
+            } else {
+                5
+            }
+        }
+    }
+}
+
+/// Entry for the sorted reference index used across all export formats.
+struct SortedRef<'a> {
+    /// Index into paper.results
+    ri: usize,
+    result: &'a ValidationResult,
+    fp: Option<FpReason>,
+    ref_num: usize,
+}
+
+/// Build a sorted list of refs for export: retracted → not found → mismatch →
+/// DOI/arXiv issues → FP-overridden → clean verified, with original ref number
+/// as tiebreaker within each bucket.
+fn build_sorted_refs<'a>(paper: &ReportPaper<'a>, paper_refs: &[ReportRef]) -> Vec<SortedRef<'a>> {
+    let mut entries: Vec<SortedRef<'a>> = Vec::new();
+    for (ri, result) in paper.results.iter().enumerate() {
+        if let Some(r) = result {
+            let fp = paper_refs.get(ri).and_then(|rs| rs.fp_reason);
+            let ref_num = paper_refs.get(ri).map(|rs| rs.index + 1).unwrap_or(ri + 1);
+            entries.push(SortedRef {
+                ri,
+                result: r,
+                fp,
+                ref_num,
+            });
+        }
+    }
+    entries.sort_by_key(|e| (export_sort_key(e.result, e.fp), e.ref_num));
+    entries
+}
+
+fn problematic_pct(stats: &CheckStats) -> f64 {
+    // Denominator is the *total* reference count, not `total -
+    // skipped`. The "problematic" stat sits next to "Total" in the
+    // report, and a reader naturally reads it as "what fraction of
+    // those <Total> references are problematic" — so the denominator
+    // had better be the same number they see on the Total card. The
+    // earlier `total - skipped` form gave a higher percentage (4/172
+    // = 2.3% instead of 4/251 = 1.6%) which surprised users; it
+    // implicitly assumed the reader thinks of skipped refs as
+    // "outside the universe", which they don't.
+    if stats.total == 0 {
+        0.0
+    } else {
+        let problems = stats.not_found + stats.author_mismatch + stats.retracted;
+        (problems as f64 / stats.total as f64) * 100.0
+    }
+}
+
+/// Return the paper's already-adjusted stats.
+///
+/// Historical note: this used to re-apply the false-positive move
+/// (decrement the ref's original bucket, increment `verified`) at
+/// export time. That assumed `paper.stats` held the *raw* counts
+/// before any FP marks, but every code path that mutates the stats —
+/// `record_status` / `apply_fp_delta` in the TUI for live PDF runs,
+/// the same pair in `load.rs` after deserialising a JSON, the
+/// spacebar handler when the user toggles a mark, and the
+/// propagation pass — already applies the move *once* into
+/// `paper.stats`. Doing it again here doubled the move: every non-
+/// url-gated FP-marked ref got `verified += 1` and a `not_found -= 1`
+/// (saturating to 0 since the move had already brought it down), so
+/// the visible categories summed to `Total + N` where N was the
+/// count of FP-marked refs with a `Some(result)` — i.e. excluding
+/// url-gated ones whose `result` is `None` after loading from JSON.
+///
+/// Now we trust the caller's bookkeeping and just clone the stats.
+/// The function is kept rather than inlined because callers want a
+/// `CheckStats` value (not a `&CheckStats`) and to leave an obvious
+/// hook for any future per-export adjustments.
+fn adjusted_stats(paper: &ReportPaper<'_>, _refs: &[ReportRef]) -> CheckStats {
+    paper.stats.clone()
+}
+
+fn json_escape(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    for c in s.chars() {
+        match c {
+            '"' => out.push_str("\\\""),
+            '\\' => out.push_str("\\\\"),
+            '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
+            '\t' => out.push_str("\\t"),
+            c if c < '\x20' => {
+                out.push_str(&format!("\\u{:04x}", c as u32));
+            }
+            c => out.push(c),
+        }
+    }
+    out
+}
+
+fn json_str(s: &str) -> String {
+    format!("\"{}\"", json_escape(s))
+}
+
+fn json_opt_str(s: &Option<String>) -> String {
+    match s {
+        Some(v) => json_str(v),
+        None => "null".to_string(),
+    }
+}
+
+fn json_str_array(v: &[String]) -> String {
+    let items: Vec<String> = v.iter().map(|s| json_str(s)).collect();
+    format!("[{}]", items.join(", "))
+}
+
+pub fn export_json(
+    papers: &[ReportPaper<'_>],
+    ref_states: &[&[ReportRef]],
+    problematic_only: bool,
+) -> String {
+    let mut out = String::from("[\n");
+    for (pi, paper) in papers.iter().enumerate() {
+        let paper_refs = ref_states.get(pi).copied().unwrap_or(&[]);
+        let s = adjusted_stats(paper, paper_refs);
+        let verdict_json = match paper.verdict {
+            Some(_) => json_str(verdict_str(paper.verdict)),
+            None => "null".to_string(),
+        };
+        out.push_str(&format!(
+            "  {{\n    \"filename\": {},\n    \"verdict\": {},\n    \"stats\": {{\n      \"total\": {},\n      \"verified\": {},\n      \"not_found\": {},\n      \"author_mismatch\": {},\n      \"retracted\": {},\n      \"skipped\": {},\n      \"inconclusive\": {},\n      \"problematic_pct\": {:.1}\n    }},\n    \"references\": [\n",
+            json_str(paper.filename),
+            verdict_json,
+            s.total, s.verified, s.not_found, s.author_mismatch, s.retracted, s.skipped,
+            s.inconclusive,
+            problematic_pct(&s),
+        ));
+
+        // Collect all entries to write: sorted results + skipped refs
+        let mut entries: Vec<String> = Vec::new();
+        let mut sorted = build_sorted_refs(paper, paper_refs);
+        if problematic_only {
+            sorted.retain(|e| export_sort_key(e.result, e.fp) < 3);
+        }
+
+        for sref in &sorted {
+            let r = sref.result;
+            let ri = sref.ri;
+            let fp_json = sref
+                .fp
+                .map(|fp| json_str(fp.as_str()))
+                .unwrap_or_else(|| "null".to_string());
+            let orig_num = sref.ref_num;
+            let effective = if sref.fp.is_some() {
+                "\"verified\""
+            } else if r.url_check_skipped {
+                // `--url-match` gate demotes URL-bearing NotFound refs
+                // to "skipped" in the effective view, matching the
+                // "status" field.
+                "\"skipped\""
+            } else if r.is_inconclusive() {
+                "\"inconclusive\""
+            } else {
+                match &r.status {
+                    Status::Verified => "\"verified\"",
+                    Status::NotFound => "\"not_found\"",
+                    Status::Mismatch(_) => "\"mismatch\"",
+                }
+            };
+            let mut entry = String::new();
+            entry.push_str("      {\n");
+            entry.push_str(&format!("        \"index\": {},\n", ri));
+            entry.push_str(&format!("        \"original_number\": {},\n", orig_num));
+            entry.push_str(&format!("        \"title\": {},\n", json_str(&r.title)));
+            entry.push_str(&format!(
+                "        \"raw_citation\": {},\n",
+                json_str(&r.raw_citation)
+            ));
+            entry.push_str(&format!(
+                "        \"status\": {},\n",
+                json_str(effective_status_str(r))
+            ));
+            entry.push_str(&format!("        \"effective_status\": {},\n", effective));
+            // Emit the raw gate signal too so consumers (and round-trip
+            // loaders) can tell a `--url-match`-suppressed ref apart
+            // from a real parse-time skip.
+            entry.push_str(&format!(
+                "        \"url_check_skipped\": {},\n",
+                r.url_check_skipped
+            ));
+            // Derived from status + failed_dbs, but emitted explicitly so
+            // JSON consumers don't have to re-implement the rule.
+            entry.push_str(&format!(
+                "        \"inconclusive\": {},\n",
+                r.is_inconclusive()
+            ));
+            entry.push_str(&format!("        \"fp_reason\": {},\n", fp_json));
+            entry.push_str(&format!(
+                "        \"source\": {},\n",
+                json_opt_str(&r.source)
+            ));
+            entry.push_str(&format!(
+                "        \"ref_authors\": {},\n",
+                json_str_array(&r.ref_authors)
+            ));
+            entry.push_str(&format!(
+                "        \"found_authors\": {},\n",
+                json_str_array(&r.found_authors)
+            ));
+            entry.push_str(&format!(
+                "        \"paper_url\": {},\n",
+                json_opt_str(&r.paper_url)
+            ));
+            entry.push_str(&format!(
+                "        \"failed_dbs\": {},\n",
+                json_str_array(&r.failed_dbs)
+            ));
+
+            // DOI info
+            if let Some(doi) = &r.doi_info {
+                entry.push_str(&format!(
+                    "        \"doi_info\": {{\"doi\": {}, \"valid\": {}, \"title\": {}}},\n",
+                    json_str(&doi.doi),
+                    doi.valid,
+                    json_opt_str(&doi.title)
+                ));
+            } else {
+                entry.push_str("        \"doi_info\": null,\n");
+            }
+
+            // arXiv info
+            if let Some(ax) = &r.arxiv_info {
+                entry.push_str(&format!(
+                    "        \"arxiv_info\": {{\"arxiv_id\": {}, \"valid\": {}, \"title\": {}}},\n",
+                    json_str(&ax.arxiv_id),
+                    ax.valid,
+                    json_opt_str(&ax.title)
+                ));
+            } else {
+                entry.push_str("        \"arxiv_info\": null,\n");
+            }
+
+            // Retraction info
+            if let Some(ret) = &r.retraction_info {
+                entry.push_str(&format!(
+                    "        \"retraction_info\": {{\"is_retracted\": {}, \"retraction_doi\": {}, \"retraction_source\": {}}},\n",
+                    ret.is_retracted,
+                    json_opt_str(&ret.retraction_doi),
+                    json_opt_str(&ret.retraction_source)
+                ));
+            } else {
+                entry.push_str("        \"retraction_info\": null,\n");
+            }
+
+            // Per-DB results
+            entry.push_str("        \"db_results\": [");
+            for (di, db) in r.db_results.iter().enumerate() {
+                let db_status = match db.status {
+                    DbStatus::Match => "match",
+                    DbStatus::NoMatch => "no_match",
+                    DbStatus::AuthorMismatch => "author_mismatch",
+                    DbStatus::Timeout => "timeout",
+                    DbStatus::RateLimited => "rate_limited",
+                    DbStatus::Error => "error",
+                    DbStatus::Skipped => "skipped",
+                };
+                let elapsed_ms = db.elapsed.map(|d| d.as_millis()).unwrap_or(0);
+                entry.push_str(&format!(
+                    "{{\"db\": {}, \"status\": {}, \"elapsed_ms\": {}, \"authors\": {}, \"url\": {}}}",
+                    json_str(&db.db_name),
+                    json_str(db_status),
+                    elapsed_ms,
+                    json_str_array(&db.found_authors),
+                    json_opt_str(&db.paper_url),
+                ));
+                if di + 1 < r.db_results.len() {
+                    entry.push_str(", ");
+                }
+            }
+            entry.push_str("]\n");
+            entry.push_str("      }");
+            entries.push(entry);
+        }
+
+        // Add skipped refs from ref_states (excluded in problematic-only mode)
+        if !problematic_only {
+            for rs in paper_refs {
+                if let Some(skip) = &rs.skip_info {
+                    let mut entry = String::new();
+                    entry.push_str("      {\n");
+                    entry.push_str(&format!("        \"index\": {},\n", rs.index));
+                    entry.push_str(&format!("        \"original_number\": {},\n", rs.index + 1));
+                    entry.push_str(&format!("        \"title\": {},\n", json_str(&rs.title)));
+                    entry.push_str("        \"raw_citation\": \"\",\n");
+                    entry.push_str("        \"status\": \"skipped\",\n");
+                    entry.push_str("        \"effective_status\": \"skipped\",\n");
+                    entry.push_str(&format!(
+                        "        \"skip_reason\": {},\n",
+                        json_str(&skip.reason)
+                    ));
+                    entry.push_str("        \"fp_reason\": null,\n");
+                    entry.push_str("        \"source\": null,\n");
+                    entry.push_str("        \"ref_authors\": [],\n");
+                    entry.push_str("        \"found_authors\": [],\n");
+                    entry.push_str("        \"paper_url\": null,\n");
+                    entry.push_str("        \"failed_dbs\": [],\n");
+                    entry.push_str("        \"doi_info\": null,\n");
+                    entry.push_str("        \"arxiv_info\": null,\n");
+                    entry.push_str("        \"retraction_info\": null,\n");
+                    entry.push_str("        \"db_results\": []\n");
+                    entry.push_str("      }");
+                    entries.push(entry);
+                }
+            }
+        } // end if !problematic_only
+
+        for (ei, entry) in entries.iter().enumerate() {
+            out.push_str(entry);
+            if ei + 1 < entries.len() {
+                out.push(',');
+            }
+            out.push('\n');
+        }
+        out.push_str("    ]\n  }");
+        if pi + 1 < papers.len() {
+            out.push(',');
+        }
+        out.push('\n');
+    }
+    out.push_str("]\n");
+    out
+}
+
+fn csv_escape(s: &str) -> String {
+    if s.contains('"') || s.contains(',') || s.contains('\n') {
+        format!("\"{}\"", s.replace('"', "\"\""))
+    } else {
+        s.to_string()
+    }
+}
+
+fn export_csv(
+    papers: &[ReportPaper<'_>],
+    ref_states: &[&[ReportRef]],
+    problematic_only: bool,
+) -> String {
+    let mut out = String::from(
+        "Filename,Verdict,Ref#,Title,Status,EffectiveStatus,FpReason,Source,Retracted,Authors,FoundAuthors,PaperURL,DOI,ArxivID,FailedDBs\n",
+    );
+    for (pi, paper) in papers.iter().enumerate() {
+        let verdict = verdict_str(paper.verdict);
+        let paper_refs = ref_states.get(pi).copied().unwrap_or(&[]);
+        let mut sorted = build_sorted_refs(paper, paper_refs);
+        if problematic_only {
+            sorted.retain(|e| export_sort_key(e.result, e.fp) < 3);
+        }
+        for sref in &sorted {
+            let r = sref.result;
+            let retracted = is_retracted(r);
+            let fp = sref.fp.map(|fp| fp.as_str()).unwrap_or("");
+            // CSV path mirrors JSON: `--url-match`-suppressed refs
+            // render as "skipped" so CSV consumers see the same
+            // bucketing as the CLI summary.
+            let effective = if sref.fp.is_some() {
+                "verified"
+            } else {
+                effective_status_str(r)
+            };
+            let authors = r.ref_authors.join("; ");
+            let found = r.found_authors.join("; ");
+            let url = r.paper_url.as_deref().unwrap_or("");
+            let doi = r.doi_info.as_ref().map(|d| d.doi.as_str()).unwrap_or("");
+            let arxiv = r
+                .arxiv_info
+                .as_ref()
+                .map(|a| a.arxiv_id.as_str())
+                .unwrap_or("");
+            let failed = r.failed_dbs.join("; ");
+            out.push_str(&format!(
+                "{},{},{},{},{},{},{},{},{},{},{},{},{},{},{}\n",
+                csv_escape(paper.filename),
+                csv_escape(verdict),
+                sref.ref_num,
+                csv_escape(&r.title),
+                status_str(&r.status),
+                effective,
+                csv_escape(fp),
+                csv_escape(r.source.as_deref().unwrap_or("")),
+                retracted,
+                csv_escape(&authors),
+                csv_escape(&found),
+                csv_escape(url),
+                csv_escape(doi),
+                csv_escape(arxiv),
+                csv_escape(&failed),
+            ));
+        }
+        // Add skipped refs (excluded in problematic-only mode)
+        if !problematic_only {
+            for rs in paper_refs {
+                if let Some(skip) = &rs.skip_info {
+                    out.push_str(&format!(
+                        "{},{},{},{},skipped,skipped,{},,,,,,,,\n",
+                        csv_escape(paper.filename),
+                        csv_escape(verdict),
+                        rs.index + 1,
+                        csv_escape(&rs.title),
+                        csv_escape(&skip.reason),
+                    ));
+                }
+            }
+        } // end if !problematic_only
+    }
+    out
+}
+
+fn md_escape(s: &str) -> String {
+    s.replace('|', "\\|")
+}
+
+fn scholar_url(title: &str) -> String {
+    format!(
+        "https://scholar.google.com/scholar?q={}",
+        title.replace(' ', "+")
+    )
+}
+
+fn export_markdown(
+    papers: &[ReportPaper<'_>],
+    ref_states: &[&[ReportRef]],
+    problematic_only: bool,
+) -> String {
+    let mut out = String::from("# Hallucinator Results\n\n");
+
+    for (pi, paper) in papers.iter().enumerate() {
+        let paper_refs = ref_states.get(pi).copied().unwrap_or(&[]);
+        let s = adjusted_stats(paper, paper_refs);
+        let verdict_badge = match paper.verdict {
+            Some(PaperVerdict::Safe) => " **[SAFE]**",
+            Some(PaperVerdict::Questionable) => " **[?!]**",
+            None => "",
+        };
+        out.push_str(&format!("## {}{}\n\n", paper.filename, verdict_badge));
+
+        // Stats summary
+        out.push_str(&format!(
+            "**{}** references | **{}** verified | **{}** not found | **{}** mismatch | **{}** retracted | **{}** skipped | **{:.1}%** problematic\n\n",
+            s.total, s.verified, s.not_found, s.author_mismatch, s.retracted, s.skipped,
+            problematic_pct(&s),
+        ));
+
+        // Build sorted refs and split into buckets
+        let sorted = build_sorted_refs(paper, paper_refs);
+        let mut problems: Vec<&SortedRef> = Vec::new();
+        let mut doi_arxiv_issues: Vec<&SortedRef> = Vec::new();
+        let mut fp_overrides: Vec<&SortedRef> = Vec::new();
+        let mut verified: Vec<&SortedRef> = Vec::new();
+        let mut inconclusive: Vec<&SortedRef> = Vec::new();
+        for sref in &sorted {
+            match export_sort_key(sref.result, sref.fp) {
+                0..=2 => problems.push(sref),
+                3 => doi_arxiv_issues.push(sref),
+                4 => fp_overrides.push(sref),
+                // Bucket 7 must not fall into the `verified` catch-all:
+                // an unverifiable ref listed under "Verified References"
+                // is the opposite lie from listing it as a hallucination.
+                7 => inconclusive.push(sref),
+                _ => verified.push(sref),
+            }
+        }
+
+        if !problems.is_empty() {
+            out.push_str("### Problematic References\n\n");
+            for sref in &problems {
+                write_md_ref(&mut out, sref.ref_num, sref.result);
+            }
+        }
+
+        if !doi_arxiv_issues.is_empty() {
+            out.push_str("### DOI/arXiv Issues\n\n");
+            for sref in &doi_arxiv_issues {
+                write_md_ref(&mut out, sref.ref_num, sref.result);
+            }
+        }
+
+        if !inconclusive.is_empty() {
+            out.push_str("### Inconclusive (Lookup Failed)\n\n");
+            out.push_str(
+                "These references could not be checked: one or more databases \
+                 failed after retries. This is **not** evidence of a problem \
+                 with the reference \u{2014} re-run them once the databases \
+                 are reachable.\n\n",
+            );
+            for sref in &inconclusive {
+                write_md_ref(&mut out, sref.ref_num, sref.result);
+            }
+        }
+
+        if !problematic_only && !fp_overrides.is_empty() {
+            out.push_str("### User-Verified References (FP Overrides)\n\n");
+            for sref in &fp_overrides {
+                let fp = sref.fp.unwrap();
+                out.push_str(&format!(
+                    "**[{}]** {} \u{2014} \u{2713} Verified (FP: {})\n\n",
+                    sref.ref_num,
+                    md_escape(&sref.result.title),
+                    fp.description(),
+                ));
+                if let Some(src) = &sref.result.source {
+                    out.push_str(&format!("- **Source:** {}\n", src));
+                }
+                if let Some(url) = &sref.result.paper_url {
+                    out.push_str(&format!("- [Paper URL]({})\n", url));
+                }
+                out.push_str(&format!(
+                    "- [Google Scholar]({})\n\n",
+                    scholar_url(&sref.result.title)
+                ));
+            }
+        }
+
+        if !problematic_only && !verified.is_empty() {
+            out.push_str("### Verified References\n\n");
+            out.push_str("| # | Title | Source | URL |\n");
+            out.push_str("|---|-------|--------|-----|\n");
+            for sref in &verified {
+                let r = sref.result;
+                let source = r.source.as_deref().unwrap_or("\u{2014}");
+                let url = r
+                    .paper_url
+                    .as_ref()
+                    .map(|u| format!("[link]({})", u))
+                    .unwrap_or_default();
+                out.push_str(&format!(
+                    "| {} | {} | {} | {} |\n",
+                    sref.ref_num,
+                    md_escape(&r.title),
+                    source,
+                    url,
+                ));
+            }
+            out.push('\n');
+        }
+
+        // Skipped references (excluded in problematic-only mode)
+        if !problematic_only {
+            let skipped: Vec<&ReportRef> = paper_refs
+                .iter()
+                .filter(|rs| rs.skip_info.is_some())
+                .collect();
+            if !skipped.is_empty() {
+                out.push_str("### Skipped References\n\n");
+                out.push_str("| # | Title | Reason |\n");
+                out.push_str("|---|-------|--------|\n");
+                for rs in &skipped {
+                    let reason = match rs.skip_info.as_ref().map(|s| s.reason.as_str()) {
+                        Some("url_only") => "URL-only",
+                        Some("short_title") => "Short title",
+                        Some("no_title") => "No title",
+                        Some(other) => other,
+                        None => "",
+                    };
+                    let title = if rs.title.is_empty() {
+                        "\u{2014}"
+                    } else {
+                        &rs.title
+                    };
+                    out.push_str(&format!(
+                        "| {} | {} | {} |\n",
+                        rs.index + 1,
+                        md_escape(title),
+                        reason,
+                    ));
+                }
+                out.push('\n');
+            }
+        } // end if !problematic_only
+
+        out.push_str("---\n\n");
+    }
+    out
+}
+
+fn write_md_ref(out: &mut String, ref_num: usize, r: &ValidationResult) {
+    let status_icon = if is_retracted(r) {
+        "\u{2620}\u{fe0f} RETRACTED".to_string()
+    } else if r.is_inconclusive() {
+        format!(
+            "\u{2049}\u{fe0f} Inconclusive (lookup failed: {})",
+            r.failed_dbs.join(", ")
+        )
+    } else {
+        match &r.status {
+            Status::NotFound => "\u{2717} Not Found".to_string(),
+            Status::Mismatch(kind) => {
+                format!("\u{26a0}\u{fe0f} Mismatch ({})", kind.description())
+            }
+            Status::Verified => "\u{2713} Verified".to_string(),
+        }
+    };
+
+    out.push_str(&format!(
+        "**[{}]** {} \u{2014} {}\n\n",
+        ref_num,
+        md_escape(&r.title),
+        status_icon,
+    ));
+
+    // Author comparison for mismatches
+    if let Status::Mismatch(kind) = &r.status {
+        if kind.contains(MismatchKind::AUTHOR) {
+            if !r.ref_authors.is_empty() {
+                out.push_str(&format!(
+                    "- **PDF authors:** {}\n",
+                    r.ref_authors.join(", ")
+                ));
+            }
+            if !r.found_authors.is_empty() {
+                out.push_str(&format!(
+                    "- **DB authors:** {}\n",
+                    r.found_authors.join(", ")
+                ));
+            } else {
+                out.push_str("- **DB authors:** *(no authors returned)*\n");
+            }
+        }
+        if let Some(src) = &r.source {
+            out.push_str(&format!("- **Source:** {}\n", src));
+        }
+    }
+
+    // DOI/arXiv issues
+    if let Some(doi) = &r.doi_info
+        && !doi.valid
+    {
+        out.push_str(&format!(
+            "- **DOI** `{}` \u{2014} invalid/unresolvable\n",
+            doi.doi
+        ));
+    }
+    if let Some(ax) = &r.arxiv_info
+        && !ax.valid
+    {
+        out.push_str(&format!("- **arXiv** `{}` \u{2014} invalid\n", ax.arxiv_id));
+    }
+
+    // Retraction details
+    if let Some(ret) = &r.retraction_info
+        && ret.is_retracted
+    {
+        if let Some(rdoi) = &ret.retraction_doi {
+            out.push_str(&format!(
+                "- **Retraction notice:** [{}](https://doi.org/{})\n",
+                rdoi, rdoi
+            ));
+        }
+        if let Some(src) = &ret.retraction_source {
+            out.push_str(&format!("- **Retraction source:** {}\n", src));
+        }
+    }
+
+    // Links
+    if let Some(url) = &r.paper_url {
+        out.push_str(&format!("- [Paper URL]({})\n", url));
+    }
+    out.push_str(&format!("- [Google Scholar]({})\n", scholar_url(&r.title)));
+
+    // Failed DBs
+    if !r.failed_dbs.is_empty() {
+        out.push_str(&format!("- **Timed out:** {}\n", r.failed_dbs.join(", ")));
+    }
+
+    // Raw citation in details block
+    if !r.raw_citation.is_empty() {
+        out.push_str("\n<details><summary>Raw citation</summary>\n\n");
+        out.push_str(&r.raw_citation);
+        out.push_str("\n\n</details>\n");
+    }
+
+    out.push('\n');
+}
+
+fn export_text(
+    papers: &[ReportPaper<'_>],
+    ref_states: &[&[ReportRef]],
+    problematic_only: bool,
+) -> String {
+    let mut out = String::from("Hallucinator Results\n");
+    out.push_str(&"=".repeat(60));
+    out.push('\n');
+
+    for (pi, paper) in papers.iter().enumerate() {
+        let paper_refs = ref_states.get(pi).copied().unwrap_or(&[]);
+        let s = adjusted_stats(paper, paper_refs);
+        let verdict_badge = match paper.verdict {
+            Some(PaperVerdict::Safe) => " [SAFE]",
+            Some(PaperVerdict::Questionable) => " [?!]",
+            None => "",
+        };
+        let title = format!("{}{}", paper.filename, verdict_badge);
+        out.push_str(&format!("\n{}\n", title));
+        out.push_str(&"-".repeat(title.len()));
+        out.push('\n');
+        out.push_str(&format!(
+            "  {} total | {} verified | {} not found | {} mismatch | {} retracted | {} skipped | {:.1}% problematic\n\n",
+            s.total, s.verified, s.not_found, s.author_mismatch, s.retracted, s.skipped,
+            problematic_pct(&s),
+        ));
+
+        let mut sorted = build_sorted_refs(paper, paper_refs);
+        if problematic_only {
+            sorted.retain(|e| export_sort_key(e.result, e.fp) < 3);
+        }
+        for sref in &sorted {
+            let r = sref.result;
+            let status = if let Some(fp) = sref.fp {
+                format!("Verified (FP: {})", fp.short_label())
+            } else if is_retracted(r) {
+                "RETRACTED".to_string()
+            } else if r.is_inconclusive() {
+                "INCONCLUSIVE".to_string()
+            } else {
+                match &r.status {
+                    Status::Verified => "Verified".to_string(),
+                    Status::NotFound => "NOT FOUND".to_string(),
+                    Status::Mismatch(kind) => format!("Mismatch ({})", kind.description()),
+                }
+            };
+            // When FP is set, status already shows "Verified (FP: ...)",
+            // but still tag retracted papers so the info isn't lost.
+            let retracted_tag = if is_retracted(r) && sref.fp.is_some() {
+                " [RETRACTED]"
+            } else {
+                ""
+            };
+            let source = r.source.as_deref().unwrap_or("-");
+            out.push_str(&format!(
+                "  [{}] {} - {} ({}){}\n",
+                sref.ref_num, r.title, status, source, retracted_tag,
+            ));
+
+            // Authors
+            if !r.ref_authors.is_empty() {
+                out.push_str(&format!(
+                    "       Authors (PDF): {}\n",
+                    r.ref_authors.join(", ")
+                ));
+            }
+            if let Status::Mismatch(kind) = &r.status
+                && kind.contains(MismatchKind::AUTHOR)
+            {
+                if !r.found_authors.is_empty() {
+                    out.push_str(&format!(
+                        "       Authors (DB):  {}\n",
+                        r.found_authors.join(", ")
+                    ));
+                } else {
+                    out.push_str("       Authors (DB):  (no authors returned)\n");
+                }
+            }
+
+            // DOI / arXiv
+            if let Some(doi) = &r.doi_info {
+                let valid = if doi.valid { "valid" } else { "INVALID" };
+                out.push_str(&format!("       DOI: {} ({})\n", doi.doi, valid));
+            }
+            if let Some(ax) = &r.arxiv_info {
+                let valid = if ax.valid { "valid" } else { "INVALID" };
+                out.push_str(&format!("       arXiv: {} ({})\n", ax.arxiv_id, valid));
+            }
+
+            // Retraction details
+            if let Some(ret) = &r.retraction_info
+                && ret.is_retracted
+            {
+                if let Some(rdoi) = &ret.retraction_doi {
+                    out.push_str(&format!("       Retraction DOI: {}\n", rdoi));
+                }
+                if let Some(src) = &ret.retraction_source {
+                    out.push_str(&format!("       Retraction source: {}\n", src));
+                }
+            }
+
+            // Paper URL
+            if let Some(url) = &r.paper_url {
+                out.push_str(&format!("       URL: {}\n", url));
+            }
+
+            // Failed DBs
+            if !r.failed_dbs.is_empty() {
+                out.push_str(&format!("       Timed out: {}\n", r.failed_dbs.join(", ")));
+            }
+
+            // Raw citation
+            if !r.raw_citation.is_empty() {
+                out.push_str(&format!("       Citation: {}\n", r.raw_citation));
+            }
+        }
+
+        // Skipped references (excluded in problematic-only mode)
+        if !problematic_only {
+            let skipped: Vec<&ReportRef> = paper_refs
+                .iter()
+                .filter(|rs| rs.skip_info.is_some())
+                .collect();
+            if !skipped.is_empty() {
+                out.push_str("\n  Skipped references:\n");
+                for rs in &skipped {
+                    let reason = match rs.skip_info.as_ref().map(|s| s.reason.as_str()) {
+                        Some("url_only") => "URL-only",
+                        Some("short_title") => "Short title",
+                        Some("no_title") => "No title",
+                        Some(other) => other,
+                        None => "",
+                    };
+                    let title = if rs.title.is_empty() {
+                        "(no title)"
+                    } else {
+                        &rs.title
+                    };
+                    out.push_str(&format!("  [{}] {} - {}\n", rs.index + 1, title, reason));
+                }
+            }
+        }
+    }
+    out
+}
+
+fn html_escape(s: &str) -> String {
+    s.replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
+}
+
+fn export_html(
+    papers: &[ReportPaper<'_>],
+    ref_states: &[&[ReportRef]],
+    problematic_only: bool,
+) -> String {
+    let mut out = String::with_capacity(16384);
+
+    // Aggregate adjusted stats across all papers
+    let mut total_stats = CheckStats::default();
+    for (pi, p) in papers.iter().enumerate() {
+        let pr = ref_states.get(pi).copied().unwrap_or(&[]);
+        let adj = adjusted_stats(p, pr);
+        total_stats.total += adj.total;
+        total_stats.verified += adj.verified;
+        total_stats.not_found += adj.not_found;
+        total_stats.author_mismatch += adj.author_mismatch;
+        total_stats.retracted += adj.retracted;
+        total_stats.skipped += adj.skipped;
+        total_stats.inconclusive += adj.inconclusive;
+    }
+
+    out.push_str(
+        r#"<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Hallucinator Report</title>
+<style>
+:root {
+  --bg: #1a1a2e;
+  --surface: #16213e;
+  --card: #0f3460;
+  --text: #e0e0e0;
+  --dim: #888;
+  --green: #4ecca3;
+  --red: #e74c3c;
+  --yellow: #f39c12;
+  --dark-red: #8b0000;
+  --blue: #3498db;
+  --border: #2a2a4a;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  line-height: 1.6;
+  padding: 2rem;
+}
+h1 { color: var(--green); margin-bottom: 1.5rem; font-size: 1.8rem; }
+h2 { color: var(--text); margin: 1.5rem 0 1rem; font-size: 1.3rem; }
+.stats {
+  display: flex;
+  gap: 1rem;
+  flex-wrap: wrap;
+  margin-bottom: 2rem;
+}
+.stat-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 1rem 1.5rem;
+  text-align: center;
+  min-width: 120px;
+}
+.stat-card .number {
+  font-size: 2rem;
+  font-weight: bold;
+  display: block;
+}
+.stat-card .label { font-size: 0.85rem; color: var(--dim); }
+.stat-card .sublabel {
+  display: block;
+  font-size: 0.7rem;
+  color: var(--green);
+  margin-top: 0.2rem;
+}
+.stat-card.verified .number { color: var(--green); }
+.stat-card.not-found .number { color: var(--red); }
+.stat-card.mismatch .number { color: var(--yellow); }
+.stat-card.retracted .number { color: var(--dark-red); }
+.stat-card.skipped .number { color: var(--dim); }
+.stat-card.inconclusive .number { color: var(--blue); }
+.stat-card.safe .number { color: var(--green); }
+.stat-card.total .number { color: var(--text); }
+.stat-card.pct .number { color: var(--red); }
+details {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  margin-bottom: 1rem;
+}
+summary {
+  padding: 0.8rem 1rem;
+  cursor: pointer;
+  font-weight: 600;
+}
+summary:hover { background: var(--card); border-radius: 8px; }
+.paper-content { padding: 0 1rem 1rem; }
+.paper-stats {
+  font-size: 0.85rem;
+  color: var(--dim);
+  font-weight: 400;
+  margin-left: 0.5rem;
+}
+.ref-card {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 1rem;
+  margin-bottom: 0.75rem;
+}
+.ref-header {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin-bottom: 0.5rem;
+}
+.ref-num {
+  color: var(--dim);
+  font-weight: bold;
+  min-width: 2rem;
+}
+.ref-title { font-weight: 600; flex: 1; }
+.badge {
+  display: inline-block;
+  padding: 0.2rem 0.6rem;
+  border-radius: 4px;
+  font-size: 0.75rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+.badge.verified { background: var(--green); color: #000; }
+.badge.not-found { background: var(--red); color: #fff; }
+.badge.mismatch { background: var(--yellow); color: #000; }
+.badge.retracted { background: var(--dark-red); color: #fff; }
+.badge.skipped { background: var(--dim); color: #fff; }
+.badge.inconclusive { background: var(--blue); color: #000; }
+.ref-detail {
+  font-size: 0.9rem;
+  color: var(--dim);
+  margin-top: 0.5rem;
+}
+.ref-detail dt {
+  font-weight: 600;
+  color: var(--text);
+  margin-top: 0.4rem;
+}
+.ref-detail dd { margin-left: 1rem; }
+.author-compare {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.5rem;
+  margin-top: 0.3rem;
+}
+.author-compare div { padding: 0.3rem 0.5rem; border-radius: 4px; font-size: 0.85rem; }
+.author-compare .pdf-authors { background: rgba(231, 76, 60, 0.15); }
+.author-compare .db-authors { background: rgba(78, 204, 163, 0.15); }
+.retraction-warning {
+  background: rgba(139, 0, 0, 0.2);
+  border: 1px solid var(--dark-red);
+  border-radius: 4px;
+  padding: 0.5rem 0.75rem;
+  margin-top: 0.5rem;
+  font-size: 0.9rem;
+}
+.citation-block {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 0.5rem 0.75rem;
+  margin-top: 0.5rem;
+  font-size: 0.85rem;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+a { color: var(--blue); text-decoration: none; }
+a:hover { text-decoration: underline; }
+.links { margin-top: 0.4rem; }
+.links a { margin-right: 1rem; }
+footer {
+  margin-top: 3rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--border);
+  font-size: 0.85rem;
+  color: var(--dim);
+  text-align: center;
+}
+.toolbar {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  margin-bottom: 1.5rem;
+}
+.sort-label {
+  color: var(--dim);
+  font-size: 0.85rem;
+  margin-left: 1rem;
+}
+.toggle-btn {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  color: var(--text);
+  padding: 0.5rem 1rem;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 0.9rem;
+}
+.toggle-btn:hover { background: var(--card); }
+.toggle-btn.active { border-color: var(--green); color: var(--green); }
+body.hide-verified .ref-card[data-status="verified"] { display: none; }
+</style>
+</head>
+<body>
+<h1>Hallucinator Report</h1>
+"#,
+    );
+
+    // Count refs marked safe (fp_reason set) across all papers — these
+    // are folded into `total_stats.verified` by `adjusted_stats`. We
+    // surface the count as a small sub-label under the Verified card
+    // (not its own card), so the reader can see at a glance how much
+    // of Verified is user-vouched-for without polluting the additive
+    // category row.
+    let safe_count: usize = ref_states
+        .iter()
+        .map(|refs| refs.iter().filter(|r| r.fp_reason.is_some()).count())
+        .sum();
+
+    // Top stats: only the additive categories.
+    //
+    //     Total = Verified + Not Found + Mismatch + Skipped
+    //
+    // Every ref lives in exactly one of those four buckets after
+    // `adjusted_stats` has moved FP-marked refs into Verified. We
+    // hide cards whose count is 0 to keep the row compact (Retracted
+    // is the most common — most reports have none). `Retracted` is
+    // orthogonal to the status buckets (a ref can be Verified-and-
+    // retracted), so when it's non-zero it renders alongside the
+    // others as a separate annotation card.
+    out.push_str("<div class=\"stats\">\n");
+    write_stat_card(&mut out, "total", total_stats.total, "Total");
+    write_stat_card_with_sublabel(
+        &mut out,
+        "verified",
+        total_stats.verified,
+        "Verified",
+        if safe_count > 0 {
+            Some(format!("{} marked safe", safe_count))
+        } else {
+            None
+        },
+    );
+    if total_stats.not_found > 0 {
+        write_stat_card(&mut out, "not-found", total_stats.not_found, "Not Found");
+    }
+    if total_stats.author_mismatch > 0 {
+        write_stat_card(
+            &mut out,
+            "mismatch",
+            total_stats.author_mismatch,
+            "Mismatch",
+        );
+    }
+    if total_stats.retracted > 0 {
+        write_stat_card(&mut out, "retracted", total_stats.retracted, "Retracted");
+    }
+    if total_stats.skipped > 0 {
+        write_stat_card(&mut out, "skipped", total_stats.skipped, "Skipped");
+    }
+    if total_stats.inconclusive > 0 {
+        write_stat_card_with_sublabel(
+            &mut out,
+            "inconclusive",
+            total_stats.inconclusive,
+            "Inconclusive",
+            Some("lookup failed".to_string()),
+        );
+    }
+    let pct = problematic_pct(&total_stats);
+    out.push_str(&format!(
+        "<div class=\"stat-card pct\"><span class=\"number\">{:.1}%</span><span class=\"label\">Problematic</span></div>\n",
+        pct,
+    ));
+    out.push_str("</div>\n");
+
+    // Toolbar with hide-verified toggle and sort controls
+    out.push_str("<div class=\"toolbar\">\n");
+    if !problematic_only {
+        out.push_str(
+            "<button class=\"toggle-btn\" id=\"toggle-verified\" onclick=\"document.body.classList.toggle('hide-verified');this.classList.toggle('active')\">\
+             Hide Verified\
+             </button>\n",
+        );
+    }
+    out.push_str(
+        "<span class=\"sort-label\">Sort by:</span>\n\
+         <button class=\"toggle-btn sort-btn active\" data-sort=\"order\" onclick=\"sortPapers('order',this)\">Paper #</button>\n\
+         <button class=\"toggle-btn sort-btn\" data-sort=\"not-found\" onclick=\"sortPapers('not-found',this)\">Not Found</button>\n\
+         <button class=\"toggle-btn sort-btn\" data-sort=\"mismatch\" onclick=\"sortPapers('mismatch',this)\">Mismatch</button>\n\
+         <button class=\"toggle-btn sort-btn\" data-sort=\"retracted\" onclick=\"sortPapers('retracted',this)\">Retracted</button>\n\
+         <button class=\"toggle-btn sort-btn\" data-sort=\"pct\" onclick=\"sortPapers('pct',this)\">% Problematic</button>\n\
+         </div>\n",
+    );
+
+    // Per-paper sections
+    out.push_str("<div id=\"papers\">\n");
+    for (pi, paper) in papers.iter().enumerate() {
+        let paper_refs = ref_states.get(pi).copied().unwrap_or(&[]);
+        let s = adjusted_stats(paper, paper_refs);
+        let pp = problematic_pct(&s);
+        let verdict_html = match paper.verdict {
+            Some(PaperVerdict::Safe) => " <span class=\"badge verified\">SAFE</span>",
+            Some(PaperVerdict::Questionable) => " <span class=\"badge not-found\">?!</span>",
+            None => "",
+        };
+        out.push_str(&format!(
+            "<details data-order=\"{}\" data-not-found=\"{}\" data-mismatch=\"{}\" data-retracted=\"{}\" data-pct=\"{:.2}\">\n<summary>{}{} <span class=\"paper-stats\">{} total &middot; {} verified &middot; {} not found &middot; {} mismatch &middot; {} retracted &middot; {} skipped &middot; {:.1}% problematic</span></summary>\n<div class=\"paper-content\">\n",
+            pi, s.not_found, s.author_mismatch, s.retracted, pp,
+            html_escape(paper.filename),
+            verdict_html,
+            s.total, s.verified, s.not_found, s.author_mismatch, s.retracted, s.skipped, pp,
+        ));
+
+        let mut sorted = build_sorted_refs(paper, paper_refs);
+        if problematic_only {
+            sorted.retain(|e| export_sort_key(e.result, e.fp) < 3);
+        }
+        for sref in &sorted {
+            write_html_ref(&mut out, sref.ref_num, sref.result, sref.fp);
+        }
+
+        // Skipped refs (excluded in problematic-only mode)
+        let skipped: Vec<&ReportRef> = if problematic_only {
+            vec![]
+        } else {
+            paper_refs
+                .iter()
+                .filter(|rs| rs.skip_info.is_some())
+                .collect()
+        };
+        if !skipped.is_empty() {
+            out.push_str(
+                "<h3 style=\"color:var(--dim);margin-top:1.5rem\">Skipped References</h3>\n",
+            );
+            for rs in &skipped {
+                let reason = match rs.skip_info.as_ref().map(|s| s.reason.as_str()) {
+                    Some("url_only") => "URL-only",
+                    Some("short_title") => "Short title",
+                    Some("no_title") => "No title",
+                    Some(other) => other,
+                    None => "",
+                };
+                let title = if rs.title.is_empty() {
+                    "\u{2014}"
+                } else {
+                    &rs.title
+                };
+                out.push_str(&format!(
+                    "<div class=\"ref-card\" style=\"opacity:0.5\"><div class=\"ref-header\"><span class=\"ref-num\">[{}]</span><span class=\"ref-title\">{}</span><span class=\"badge\" style=\"background:var(--dim);color:#fff\">{}</span></div></div>\n",
+                    rs.index + 1,
+                    html_escape(title),
+                    html_escape(reason),
+                ));
+            }
+        }
+
+        out.push_str("</div>\n</details>\n");
+    }
+    out.push_str("</div>\n"); // close #papers
+
+    // Sort script. Use getAttribute('data-'+key) instead of
+    // dataset[key]: dataset only exposes camelCased keys, so
+    // dataset['not-found'] is undefined even though the attribute
+    // is data-not-found. getAttribute works for both hyphenated and
+    // single-word keys.
+    out.push_str(
+        "<script>\n\
+         function sortPapers(key,btn){\n\
+           document.querySelectorAll('.sort-btn').forEach(b=>b.classList.remove('active'));\n\
+           btn.classList.add('active');\n\
+           var c=document.getElementById('papers');\n\
+           var items=[].slice.call(c.children);\n\
+           items.sort(function(a,b){\n\
+             var av=parseFloat(a.getAttribute('data-'+key))||0;\n\
+             var bv=parseFloat(b.getAttribute('data-'+key))||0;\n\
+             if(key==='order') return av-bv;\n\
+             return bv-av;\n\
+           });\n\
+           items.forEach(function(el){c.appendChild(el);});\n\
+         }\n\
+         </script>\n",
+    );
+
+    // Footer with timestamp
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs();
+    // Simple UTC date: YYYY-MM-DD HH:MM UTC
+    let secs_per_day = 86400u64;
+    let days = now / secs_per_day;
+    let time_of_day = now % secs_per_day;
+    let hours = time_of_day / 3600;
+    let minutes = (time_of_day % 3600) / 60;
+    // Days since epoch to Y-M-D (simplified)
+    let (year, month, day) = days_to_ymd(days);
+    out.push_str(&format!(
+        "\n<footer>Generated by <strong>Hallucinator</strong> &mdash; {:04}-{:02}-{:02} {:02}:{:02} UTC</footer>\n",
+        year, month, day, hours, minutes,
+    ));
+
+    out.push_str("</body>\n</html>\n");
+    out
+}
+
+fn write_stat_card(out: &mut String, class: &str, value: usize, label: &str) {
+    write_stat_card_with_sublabel(out, class, value, label, None);
+}
+
+fn write_stat_card_with_sublabel(
+    out: &mut String,
+    class: &str,
+    value: usize,
+    label: &str,
+    sublabel: Option<String>,
+) {
+    out.push_str(&format!(
+        "<div class=\"stat-card {}\"><span class=\"number\">{}</span><span class=\"label\">{}</span>",
+        class, value, label,
+    ));
+    if let Some(sub) = sublabel {
+        out.push_str(&format!(
+            "<span class=\"sublabel\">{}</span>",
+            html_escape(&sub)
+        ));
+    }
+    out.push_str("</div>\n");
+}
+
+fn write_html_ref(out: &mut String, ref_num: usize, r: &ValidationResult, fp: Option<FpReason>) {
+    let retracted = is_retracted(r);
+    let (badge_class, badge_text) = if fp.is_some() {
+        ("verified".to_string(), "Verified".to_string())
+    } else if retracted {
+        ("retracted".to_string(), "RETRACTED".to_string())
+    } else if r.url_check_skipped {
+        // Mirror `effective_status_str`: a NotFound ref whose only
+        // remaining signal would have come from URL Check / Wayback was
+        // gated by `--url-match` and is effectively skipped, not a
+        // genuine "not found". The JSON export already collapses these
+        // to "skipped" via `effective_status`; the HTML must follow
+        // suit so users don't see hundreds of bogus "Not Found" badges
+        // for URL-only references they explicitly opted out of probing.
+        ("skipped".to_string(), "Skipped".to_string())
+    } else if r.is_inconclusive() {
+        // NotFound on top of a failed lookup. Rendering this as "Not
+        // Found" is the false accusation this bucket exists to stop, so
+        // it gets its own badge and its own filter state.
+        ("inconclusive".to_string(), "Inconclusive".to_string())
+    } else {
+        match &r.status {
+            Status::Verified => ("verified".to_string(), "Verified".to_string()),
+            Status::NotFound => ("not-found".to_string(), "Not Found".to_string()),
+            Status::Mismatch(kind) => (
+                "mismatch".to_string(),
+                format!("Mismatch ({})", kind.description()),
+            ),
+        }
+    };
+
+    out.push_str(&format!(
+        "<div class=\"ref-card\" data-status=\"{}\">\n",
+        badge_class,
+    ));
+    out.push_str("<div class=\"ref-header\">\n");
+    out.push_str(&format!("<span class=\"ref-num\">[{}]</span>\n", ref_num));
+    out.push_str(&format!(
+        "<span class=\"ref-title\">{}</span>\n",
+        html_escape(&r.title)
+    ));
+    out.push_str(&format!(
+        "<span class=\"badge {}\">{}</span>\n",
+        badge_class, badge_text
+    ));
+    if let Some(reason) = fp {
+        out.push_str(&format!(
+            "<span class=\"badge verified\" style=\"margin-left:0.3rem\">FP: {}</span>\n",
+            html_escape(reason.short_label())
+        ));
+    }
+    out.push_str("</div>\n");
+
+    // Source
+    if let Some(src) = &r.source {
+        out.push_str(&format!(
+            "<div class=\"ref-detail\">Verified via <strong>{}</strong></div>\n",
+            html_escape(src)
+        ));
+    }
+
+    // Author comparison for mismatches
+    if let Status::Mismatch(kind) = &r.status
+        && kind.contains(MismatchKind::AUTHOR)
+    {
+        out.push_str("<div class=\"author-compare\">\n");
+        out.push_str(&format!(
+            "<div class=\"pdf-authors\"><strong>PDF:</strong> {}</div>\n",
+            html_escape(&r.ref_authors.join(", "))
+        ));
+        let db_authors_text = if r.found_authors.is_empty() {
+            "<em>(no authors returned)</em>".to_string()
+        } else {
+            html_escape(&r.found_authors.join(", "))
+        };
+        out.push_str(&format!(
+            "<div class=\"db-authors\"><strong>DB:</strong> {}</div>\n",
+            db_authors_text
+        ));
+        out.push_str("</div>\n");
+    }
+
+    // DOI / arXiv
+    if let Some(doi) = &r.doi_info {
+        if doi.valid {
+            out.push_str(&format!(
+                "<div class=\"ref-detail\">DOI: <a href=\"https://doi.org/{}\">{}</a></div>\n",
+                html_escape(&doi.doi),
+                html_escape(&doi.doi),
+            ));
+        } else {
+            out.push_str(&format!(
+                "<div class=\"ref-detail\" style=\"color:var(--red)\">DOI: {} (invalid)</div>\n",
+                html_escape(&doi.doi),
+            ));
+        }
+    }
+    if let Some(ax) = &r.arxiv_info {
+        if ax.valid {
+            out.push_str(&format!(
+                "<div class=\"ref-detail\">arXiv: <a href=\"https://arxiv.org/abs/{}\">{}</a></div>\n",
+                html_escape(&ax.arxiv_id),
+                html_escape(&ax.arxiv_id),
+            ));
+        } else {
+            out.push_str(&format!(
+                "<div class=\"ref-detail\" style=\"color:var(--red)\">arXiv: {} (invalid)</div>\n",
+                html_escape(&ax.arxiv_id),
+            ));
+        }
+    }
+
+    // Retraction warning
+    if let Some(ret) = &r.retraction_info
+        && ret.is_retracted
+    {
+        out.push_str("<div class=\"retraction-warning\">\u{26a0}\u{fe0f} <strong>This paper has been retracted.</strong>");
+        if let Some(rdoi) = &ret.retraction_doi {
+            out.push_str(&format!(
+                " <a href=\"https://doi.org/{}\">Retraction notice</a>",
+                html_escape(rdoi),
+            ));
+        }
+        if let Some(src) = &ret.retraction_source {
+            out.push_str(&format!(" ({})", html_escape(src)));
+        }
+        out.push_str("</div>\n");
+    }
+
+    // Links
+    out.push_str("<div class=\"links\">");
+    if let Some(url) = &r.paper_url {
+        out.push_str(&format!("<a href=\"{}\">Paper URL</a>", html_escape(url)));
+    }
+    out.push_str(&format!(
+        "<a href=\"{}\">Google Scholar</a>",
+        html_escape(&scholar_url(&r.title))
+    ));
+    out.push_str("</div>\n");
+
+    // Failed DBs
+    if !r.failed_dbs.is_empty() {
+        out.push_str(&format!(
+            "<div class=\"ref-detail\">Timed out: {}</div>\n",
+            html_escape(&r.failed_dbs.join(", "))
+        ));
+    }
+
+    // Raw citation
+    if !r.raw_citation.is_empty() {
+        out.push_str("<details><summary>Raw citation</summary>\n");
+        out.push_str(&format!(
+            "<div class=\"citation-block\">{}</div>\n",
+            html_escape(&r.raw_citation)
+        ));
+        out.push_str("</details>\n");
+    }
+
+    out.push_str("</div>\n");
+}
+
+/// Convert days since Unix epoch to (year, month, day).
+fn days_to_ymd(days: u64) -> (u64, u64, u64) {
+    // Simplified civil calendar conversion
+    let z = days + 719468;
+    let era = z / 146097;
+    let doe = z - era * 146097;
+    let yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365;
+    let y = yoe + era * 400;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let d = doy - (153 * mp + 2) / 5 + 1;
+    let m = if mp < 10 { mp + 3 } else { mp - 9 };
+    let y = if m <= 2 { y + 1 } else { y };
+    (y, m, d)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::str::FromStr;
+
+    use crate::types::{ExportFormat, FpReason, PaperVerdict, ReportPaper, ReportRef, SkipInfo};
+    use hallucinator_core::{CheckStats, DoiInfo, RetractionInfo, Status, ValidationResult};
+
+    // ── helpers ──────────────────────────────────────────────────────
+
+    fn make_result(title: &str, status: Status) -> ValidationResult {
+        ValidationResult {
+            title: title.to_string(),
+            raw_citation: String::new(),
+            ref_authors: vec![],
+            status,
+            source: None,
+            found_authors: vec![],
+            paper_url: None,
+            failed_dbs: vec![],
+            db_results: vec![],
+            doi_info: None,
+            arxiv_info: None,
+            retraction_info: None,
+            url_check_skipped: false,
+        }
+    }
+
+    fn make_paper<'a>(
+        filename: &'a str,
+        stats: &'a CheckStats,
+        results: &'a [Option<ValidationResult>],
+    ) -> ReportPaper<'a> {
+        ReportPaper {
+            filename,
+            stats,
+            results,
+            verdict: None,
+        }
+    }
+
+    fn make_ref(index: usize, title: &str) -> ReportRef {
+        ReportRef {
+            index,
+            title: title.to_string(),
+            skip_info: None,
+            fp_reason: None,
+        }
+    }
+
+    fn make_ref_fp(index: usize, title: &str, fp: FpReason) -> ReportRef {
+        ReportRef {
+            index,
+            title: title.to_string(),
+            skip_info: None,
+            fp_reason: Some(fp),
+        }
+    }
+
+    fn make_ref_skipped(index: usize, title: &str, reason: &str) -> ReportRef {
+        ReportRef {
+            index,
+            title: title.to_string(),
+            skip_info: Some(SkipInfo {
+                reason: reason.to_string(),
+            }),
+            fp_reason: None,
+        }
+    }
+
+    fn make_retracted(title: &str) -> ValidationResult {
+        let mut r = make_result(title, Status::Verified);
+        r.retraction_info = Some(RetractionInfo {
+            is_retracted: true,
+            retraction_doi: Some("10.1234/retracted".to_string()),
+            retraction_source: Some("CrossRef".to_string()),
+        });
+        r
+    }
+
+    // ── P1: pure helper functions ───────────────────────────────────
+
+    #[test]
+    fn test_url_match_gate_renders_notfound_as_skipped_in_json() {
+        // Regression guard for the `--url-match` gate: a ValidationResult
+        // that finished as `Status::NotFound` but carried
+        // `url_check_skipped = true` must render as `"status": "skipped"`
+        // in the exported JSON. Without this, URL-bearing refs that the
+        // user opted not to URL-verify would still show up as potential
+        // hallucinations in downstream consumers.
+        let mut r = make_result("Some URL-bearing citation", Status::NotFound);
+        r.url_check_skipped = true;
+        let results = vec![Some(r)];
+        let stats = CheckStats {
+            total: 1,
+            skipped: 1,
+            ..Default::default()
+        };
+        let paper = make_paper("test.pdf", &stats, &results);
+        let ref_states: Vec<&[ReportRef]> = vec![&[]];
+        let json = export_json(&[paper], &ref_states, false);
+        assert!(
+            json.contains("\"status\": \"skipped\""),
+            "expected status=skipped in JSON, got:\n{}",
+            json
+        );
+        // Effective status should follow the same demotion.
+        assert!(
+            json.contains("\"effective_status\": \"skipped\""),
+            "expected effective_status=skipped in JSON, got:\n{}",
+            json
+        );
+        // The raw marker is still emitted for round-trip callers.
+        assert!(
+            json.contains("\"url_check_skipped\": true"),
+            "expected url_check_skipped=true in JSON, got:\n{}",
+            json
+        );
+    }
+
+    #[test]
+    fn test_url_match_gate_notfound_without_url_still_not_found() {
+        // A NotFound ref with `url_check_skipped = false` (the case
+        // where the ref had no non-academic URL, or the flag was on) must
+        // still serialize as `"status": "not_found"`. This protects the
+        // hallucination signal for fake arXiv / DOI identifiers: those
+        // refs carry `urls = []` after `extract_urls` filters academic
+        // domains, so they never set `url_check_skipped` in the pool
+        // even with `--url-match` off.
+        let r = make_result("Fake arXiv ID citation", Status::NotFound);
+        assert!(!r.url_check_skipped);
+        let results = vec![Some(r)];
+        let stats = CheckStats {
+            total: 1,
+            not_found: 1,
+            ..Default::default()
+        };
+        let paper = make_paper("test.pdf", &stats, &results);
+        let ref_states: Vec<&[ReportRef]> = vec![&[]];
+        let json = export_json(&[paper], &ref_states, false);
+        assert!(
+            json.contains("\"status\": \"not_found\""),
+            "expected status=not_found in JSON, got:\n{}",
+            json
+        );
+    }
+
+    #[test]
+    fn test_json_escape_special_chars() {
+        assert_eq!(json_escape(r#"He said "hi""#), r#"He said \"hi\""#);
+        assert_eq!(json_escape("back\\slash"), "back\\\\slash");
+        assert_eq!(json_escape("line\nbreak"), "line\\nbreak");
+        assert_eq!(json_escape("carriage\rreturn"), "carriage\\rreturn");
+        assert_eq!(json_escape("tab\there"), "tab\\there");
+    }
+
+    #[test]
+    fn test_json_escape_control_chars() {
+        // NUL, BEL, and other chars < 0x20 that aren't \n \r \t
+        assert_eq!(json_escape("\x00"), "\\u0000");
+        assert_eq!(json_escape("\x07"), "\\u0007");
+        assert_eq!(json_escape("\x1f"), "\\u001f");
+    }
+
+    #[test]
+    fn test_json_escape_passthrough() {
+        assert_eq!(json_escape("hello world"), "hello world");
+        assert_eq!(json_escape("café"), "café");
+        assert_eq!(json_escape("日本語"), "日本語");
+    }
+
+    #[test]
+    fn test_csv_escape_quotes() {
+        assert_eq!(csv_escape(r#"He said "hi""#), r#""He said ""hi""""#);
+    }
+
+    #[test]
+    fn test_csv_escape_comma() {
+        assert_eq!(csv_escape("a,b"), "\"a,b\"");
+    }
+
+    #[test]
+    fn test_csv_escape_newline() {
+        assert_eq!(csv_escape("a\nb"), "\"a\nb\"");
+    }
+
+    #[test]
+    fn test_csv_escape_clean() {
+        assert_eq!(csv_escape("hello"), "hello");
+    }
+
+    #[test]
+    fn test_html_escape() {
+        assert_eq!(
+            html_escape(r#"<script>&"x"</script>"#),
+            "&lt;script&gt;&amp;&quot;x&quot;&lt;/script&gt;",
+        );
+    }
+
+    #[test]
+    fn test_md_escape_pipe() {
+        assert_eq!(md_escape("A | B"), "A \\| B");
+    }
+
+    #[test]
+    fn test_days_to_ymd_epoch() {
+        assert_eq!(days_to_ymd(0), (1970, 1, 1));
+    }
+
+    #[test]
+    fn test_days_to_ymd_known_dates() {
+        // 2000-01-01 is day 10957
+        assert_eq!(days_to_ymd(10957), (2000, 1, 1));
+        // 2024-02-15 is day 19768
+        assert_eq!(days_to_ymd(19768), (2024, 2, 15));
+    }
+
+    #[test]
+    fn test_days_to_ymd_leap_year() {
+        // 2000-02-29 (leap year) = day 10957 + 31 (Jan) + 28 (Feb 1..28) = 11016
+        assert_eq!(days_to_ymd(11016), (2000, 2, 29));
+        // 2000-03-01 = day 11017
+        assert_eq!(days_to_ymd(11017), (2000, 3, 1));
+    }
+
+    // ── P2: stats & sorting logic ───────────────────────────────────
+
+    #[test]
+    fn test_problematic_pct_zero_checked() {
+        let stats = CheckStats {
+            total: 5,
+            verified: 0,
+            not_found: 0,
+            ..Default::default()
+        };
+        assert_eq!(problematic_pct(&stats), 0.0);
+    }
+
+    #[test]
+    fn test_problematic_pct_normal() {
+        let stats = CheckStats {
+            total: 10,
+            verified: 8,
+            not_found: 2,
+            ..Default::default()
+        };
+        assert!((problematic_pct(&stats) - 20.0).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn test_problematic_pct_uses_total_not_checked() {
+        // The denominator must be the *total* reference count, not
+        // `total - skipped`. With the old `total - skipped` form, 4
+        // problems out of 251 refs (78 skipped) renders as
+        // 4/(251-78) = 2.31% — which surprises users who read the %
+        // alongside "Total: 251" and expect 4/251 = 1.59%.
+        let stats = CheckStats {
+            total: 251,
+            verified: 168,
+            not_found: 1,
+            mismatch: 3,
+            author_mismatch: 3,
+            retracted: 0,
+            skipped: 78,
+            ..Default::default()
+        };
+        let pct = problematic_pct(&stats);
+        // 4 / 251 = 1.5936...
+        assert!(
+            (pct - 1.5936).abs() < 0.01,
+            "expected ~1.59% (4/251), got {}",
+            pct
+        );
+    }
+
+    #[test]
+    fn test_adjusted_stats_returns_paper_stats_unchanged() {
+        // adjusted_stats no longer re-applies FP moves: callers
+        // (TUI live state, JSON load, persistence auto-save) all
+        // populate `paper.stats` post-move via record_status +
+        // apply_fp_delta. Re-applying at export time produced
+        // double-counted verified totals and broke the
+        // Total = Verified + Not Found + Mismatch + Skipped invariant.
+        // The function is now a clone; assert it returns stats
+        // verbatim regardless of which refs are FP-marked.
+        let stats = CheckStats {
+            total: 3,
+            verified: 2,  // already post-move (1 original + 1 FP)
+            not_found: 1, // 2 original - 1 FP
+            ..Default::default()
+        };
+        let results: Vec<Option<ValidationResult>> = vec![
+            Some(make_result("A", Status::Verified)),
+            Some(make_result("B", Status::NotFound)),
+            Some(make_result("C", Status::NotFound)),
+        ];
+        let paper = make_paper("test.pdf", &stats, &results);
+        let refs = vec![
+            make_ref(0, "A"),
+            make_ref_fp(1, "B", FpReason::BrokenParse),
+            make_ref(2, "C"),
+        ];
+        let adj = adjusted_stats(&paper, &refs);
+        assert_eq!(adj.verified, 2);
+        assert_eq!(adj.not_found, 1);
+        assert_eq!(adj.total, 3);
+    }
+
+    #[test]
+    fn test_adjusted_stats_does_not_double_apply_fp_move() {
+        // Regression: pre-fix, `paper.stats` already reflected the FP
+        // move (from `apply_fp_delta` in TUI/load) and adjusted_stats
+        // would apply it AGAIN, leaving verified inflated by N (where
+        // N is the number of FP-marked refs with non-None results).
+        // For the user's data this produced sum = total + 7.
+        let stats = CheckStats {
+            total: 2,
+            verified: 1, // already post-move
+            mismatch: 0, // already 0 (was 1, FP move took it to 0)
+            author_mismatch: 0,
+            ..Default::default()
+        };
+        let results: Vec<Option<ValidationResult>> = vec![
+            Some(make_result("A", Status::Verified)),
+            Some(make_result("B", Status::Mismatch(MismatchKind::AUTHOR))),
+        ];
+        let paper = make_paper("test.pdf", &stats, &results);
+        let refs = vec![
+            make_ref(0, "A"),
+            make_ref_fp(1, "B", FpReason::ExistsElsewhere),
+        ];
+        let adj = adjusted_stats(&paper, &refs);
+        // Critical: verified stays at 1, not 2. Mismatch stays at 0.
+        assert_eq!(adj.verified, 1);
+        assert_eq!(adj.author_mismatch, 0);
+    }
+
+    #[test]
+    fn test_build_sorted_refs_order() {
+        // Build refs in scrambled order: verified, not_found, retracted, mismatch, FP, doi_issue
+        let mut retracted = make_retracted("Retracted Paper");
+        retracted.status = Status::NotFound; // retracted + not_found
+        let mut doi_issue = make_result("DOI Issue", Status::Verified);
+        doi_issue.doi_info = Some(DoiInfo {
+            doi: "10.bad".into(),
+            valid: false,
+            title: None,
+        });
+
+        let results: Vec<Option<ValidationResult>> = vec![
+            Some(make_result("Verified", Status::Verified)), // bucket 5
+            Some(make_result("Not Found", Status::NotFound)), // bucket 1
+            Some(retracted),                                 // bucket 0
+            Some(make_result(
+                "Mismatch",
+                Status::Mismatch(MismatchKind::AUTHOR),
+            )), // bucket 2
+            Some(make_result("FP Paper", Status::NotFound)), // bucket 4 (FP)
+            Some(doi_issue),                                 // bucket 3
+        ];
+        let stats = CheckStats::default();
+        let paper = make_paper("test.pdf", &stats, &results);
+        let refs = vec![
+            make_ref(0, "Verified"),
+            make_ref(1, "Not Found"),
+            make_ref(2, "Retracted Paper"),
+            make_ref(3, "Mismatch"),
+            make_ref_fp(4, "FP Paper", FpReason::BrokenParse),
+            make_ref(5, "DOI Issue"),
+        ];
+        let sorted = build_sorted_refs(&paper, &refs);
+        let titles: Vec<&str> = sorted.iter().map(|s| s.result.title.as_str()).collect();
+        assert_eq!(
+            titles,
+            vec![
+                "Retracted Paper", // 0: retracted
+                "Not Found",       // 1: not_found
+                "Mismatch",        // 2: author_mismatch
+                "DOI Issue",       // 3: doi/arxiv issue
+                "FP Paper",        // 4: FP override
+                "Verified",        // 5: clean verified
+            ]
+        );
+    }
+
+    #[test]
+    fn test_build_sorted_refs_tiebreak() {
+        // Two not_found refs: should be ordered by ref_num (index+1)
+        let results: Vec<Option<ValidationResult>> = vec![
+            Some(make_result("Second", Status::NotFound)),
+            Some(make_result("First", Status::NotFound)),
+        ];
+        let stats = CheckStats::default();
+        let paper = make_paper("test.pdf", &stats, &results);
+        let refs = vec![
+            make_ref(0, "Second"), // ref_num = 1
+            make_ref(1, "First"),  // ref_num = 2
+        ];
+        let sorted = build_sorted_refs(&paper, &refs);
+        assert_eq!(sorted[0].ref_num, 1);
+        assert_eq!(sorted[1].ref_num, 2);
+    }
+
+    #[test]
+    fn test_export_sort_key_fp_precedence() {
+        let nf = make_result("A", Status::NotFound);
+        let mm = make_result("B", Status::Mismatch(MismatchKind::AUTHOR));
+        let v = make_result("C", Status::Verified);
+        // All should return 4 when FP is set, regardless of status
+        assert_eq!(export_sort_key(&nf, Some(FpReason::BrokenParse)), 4);
+        assert_eq!(export_sort_key(&mm, Some(FpReason::ExistsElsewhere)), 4);
+        assert_eq!(export_sort_key(&v, Some(FpReason::KnownGood)), 4);
+    }
+
+    // ── P3: enum roundtrips ─────────────────────────────────────────
+
+    #[test]
+    fn test_fp_reason_cycle() {
+        let mut current = None;
+        let expected = [
+            Some(FpReason::BrokenParse),
+            Some(FpReason::ExistsElsewhere),
+            Some(FpReason::AllTimedOut),
+            Some(FpReason::KnownGood),
+            Some(FpReason::NonAcademic),
+            None,
+        ];
+        for exp in &expected {
+            current = FpReason::cycle(current);
+            assert_eq!(current, *exp);
+        }
+    }
+
+    #[test]
+    fn test_fp_reason_str_roundtrip() {
+        let all = [
+            FpReason::BrokenParse,
+            FpReason::ExistsElsewhere,
+            FpReason::AllTimedOut,
+            FpReason::KnownGood,
+            FpReason::NonAcademic,
+        ];
+        for fp in &all {
+            assert_eq!(FpReason::from_str(fp.as_str()), Ok(*fp));
+        }
+    }
+
+    #[test]
+    fn test_fp_reason_from_str_unknown() {
+        assert!(FpReason::from_str("garbage").is_err());
+        assert!(FpReason::from_str("").is_err());
+    }
+
+    #[test]
+    fn test_paper_verdict_cycle() {
+        assert_eq!(PaperVerdict::cycle(None), Some(PaperVerdict::Safe));
+        assert_eq!(
+            PaperVerdict::cycle(Some(PaperVerdict::Safe)),
+            Some(PaperVerdict::Questionable)
+        );
+        assert_eq!(PaperVerdict::cycle(Some(PaperVerdict::Questionable)), None);
+    }
+
+    #[test]
+    fn test_export_format_all() {
+        let all = ExportFormat::all();
+        assert_eq!(all.len(), 5);
+        for fmt in all {
+            assert!(!fmt.label().is_empty());
+            assert!(!fmt.extension().is_empty());
+        }
+    }
+
+    // ── P4: format integration (smoke tests) ────────────────────────
+
+    #[test]
+    fn test_json_empty_papers() {
+        let out = export_json(&[], &[], false);
+        assert_eq!(out, "[\n]\n");
+    }
+
+    #[test]
+    fn test_json_single_paper() {
+        let stats = CheckStats {
+            total: 1,
+            verified: 1,
+            not_found: 0,
+            ..Default::default()
+        };
+        let results = vec![Some(make_result("Good Paper", Status::Verified))];
+        let paper = make_paper("test.pdf", &stats, &results);
+        let refs = vec![make_ref(0, "Good Paper")];
+        let ref_slices: &[&[ReportRef]] = &[&refs];
+        let out = export_json(&[paper], ref_slices, false);
+        // Should be valid-ish JSON structure
+        assert!(out.starts_with("[\n"));
+        assert!(out.ends_with("]\n"));
+        assert!(out.contains("\"filename\": \"test.pdf\""));
+        assert!(out.contains("\"verified\": 1"));
+        assert!(out.contains("\"title\": \"Good Paper\""));
+        assert!(out.contains("\"status\": \"verified\""));
+    }
+
+    #[test]
+    fn test_json_skipped_ref() {
+        let stats = CheckStats {
+            total: 1,
+            skipped: 1,
+            ..Default::default()
+        };
+        let results: Vec<Option<ValidationResult>> = vec![];
+        let paper = make_paper("test.pdf", &stats, &results);
+        let refs = vec![make_ref_skipped(0, "Short", "short_title")];
+        let ref_slices: &[&[ReportRef]] = &[&refs];
+        let out = export_json(&[paper], ref_slices, false);
+        assert!(out.contains("\"status\": \"skipped\""));
+        assert!(out.contains("\"skip_reason\": \"short_title\""));
+    }
+
+    #[test]
+    fn test_json_fp_override() {
+        let stats = CheckStats {
+            total: 1,
+            verified: 0,
+            not_found: 1,
+            ..Default::default()
+        };
+        let results = vec![Some(make_result("FP Ref", Status::NotFound))];
+        let paper = make_paper("test.pdf", &stats, &results);
+        let refs = vec![make_ref_fp(0, "FP Ref", FpReason::ExistsElsewhere)];
+        let ref_slices: &[&[ReportRef]] = &[&refs];
+        let out = export_json(&[paper], ref_slices, false);
+        assert!(out.contains("\"effective_status\": \"verified\""));
+        assert!(out.contains("\"status\": \"not_found\""));
+        assert!(out.contains("\"fp_reason\": \"exists_elsewhere\""));
+    }
+
+    #[test]
+    fn test_csv_header() {
+        let out = export_csv(&[], &[], false);
+        let first_line = out.lines().next().unwrap();
+        assert_eq!(
+            first_line,
+            "Filename,Verdict,Ref#,Title,Status,EffectiveStatus,FpReason,Source,Retracted,Authors,FoundAuthors,PaperURL,DOI,ArxivID,FailedDBs",
+        );
+    }
+
+    #[test]
+    fn test_csv_single_ref() {
+        let stats = CheckStats {
+            total: 1,
+            verified: 1,
+            not_found: 0,
+            ..Default::default()
+        };
+        let results = vec![Some(make_result("My Paper", Status::Verified))];
+        let paper = make_paper("test.pdf", &stats, &results);
+        let refs = vec![make_ref(0, "My Paper")];
+        let ref_slices: &[&[ReportRef]] = &[&refs];
+        let out = export_csv(&[paper], ref_slices, false);
+        let lines: Vec<&str> = out.lines().collect();
+        assert_eq!(lines.len(), 2); // header + 1 data row
+        assert!(lines[1].starts_with("test.pdf,"));
+        assert!(lines[1].contains("My Paper"));
+    }
+
+    #[test]
+    fn test_markdown_structure() {
+        let stats = CheckStats {
+            total: 2,
+            verified: 1,
+            not_found: 1,
+            ..Default::default()
+        };
+        let results = vec![
+            Some(make_result("Good", Status::Verified)),
+            Some(make_result("Bad", Status::NotFound)),
+        ];
+        let paper = make_paper("paper.pdf", &stats, &results);
+        let refs = vec![make_ref(0, "Good"), make_ref(1, "Bad")];
+        let ref_slices: &[&[ReportRef]] = &[&refs];
+        let out = export_markdown(&[paper], ref_slices, false);
+        assert!(out.contains("# Hallucinator Results"));
+        assert!(out.contains("## paper.pdf"));
+        assert!(out.contains("**2** references"));
+        assert!(out.contains("**1** verified"));
+        assert!(out.contains("**1** not found"));
+    }
+
+    #[test]
+    fn test_text_structure() {
+        let stats = CheckStats {
+            total: 1,
+            verified: 1,
+            not_found: 0,
+            ..Default::default()
+        };
+        let results = vec![Some(make_result("Paper", Status::Verified))];
+        let paper = make_paper("f.pdf", &stats, &results);
+        let refs = vec![make_ref(0, "Paper")];
+        let ref_slices: &[&[ReportRef]] = &[&refs];
+        let out = export_text(&[paper], ref_slices, false);
+        assert!(out.starts_with("Hallucinator Results\n===="));
+        assert!(out.contains("f.pdf"));
+        assert!(out.contains("1 total"));
+        assert!(out.contains("1 verified"));
+    }
+
+    #[test]
+    fn test_html_structure() {
+        let stats = CheckStats {
+            total: 1,
+            verified: 1,
+            not_found: 0,
+            ..Default::default()
+        };
+        let results = vec![Some(make_result("Paper", Status::Verified))];
+        let paper = make_paper("f.pdf", &stats, &results);
+        let refs = vec![make_ref(0, "Paper")];
+        let ref_slices: &[&[ReportRef]] = &[&refs];
+        let out = export_html(&[paper], ref_slices, false);
+        assert!(out.contains("<!DOCTYPE html>"));
+        assert!(out.contains("stat-card"));
+        assert!(out.contains("</html>"));
+    }
+
+    #[test]
+    fn test_html_sort_script_uses_get_attribute() {
+        // Regression: the sort script previously read sort keys via
+        // `a.dataset[key]`. dataset only exposes camelCased keys, so
+        // `dataset['not-found']` is undefined even though the HTML
+        // sets `data-not-found="..."`. With undefined keys parseFloat
+        // returned NaN and the sort became a no-op for the Not Found
+        // button. Switching to `getAttribute('data-'+key)` fixes it
+        // for any key, hyphenated or not.
+        let stats = CheckStats {
+            total: 1,
+            not_found: 1,
+            ..Default::default()
+        };
+        let results = vec![Some(make_result("X", Status::NotFound))];
+        let paper = make_paper("a.pdf", &stats, &results);
+        let refs = vec![make_ref(0, "X")];
+        let ref_slices: &[&[ReportRef]] = &[&refs];
+        let out = export_html(&[paper], ref_slices, false);
+
+        assert!(
+            out.contains("getAttribute('data-'+key)"),
+            "sort script must use getAttribute, not dataset[key]"
+        );
+        assert!(
+            !out.contains("a.dataset[key]"),
+            "sort script must not use dataset[key] (broken for hyphenated names)"
+        );
+        // Each <details> still carries the data attributes the
+        // script reads.
+        assert!(out.contains("data-not-found=\""));
+        assert!(out.contains("data-mismatch=\""));
+        assert!(out.contains("data-retracted=\""));
+        assert!(out.contains("data-pct=\""));
+        assert!(out.contains("data-order=\""));
+    }
+
+    #[test]
+    fn test_html_url_check_skipped_renders_as_skipped() {
+        // User report: "many references that are marked as safe still
+        // show as 'not found' in the report". Root cause: `write_html_ref`
+        // ignored `r.url_check_skipped` and rendered the underlying
+        // Status::NotFound, even though the JSON's `effective_status`
+        // collapses these to "skipped". Live in-memory state (a fresh
+        // PDF run with --url-match disabled) keeps Status=NotFound +
+        // url_check_skipped=true; HTML must follow the JSON convention
+        // and show these as Skipped, not Not Found.
+        let stats = CheckStats {
+            total: 2,
+            not_found: 1,
+            skipped: 1,
+            ..Default::default()
+        };
+        let mut url_gated = make_result("Github URL Ref", Status::NotFound);
+        url_gated.url_check_skipped = true;
+        let plain_nf = make_result("Real Hallucination", Status::NotFound);
+        let results = vec![Some(url_gated), Some(plain_nf)];
+        let paper = make_paper("test.pdf", &stats, &results);
+        let refs = vec![
+            make_ref(0, "Github URL Ref"),
+            make_ref(1, "Real Hallucination"),
+        ];
+        let ref_slices: &[&[ReportRef]] = &[&refs];
+        let out = export_html(&[paper], ref_slices, false);
+
+        // The url_check_skipped ref renders as "Skipped" badge.
+        let url_idx = out.find("Github URL Ref").expect("title in HTML");
+        let url_end = (url_idx + 800).min(out.len());
+        let url_card = &out[url_idx..url_end];
+        assert!(
+            url_card.contains("badge skipped\">Skipped</span>"),
+            "URL-gated ref should render as Skipped"
+        );
+        assert!(
+            !url_card.contains("badge not-found\">Not Found</span>"),
+            "URL-gated ref must NOT render as Not Found"
+        );
+
+        // The plain not-found ref still renders as Not Found.
+        let plain_idx = out.find("Real Hallucination").expect("title in HTML");
+        let plain_end = (plain_idx + 800).min(out.len());
+        let plain_card = &out[plain_idx..plain_end];
+        assert!(
+            plain_card.contains("badge not-found\">Not Found</span>"),
+            "Real not-found ref must still render Not Found"
+        );
+    }
+
+    #[test]
+    fn test_html_fp_marked_ref_shows_as_verified() {
+        // User reports: "many references that are marked as safe still
+        // show as 'not found' in the report". Reproduce by exporting a
+        // NotFound ref that has fp_reason set — the badge must show as
+        // "Verified", not "Not Found".
+        let stats = CheckStats {
+            total: 1,
+            not_found: 1,
+            ..Default::default()
+        };
+        let results = vec![Some(make_result("Marked Safe NF", Status::NotFound))];
+        let paper = make_paper("test.pdf", &stats, &results);
+        let refs = vec![make_ref_fp(0, "Marked Safe NF", FpReason::BrokenParse)];
+        let ref_slices: &[&[ReportRef]] = &[&refs];
+        let out = export_html(&[paper], ref_slices, false);
+
+        // The ref's badge should be "Verified" — NOT "Not Found".
+        assert!(
+            out.contains("Marked Safe NF"),
+            "ref title should appear in HTML"
+        );
+        assert!(
+            !out.contains("badge not-found\">Not Found</span>"),
+            "FP-marked ref must not render with the Not Found badge"
+        );
+    }
+
+    #[test]
+    fn test_html_top_stats_skipped_renders_when_nonzero() {
+        // Without Skipped surfaced, the visible categories don't sum
+        // to Total. Render Skipped as a card whenever there's at least
+        // one skipped ref so the math works at a glance.
+        let stats = CheckStats {
+            total: 10,
+            verified: 7,
+            not_found: 1,
+            skipped: 2,
+            ..Default::default()
+        };
+        let results = vec![Some(make_result("R", Status::Verified))];
+        let paper = make_paper("p.pdf", &stats, &results);
+        let refs = vec![make_ref(0, "R")];
+        let ref_slices: &[&[ReportRef]] = &[&refs];
+        let out = export_html(&[paper], ref_slices, false);
+
+        assert!(
+            out.contains(
+                "<div class=\"stat-card skipped\"><span class=\"number\">2</span><span class=\"label\">Skipped</span>"
+            ),
+            "Skipped card missing"
+        );
+    }
+
+    #[test]
+    fn test_html_top_stats_marked_safe_inline_under_verified() {
+        // Marked-safe refs are a subset of Verified. Render the count
+        // as a small sub-label inside the Verified card instead of a
+        // separate card so the additive row stays clean.
+        let stats = CheckStats {
+            total: 3,
+            not_found: 1,
+            verified: 0,
+            ..Default::default()
+        };
+        let results = vec![
+            Some(make_result("Real Hallucination", Status::NotFound)),
+            Some(make_result("Marked Safe Ref 1", Status::NotFound)),
+            Some(make_result("Marked Safe Ref 2", Status::NotFound)),
+        ];
+        let paper = make_paper("p.pdf", &stats, &results);
+        let refs = vec![
+            make_ref(0, "Real Hallucination"),
+            make_ref_fp(1, "Marked Safe Ref 1", FpReason::KnownGood),
+            make_ref_fp(2, "Marked Safe Ref 2", FpReason::ExistsElsewhere),
+        ];
+        let ref_slices: &[&[ReportRef]] = &[&refs];
+        let out = export_html(&[paper], ref_slices, false);
+
+        assert!(
+            out.contains("<span class=\"sublabel\">2 marked safe</span>"),
+            "Marked-safe sub-label should appear under Verified"
+        );
+        // Safe should NOT appear as a separate card any more.
+        assert!(
+            !out.contains("<span class=\"label\">Marked Safe</span>"),
+            "Marked Safe shouldn't render as its own top-row card"
+        );
+    }
+
+    #[test]
+    fn test_html_top_stats_hide_zero_count_cards() {
+        // Reports without any not-found / mismatch / retracted / skipped
+        // refs shouldn't grow empty cards for those categories. Total +
+        // Verified + Problematic % is the minimum useful row.
+        let stats = CheckStats {
+            total: 1,
+            verified: 1,
+            ..Default::default()
+        };
+        let results = vec![Some(make_result("Verified Ref", Status::Verified))];
+        let paper = make_paper("p.pdf", &stats, &results);
+        let refs = vec![make_ref(0, "Verified Ref")];
+        let ref_slices: &[&[ReportRef]] = &[&refs];
+        let out = export_html(&[paper], ref_slices, false);
+
+        for label in &[
+            "Not Found",
+            "Mismatch",
+            "Retracted",
+            "Skipped",
+            "Marked Safe",
+        ] {
+            let html_label = format!("<span class=\"label\">{}</span>", label);
+            assert!(
+                !out.contains(&html_label),
+                "Empty {} card shouldn't render",
+                label
+            );
+        }
+        assert!(out.contains("<span class=\"label\">Total</span>"));
+        assert!(out.contains("<span class=\"label\">Verified</span>"));
+    }
+
+    #[test]
+    fn test_html_verdict_badges() {
+        let stats = CheckStats::default();
+        let results: Vec<Option<ValidationResult>> = vec![];
+
+        let mut safe_paper = make_paper("safe.pdf", &stats, &results);
+        safe_paper.verdict = Some(PaperVerdict::Safe);
+        let mut quest_paper = make_paper("quest.pdf", &stats, &results);
+        quest_paper.verdict = Some(PaperVerdict::Questionable);
+
+        let empty_refs: &[ReportRef] = &[];
+        let ref_slices: &[&[ReportRef]] = &[empty_refs, empty_refs];
+        let out = export_html(&[safe_paper, quest_paper], ref_slices, false);
+        assert!(out.contains("badge verified\">SAFE</span>"));
+        assert!(out.contains("badge not-found\">?!</span>"));
+    }
+
+    // ── P5: problematic_only filtering ────────────────────────────────
+
+    #[test]
+    fn test_json_problematic_only_excludes_verified() {
+        let stats = CheckStats {
+            total: 5,
+            verified: 3,
+            not_found: 1,
+            skipped: 1,
+            ..Default::default()
+        };
+        // Verified ref with an invalid arXiv ID (sort key 3 — still verified, not problematic)
+        let mut arxiv_ref = make_result("Arxiv Paper", Status::Verified);
+        arxiv_ref.arxiv_info = Some(hallucinator_core::ArxivInfo {
+            arxiv_id: "2511.12345".to_string(),
+            valid: false,
+            title: None,
+        });
+        let results = vec![
+            Some(make_result("Good Paper", Status::Verified)),
+            Some(make_result("Bad Paper", Status::NotFound)),
+            Some(make_result("FP Paper", Status::NotFound)),
+            None, // skipped
+            Some(arxiv_ref),
+        ];
+        let paper = make_paper("test.pdf", &stats, &results);
+        let refs = vec![
+            make_ref(0, "Good Paper"),
+            make_ref(1, "Bad Paper"),
+            make_ref_fp(2, "FP Paper", FpReason::BrokenParse),
+            make_ref_skipped(3, "Short", "short_title"),
+            make_ref(4, "Arxiv Paper"),
+        ];
+        let ref_slices: &[&[ReportRef]] = &[&refs];
+
+        // With problematic_only=true, verified (including DOI/arXiv issues),
+        // FP-overridden, and skipped should be excluded
+        let out = export_json(&[paper], ref_slices, true);
+        assert!(out.contains("\"title\": \"Bad Paper\""));
+        assert!(!out.contains("\"title\": \"Good Paper\""));
+        assert!(!out.contains("\"title\": \"FP Paper\""));
+        assert!(!out.contains("\"status\": \"skipped\""));
+        assert!(
+            !out.contains("\"title\": \"Arxiv Paper\""),
+            "Verified ref with arXiv issue should be excluded in problematic-only mode"
+        );
+    }
+
+    #[test]
+    fn test_csv_problematic_only_excludes_verified() {
+        let stats = CheckStats {
+            total: 2,
+            verified: 1,
+            not_found: 1,
+            ..Default::default()
+        };
+        let results = vec![
+            Some(make_result("Good", Status::Verified)),
+            Some(make_result("Bad", Status::NotFound)),
+        ];
+        let paper = make_paper("test.pdf", &stats, &results);
+        let refs = vec![make_ref(0, "Good"), make_ref(1, "Bad")];
+        let ref_slices: &[&[ReportRef]] = &[&refs];
+        let out = export_csv(&[paper], ref_slices, true);
+        let lines: Vec<&str> = out.lines().collect();
+        assert_eq!(lines.len(), 2); // header + 1 (only "Bad")
+        assert!(lines[1].contains("Bad"));
+        assert!(!out.contains("Good"));
+    }
+
+    #[test]
+    fn test_markdown_problematic_only_excludes_verified() {
+        let stats = CheckStats {
+            total: 2,
+            verified: 1,
+            not_found: 1,
+            ..Default::default()
+        };
+        let results = vec![
+            Some(make_result("Good", Status::Verified)),
+            Some(make_result("Bad", Status::NotFound)),
+        ];
+        let paper = make_paper("test.pdf", &stats, &results);
+        let refs = vec![make_ref(0, "Good"), make_ref(1, "Bad")];
+        let ref_slices: &[&[ReportRef]] = &[&refs];
+        let out = export_markdown(&[paper], ref_slices, true);
+        assert!(out.contains("Bad"));
+        assert!(!out.contains("### Verified References"));
+    }
+
+    #[test]
+    fn test_text_problematic_only_excludes_verified() {
+        let stats = CheckStats {
+            total: 2,
+            verified: 1,
+            not_found: 1,
+            ..Default::default()
+        };
+        let results = vec![
+            Some(make_result("Good", Status::Verified)),
+            Some(make_result("Bad", Status::NotFound)),
+        ];
+        let paper = make_paper("test.pdf", &stats, &results);
+        let refs = vec![make_ref(0, "Good"), make_ref(1, "Bad")];
+        let ref_slices: &[&[ReportRef]] = &[&refs];
+        let out = export_text(&[paper], ref_slices, true);
+        assert!(out.contains("Bad"));
+        assert!(!out.contains("Good"));
+    }
+
+    #[test]
+    fn test_html_problematic_only_excludes_verified() {
+        let stats = CheckStats {
+            total: 5,
+            verified: 3,
+            not_found: 1,
+            skipped: 1,
+            ..Default::default()
+        };
+        // Verified ref with invalid arXiv (sort key 3 — still verified, not problematic)
+        let mut arxiv_ref = make_result("Arxiv Paper", Status::Verified);
+        arxiv_ref.arxiv_info = Some(hallucinator_core::ArxivInfo {
+            arxiv_id: "2511.99999".to_string(),
+            valid: false,
+            title: None,
+        });
+        let results = vec![
+            Some(make_result("Good Paper", Status::Verified)),
+            Some(make_result("Bad Paper", Status::NotFound)),
+            Some(make_result("FP Paper", Status::NotFound)),
+            None, // skipped
+            Some(arxiv_ref),
+        ];
+        let paper = make_paper("test.pdf", &stats, &results);
+        let refs = vec![
+            make_ref(0, "Good Paper"),
+            make_ref(1, "Bad Paper"),
+            make_ref_fp(2, "FP Paper", FpReason::BrokenParse),
+            make_ref_skipped(3, "Short", "short_title"),
+            make_ref(4, "Arxiv Paper"),
+        ];
+        let ref_slices: &[&[ReportRef]] = &[&refs];
+
+        let out = export_html(&[paper], ref_slices, true);
+
+        // "Bad Paper" (not found) should be present
+        assert!(
+            out.contains("Bad Paper"),
+            "Not-found ref should be in HTML output"
+        );
+        // Verified ref should NOT be present
+        assert!(
+            !out.contains("Good Paper"),
+            "Verified ref should be excluded from HTML with problematic_only=true"
+        );
+        // FP-overridden ref should NOT be present
+        assert!(
+            !out.contains("FP Paper"),
+            "FP-overridden ref should be excluded from HTML with problematic_only=true"
+        );
+        // No actual ref-card elements with data-status="verified"
+        // (the CSS selector `[data-status="verified"]` exists in the <style> block, so we
+        // check specifically for the `<div class="ref-card"` pattern)
+        assert!(
+            !out.contains("<div class=\"ref-card\" data-status=\"verified\">"),
+            "No verified ref cards should appear in problematic-only HTML"
+        );
+        // "Hide Verified" button should NOT be present in problematic-only mode
+        assert!(
+            !out.contains("Hide Verified"),
+            "Hide Verified button should not appear in problematic-only HTML"
+        );
+        // Verified ref with arXiv issue should NOT be present (it's still verified)
+        assert!(
+            !out.contains("Arxiv Paper"),
+            "Verified ref with arXiv issue should be excluded in problematic-only HTML"
+        );
+        // Skipped refs should NOT be present
+        assert!(
+            !out.contains("Short"),
+            "Skipped refs should be excluded from HTML with problematic_only=true"
+        );
+    }
+
+    // ── inconclusive (NotFound + failed lookup) ──────────────────────
+    //
+    // Regression guards for the "works on my machine" report: a user on a
+    // filtered network saw references flagged as hallucinations that came
+    // back clean when the same PDF was re-run elsewhere. Every database had
+    // timed out, and a NotFound built on zero successful lookups rendered
+    // exactly like a NotFound where every database answered. These tests
+    // pin the split across every export format, because the whole point is
+    // that a network outage can never inflate the hallucination count.
+
+    fn make_inconclusive(title: &str) -> ValidationResult {
+        let mut r = make_result(title, Status::NotFound);
+        r.failed_dbs = vec!["CrossRef".to_string(), "Semantic Scholar".to_string()];
+        r
+    }
+
+    #[test]
+    fn effective_status_reports_inconclusive() {
+        assert_eq!(
+            effective_status_str(&make_inconclusive("Timed Out Paper")),
+            "inconclusive"
+        );
+        // The clean case must be untouched.
+        assert_eq!(
+            effective_status_str(&make_result("Real Miss", Status::NotFound)),
+            "not_found"
+        );
+    }
+
+    #[test]
+    fn url_check_gate_still_wins_over_inconclusive() {
+        // Ordering is deliberate: `url_check_skipped` is an explicit user
+        // opt-out, a stronger statement than a transient failure. Pinning
+        // it guarantees adding the inconclusive branch didn't reclassify
+        // refs that the --url-match gate already accounted for.
+        let mut r = make_inconclusive("URL Only Ref");
+        r.url_check_skipped = true;
+        assert_eq!(effective_status_str(&r), "skipped");
+    }
+
+    #[test]
+    fn inconclusive_sorts_out_of_the_problems_area() {
+        // Bucket 7 sits below clean verified (5). An inconclusive ref is
+        // not a finding and must not head the report.
+        let inc = make_inconclusive("Timed Out Paper");
+        let miss = make_result("Real Miss", Status::NotFound);
+        assert_eq!(export_sort_key(&miss, None), 1);
+        assert_eq!(export_sort_key(&inc, None), 7);
+        assert!(
+            export_sort_key(&inc, None) > export_sort_key(&miss, None),
+            "inconclusive must never outrank a genuine not-found"
+        );
+    }
+
+    #[test]
+    fn problematic_only_exports_drop_inconclusive_refs() {
+        // `problematic_only` keeps buckets < 3. Bucket 7 is excluded, so a
+        // "problems only" export never accuses a ref we failed to look up.
+        let inc = make_inconclusive("Timed Out Paper");
+        assert!(export_sort_key(&inc, None) >= 3);
+    }
+
+    #[test]
+    fn json_marks_inconclusive_and_keeps_it_out_of_not_found() {
+        let results = vec![
+            Some(make_inconclusive("Timed Out Paper")),
+            Some(make_result("Real Miss", Status::NotFound)),
+        ];
+        // Stats as the CLI/TUI would compute them: one in each bucket.
+        let stats = CheckStats {
+            total: 2,
+            not_found: 1,
+            inconclusive: 1,
+            ..Default::default()
+        };
+        let paper = make_paper("paper.pdf", &stats, &results);
+        let refs = vec![make_ref(0, "Timed Out Paper"), make_ref(1, "Real Miss")];
+        let ref_states: Vec<&[ReportRef]> = vec![&refs];
+        let json = export_json(&[paper], &ref_states, false);
+
+        assert!(
+            json.contains("\"inconclusive\": 1"),
+            "stats block: {}",
+            json
+        );
+        assert!(json.contains("\"not_found\": 1"), "stats block: {}", json);
+        assert!(
+            json.contains("\"status\": \"inconclusive\""),
+            "per-ref status: {}",
+            json
+        );
+        assert!(
+            json.contains("\"effective_status\": \"inconclusive\""),
+            "per-ref effective_status: {}",
+            json
+        );
+        assert!(
+            json.contains("\"inconclusive\": true"),
+            "per-ref raw signal: {}",
+            json
+        );
+        // The genuine miss must still be reported as such.
+        assert!(json.contains("\"status\": \"not_found\""), "{}", json);
+    }
+
+    #[test]
+    fn problematic_pct_excludes_inconclusive() {
+        // The headline percentage is the number users react to. An outage
+        // must not move it.
+        let outage = CheckStats {
+            total: 10,
+            inconclusive: 8,
+            ..Default::default()
+        };
+        assert_eq!(
+            problematic_pct(&outage),
+            0.0,
+            "a total network outage must report 0% problematic, not 80%"
+        );
+
+        let real = CheckStats {
+            total: 10,
+            not_found: 8,
+            ..Default::default()
+        };
+        assert_eq!(problematic_pct(&real), 80.0);
+    }
+
+    #[test]
+    fn html_renders_an_inconclusive_badge_not_a_not_found_badge() {
+        let results = vec![Some(make_inconclusive("Timed Out Paper"))];
+        let stats = CheckStats {
+            total: 1,
+            inconclusive: 1,
+            ..Default::default()
+        };
+        let paper = make_paper("paper.pdf", &stats, &results);
+        let refs = vec![make_ref(0, "Timed Out Paper")];
+        let ref_states: Vec<&[ReportRef]> = vec![&refs];
+        let html = export_html(&[paper], &ref_states, false);
+
+        assert!(
+            html.contains("data-status=\"inconclusive\""),
+            "ref card must carry its own status"
+        );
+        assert!(
+            !html.contains("<div class=\"ref-card\" data-status=\"not-found\">"),
+            "an inconclusive ref must never render a Not Found card"
+        );
+        assert!(html.contains("Inconclusive"), "badge text missing");
+        assert!(
+            html.contains("lookup failed"),
+            "stat card sublabel should say why"
+        );
+    }
+
+    #[test]
+    fn text_and_markdown_name_the_failed_databases() {
+        // The report has to be actionable: seeing *which* source failed is
+        // what turns "suspected hallucination" into "check your network".
+        let results = vec![Some(make_inconclusive("Timed Out Paper"))];
+        let stats = CheckStats {
+            total: 1,
+            inconclusive: 1,
+            ..Default::default()
+        };
+        let refs = vec![make_ref(0, "Timed Out Paper")];
+        let ref_states: Vec<&[ReportRef]> = vec![&refs];
+
+        let text = export_text(&[make_paper("p.pdf", &stats, &results)], &ref_states, false);
+        assert!(text.contains("INCONCLUSIVE"), "{}", text);
+        assert!(!text.contains("NOT FOUND"), "{}", text);
+
+        let md = export_markdown(&[make_paper("p.pdf", &stats, &results)], &ref_states, false);
+        assert!(md.contains("Inconclusive"), "{}", md);
+        assert!(
+            md.contains("CrossRef"),
+            "failed DBs should be named: {}",
+            md
+        );
+    }
+
+    #[test]
+    fn csv_effective_status_matches_json() {
+        let results = vec![Some(make_inconclusive("Timed Out Paper"))];
+        let stats = CheckStats {
+            total: 1,
+            inconclusive: 1,
+            ..Default::default()
+        };
+        let refs = vec![make_ref(0, "Timed Out Paper")];
+        let ref_states: Vec<&[ReportRef]> = vec![&refs];
+        let csv = export_csv(&[make_paper("p.pdf", &stats, &results)], &ref_states, false);
+        assert!(csv.contains("inconclusive"), "{}", csv);
+    }
+}
