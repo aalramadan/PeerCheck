@@ -1,0 +1,293 @@
+use ratatui::Frame;
+use ratatui::layout::{Constraint, Layout, Rect};
+use ratatui::style::{Modifier, Style};
+use ratatui::text::{Line, Span};
+use ratatui::widgets::{Block, Borders, Cell, Gauge, Paragraph, Row, Table, TableState, Wrap};
+
+use crate::app::{App, InputMode};
+use crate::model::paper::{PaperFilter, RefPhase};
+use crate::theme::Theme;
+use crate::view::{spinner_char, truncate};
+
+/// Render the Paper detail screen into the given area.
+/// `footer_area` is a full-width row below the main content + activity panel.
+pub fn render_in(f: &mut Frame, app: &mut App, paper_index: usize, area: Rect, footer_area: Rect) {
+    let theme = &app.theme;
+    let paper = &app.papers[paper_index];
+    let show_preview = area.height >= 40;
+    let has_search = app.input_mode == InputMode::Search || !app.search_query.is_empty();
+
+    let mut constraints = vec![
+        Constraint::Length(1), // breadcrumb
+        Constraint::Length(3), // progress bar
+    ];
+    if has_search {
+        constraints.push(Constraint::Length(1)); // search bar
+    }
+    constraints.push(Constraint::Min(8)); // ref table
+    if show_preview {
+        constraints.push(Constraint::Length(6)); // raw citation preview
+    }
+
+    let chunks = Layout::vertical(constraints).split(area);
+    let mut ci = 0;
+
+    render_breadcrumb(f, chunks[ci], &paper.filename, theme);
+    ci += 1;
+    render_progress(f, chunks[ci], paper, app.tick, theme);
+    ci += 1;
+
+    if has_search {
+        render_search_bar(f, chunks[ci], app, theme);
+        ci += 1;
+    }
+
+    let table_area = chunks[ci];
+    render_ref_table(f, table_area, app, paper_index);
+    app.last_table_area = Some(table_area);
+    ci += 1;
+
+    if show_preview {
+        render_preview(f, chunks[ci], app, paper_index);
+    }
+
+    render_footer(f, footer_area, app, theme);
+}
+
+fn render_breadcrumb(f: &mut Frame, area: Rect, filename: &str, theme: &Theme) {
+    let breadcrumb = Line::from(vec![
+        Span::styled(" Paper ", theme.header_style()),
+        Span::styled(" > ", Style::default().fg(theme.dim)),
+        Span::styled(
+            filename,
+            Style::default().fg(theme.text).add_modifier(Modifier::BOLD),
+        ),
+    ]);
+    f.render_widget(Paragraph::new(breadcrumb), area);
+}
+
+fn render_progress(
+    f: &mut Frame,
+    area: Rect,
+    paper: &crate::model::queue::PaperState,
+    tick: usize,
+    theme: &Theme,
+) {
+    let done = paper.completed_count();
+    // Denominator is the count of refs that ENTERED validation — i.e.
+    // total minus parse-time skips. `stats.skipped` isn't safe here:
+    // it also contains URL-gated refs (demoted by the `--url-match`
+    // gate) which DO go through the pool and contribute to `done`.
+    // Using the combined `stats.skipped` pushed `done > checkable` and
+    // panicked the ratatui gauge.
+    let checkable = paper.total_refs.saturating_sub(paper.parse_skipped);
+    let ratio = if checkable > 0 {
+        (done as f64 / checkable as f64).clamp(0.0, 1.0)
+    } else {
+        0.0
+    };
+
+    let label = if done >= checkable && checkable > 0 {
+        format!("\u{2713} {} / {} refs", done, checkable)
+    } else {
+        format!("{} {} / {} refs", spinner_char(tick), done, checkable)
+    };
+
+    let gauge = Gauge::default()
+        .block(
+            Block::default()
+                .borders(Borders::ALL)
+                .border_style(theme.border_style()),
+        )
+        .gauge_style(Style::default().fg(theme.active))
+        .ratio(ratio)
+        .label(label);
+
+    f.render_widget(gauge, area);
+}
+
+fn render_search_bar(f: &mut Frame, area: Rect, app: &App, theme: &Theme) {
+    let cursor = if app.input_mode == InputMode::Search {
+        "\u{2588}"
+    } else {
+        ""
+    };
+    let line = Line::from(vec![
+        Span::styled(
+            " /",
+            Style::default()
+                .fg(theme.active)
+                .add_modifier(Modifier::BOLD),
+        ),
+        Span::styled(&app.search_query, Style::default().fg(theme.text)),
+        Span::styled(cursor, Style::default().fg(theme.active)),
+    ]);
+    f.render_widget(Paragraph::new(line), area);
+}
+
+fn render_ref_table(f: &mut Frame, area: Rect, app: &App, paper_index: usize) {
+    let theme = &app.theme;
+    let wide = area.width >= 80;
+
+    let header_cells = if wide {
+        vec!["#", "Reference", "Verdict", "Source"]
+    } else {
+        vec!["#", "Reference", "Verdict"]
+    };
+    let header = Row::new(header_cells.iter().map(|h| {
+        Cell::from(*h).style(Style::default().fg(theme.text).add_modifier(Modifier::BOLD))
+    }))
+    .height(1);
+
+    let refs = &app.ref_states[paper_index];
+    let indices = app.paper_ref_indices(paper_index);
+
+    let rows: Vec<Row> = indices
+        .iter()
+        .map(|&ri| {
+            let rs = &refs[ri];
+            let num = format!("{}", rs.index + 1);
+            let title_display = match &rs.phase {
+                RefPhase::Checking | RefPhase::Retrying => {
+                    format!("{} {}", spinner_char(app.tick), rs.title)
+                }
+                _ => rs.title.clone(),
+            };
+            let title_text = truncate(&title_display, (area.width as usize).saturating_sub(30));
+            let phase_style = theme.ref_phase_style(&rs.phase);
+
+            let verdict = rs.verdict_label();
+            // URL-gated NotFound (`--url-match` was off) renders with
+            // the same `skipped` color as parse-time skips: the user
+            // explicitly opted not to verify these, so they should
+            // visually blend with the other non-problematic skipped
+            // rows instead of glowing red alongside real hallucination
+            // candidates. Phase is still `Done` (they went through
+            // validation) — we dispatch on `result.url_check_skipped`.
+            let is_url_gated_skip = rs.result.as_ref().is_some_and(|r| r.url_check_skipped);
+            let verdict_style = if matches!(rs.phase, RefPhase::Skipped(_)) || is_url_gated_skip {
+                Style::default()
+                    .fg(theme.skipped)
+                    .add_modifier(Modifier::ITALIC)
+            } else if rs.is_marked_safe() {
+                Style::default()
+                    .fg(theme.verified)
+                    .add_modifier(Modifier::DIM)
+            } else {
+                match &rs.result {
+                    Some(r) => {
+                        let color = if r.retraction_info.as_ref().is_some_and(|ri| ri.is_retracted)
+                        {
+                            theme.retracted
+                        } else {
+                            theme.status_color(&r.status)
+                        };
+                        Style::default().fg(color).add_modifier(Modifier::BOLD)
+                    }
+                    None => phase_style,
+                }
+            };
+
+            let mut cells = vec![
+                Cell::from(num).style(phase_style),
+                Cell::from(title_text).style(phase_style),
+                Cell::from(verdict).style(verdict_style),
+            ];
+
+            if wide {
+                cells.push(Cell::from(rs.source_label()).style(phase_style));
+            }
+
+            Row::new(cells)
+        })
+        .collect();
+
+    let widths = if wide {
+        vec![
+            Constraint::Length(4),
+            Constraint::Min(20),
+            Constraint::Length(16),
+            Constraint::Length(18),
+        ]
+    } else {
+        vec![
+            Constraint::Length(4),
+            Constraint::Min(15),
+            Constraint::Length(16),
+        ]
+    };
+
+    let block_title = format!(" References | sort: {} (s) ", app.paper_sort.label());
+
+    let table = Table::new(rows, &widths)
+        .header(header)
+        .block(
+            Block::default()
+                .borders(Borders::ALL)
+                .border_style(theme.border_style())
+                .title(block_title),
+        )
+        .row_highlight_style(theme.highlight_style());
+
+    let mut state = TableState::default();
+    state.select(Some(app.paper_cursor));
+    f.render_stateful_widget(table, area, &mut state);
+}
+
+fn render_preview(f: &mut Frame, area: Rect, app: &App, paper_index: usize) {
+    let theme = &app.theme;
+    let refs = &app.ref_states[paper_index];
+    let indices = app.paper_ref_indices(paper_index);
+
+    let text = if app.paper_cursor < indices.len() {
+        let ri = indices[app.paper_cursor];
+        let rs = &refs[ri];
+        if matches!(rs.phase, RefPhase::Skipped(_)) {
+            // Show raw citation directly from RefState for skipped entries
+            if rs.raw_citation.is_empty() {
+                "(skipped)".to_string()
+            } else {
+                rs.raw_citation.clone()
+            }
+        } else {
+            match &rs.result {
+                Some(r) => r.raw_citation.clone(),
+                None => "Pending...".to_string(),
+            }
+        }
+    } else {
+        String::new()
+    };
+
+    let preview = Paragraph::new(text)
+        .style(Style::default().fg(theme.dim))
+        .block(
+            Block::default()
+                .borders(Borders::ALL)
+                .border_style(theme.border_style())
+                .title(" Raw Citation "),
+        )
+        .wrap(Wrap { trim: true });
+
+    f.render_widget(preview, area);
+}
+
+fn render_footer(f: &mut Frame, area: Rect, app: &App, theme: &Theme) {
+    let mut spans = Vec::new();
+
+    // Filter indicator
+    if app.paper_filter != PaperFilter::All {
+        spans.push(Span::styled(
+            format!(" [filter: {}] ", app.paper_filter.label()),
+            Style::default().fg(theme.active),
+        ));
+    }
+
+    spans.push(Span::styled(
+        " Space:FP reason  Enter:detail  p:pdf  Ctrl+r:retry  R:retry all  s:sort  f:filter  c:config  e:export  Esc:back",
+        theme.footer_style(),
+    ));
+
+    let footer = Line::from(spans);
+    f.render_widget(Paragraph::new(footer), area);
+}

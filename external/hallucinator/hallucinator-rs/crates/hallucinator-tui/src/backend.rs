@@ -1,0 +1,441 @@
+use std::path::PathBuf;
+use std::sync::Arc;
+
+use tokio::sync::mpsc;
+use tokio_util::sync::CancellationToken;
+
+use hallucinator_core::pool::{RefJob, ValidationPool};
+use hallucinator_core::{Config, ExtractionResult, ProgressEvent};
+
+use crate::tui_event::BackendEvent;
+
+/// A job submitted to the extraction worker pool.
+struct ExtractionJob {
+    path: PathBuf,
+    result_tx: tokio::sync::oneshot::Sender<Result<ExtractionResult, String>>,
+}
+
+/// Worker that pulls extraction jobs from the channel and runs them on
+/// the blocking thread pool. N workers = N concurrent extractions.
+async fn extraction_worker(rx: async_channel::Receiver<ExtractionJob>) {
+    while let Ok(job) = rx.recv().await {
+        let result = tokio::task::spawn_blocking(move || {
+            hallucinator_ingest::extract_references(&job.path)
+                .map_err(|e| format!("Extraction failed: {}", e))
+        })
+        .await
+        .unwrap_or_else(|e| Err(format!("Task join error: {}", e)));
+
+        let _ = job.result_tx.send(result);
+    }
+}
+
+/// Remap progress event indices from the filtered (checkable-only) vec back to
+/// the full all-refs vec, so the TUI's ref_states (which includes skipped refs)
+/// receives updates at the correct positions.
+fn remap_progress_index(event: ProgressEvent, index_map: &[usize]) -> ProgressEvent {
+    match event {
+        ProgressEvent::Checking {
+            index,
+            total,
+            title,
+        } => ProgressEvent::Checking {
+            index: index_map.get(index).copied().unwrap_or(index),
+            total,
+            title,
+        },
+        ProgressEvent::Result {
+            index,
+            total,
+            result,
+        } => ProgressEvent::Result {
+            index: index_map.get(index).copied().unwrap_or(index),
+            total,
+            result,
+        },
+        ProgressEvent::Warning {
+            index,
+            total,
+            title,
+            failed_dbs,
+            message,
+        } => ProgressEvent::Warning {
+            index: index_map.get(index).copied().unwrap_or(index),
+            total,
+            title,
+            failed_dbs,
+            message,
+        },
+        ProgressEvent::DatabaseQueryComplete {
+            paper_index,
+            ref_index,
+            db_name,
+            status,
+            elapsed,
+        } => ProgressEvent::DatabaseQueryComplete {
+            paper_index,
+            ref_index: index_map.get(ref_index).copied().unwrap_or(ref_index),
+            db_name,
+            status,
+            elapsed,
+        },
+        other => other,
+    }
+}
+
+/// Run batch validation with paper indices starting at `offset`.
+///
+/// Creates a single global `ValidationPool` shared by all papers.
+/// Each paper gets its own task for extraction + job submission, so all
+/// papers can feed refs into the pool concurrently. The `num_workers`
+/// setting controls the total number of concurrent reference validations.
+pub async fn run_batch_with_offset(
+    pdfs: Vec<PathBuf>,
+    config: Config,
+    tx: mpsc::UnboundedSender<BackendEvent>,
+    cancel: CancellationToken,
+    offset: usize,
+) {
+    let num_workers = config.num_workers.max(1);
+    let config = Arc::new(config);
+
+    // Create ONE global validation pool for all papers
+    let pool = ValidationPool::new(config.clone(), cancel.clone(), num_workers);
+    let pool_tx = pool.sender();
+
+    // Bounded extraction: N worker tasks pull from a channel, so at most N
+    // CPU-heavy PDF extractions run concurrently (prevents resource exhaustion).
+    let max_extractors = std::thread::available_parallelism()
+        .map(|n| n.get())
+        .unwrap_or(4);
+    let (extract_tx, extract_rx) = async_channel::unbounded::<ExtractionJob>();
+    for _ in 0..max_extractors {
+        let rx = extract_rx.clone();
+        tokio::spawn(extraction_worker(rx));
+    }
+    // Drop our clone so the channel closes once the sender side is dropped
+    drop(extract_rx);
+
+    // Spawn one task per paper. Each task submits its extraction to the
+    // worker pool, then feeds validated refs into the shared ValidationPool.
+    let mut handles = Vec::new();
+    for (i, pdf_path) in pdfs.into_iter().enumerate() {
+        let paper_index = offset + i;
+        let pool_tx = pool_tx.clone();
+        let tx = tx.clone();
+        let cancel = cancel.clone();
+        let extract_tx = extract_tx.clone();
+
+        handles.push(tokio::spawn(async move {
+            if cancel.is_cancelled() {
+                return;
+            }
+            process_single_paper(paper_index, &pdf_path, &pool_tx, &extract_tx, &tx, &cancel).await;
+        }));
+    }
+
+    // Drop our clones so shutdown can complete once all paper tasks finish
+    drop(pool_tx);
+    drop(extract_tx);
+
+    for handle in handles {
+        let _ = handle.await;
+    }
+
+    // All papers have been extracted and all jobs submitted.
+    // Shut down the pool and wait for remaining validations to finish.
+    pool.shutdown().await;
+
+    let _ = tx.send(BackendEvent::BatchComplete);
+}
+
+/// Process a single paper: extract references, submit to shared pool, collect results.
+async fn process_single_paper(
+    paper_index: usize,
+    pdf_path: &std::path::Path,
+    pool_tx: &async_channel::Sender<RefJob>,
+    extract_tx: &async_channel::Sender<ExtractionJob>,
+    tx: &mpsc::UnboundedSender<BackendEvent>,
+    cancel: &CancellationToken,
+) {
+    // Signal extraction start
+    let _ = tx.send(BackendEvent::ExtractionStarted { paper_index });
+
+    // Submit extraction to the bounded worker pool
+    let (result_tx, result_rx) = tokio::sync::oneshot::channel();
+    let job = ExtractionJob {
+        path: pdf_path.to_path_buf(),
+        result_tx,
+    };
+    if extract_tx.send(job).await.is_err() {
+        let _ = tx.send(BackendEvent::ExtractionFailed {
+            paper_index,
+            error: "Extraction channel closed".to_string(),
+        });
+        return;
+    }
+    let extraction: Result<ExtractionResult, String> = result_rx
+        .await
+        .unwrap_or_else(|_| Err("Extraction worker dropped".to_string()));
+
+    let extraction = match extraction {
+        Ok(ext) => ext,
+        Err(error) => {
+            let _ = tx.send(BackendEvent::ExtractionFailed { paper_index, error });
+            return;
+        }
+    };
+
+    let skip_stats = extraction.skip_stats.clone();
+    let all_refs = extraction.references;
+
+    let _ = tx.send(BackendEvent::ExtractionComplete {
+        paper_index,
+        ref_count: all_refs.len(),
+        references: all_refs.clone(),
+        skip_stats,
+    });
+
+    // Build a mapping from filtered (checkable) index → original all_refs index,
+    // so that progress events use indices into the full ref_states array.
+    let index_map: Arc<Vec<usize>> = Arc::new(
+        all_refs
+            .iter()
+            .enumerate()
+            .filter(|(_, r)| r.skip_reason.is_none())
+            .map(|(i, _)| i)
+            .collect(),
+    );
+
+    // Filter to only checkable refs for validation
+    let refs: Vec<_> = all_refs
+        .into_iter()
+        .filter(|r| r.skip_reason.is_none())
+        .collect();
+
+    if refs.is_empty() {
+        let _ = tx.send(BackendEvent::PaperComplete { paper_index });
+        return;
+    }
+
+    let total = refs.len();
+
+    // Submit all refs to the shared pool and collect oneshot receivers
+    let mut receivers = Vec::with_capacity(total);
+    for (i, reference) in refs.iter().enumerate() {
+        if cancel.is_cancelled() {
+            break;
+        }
+
+        let (result_tx, result_rx) = tokio::sync::oneshot::channel();
+
+        // Build per-ref progress callback that remaps indices and tags with paper_index
+        let tx_progress = tx.clone();
+        let index_map = Arc::clone(&index_map);
+        let progress_cb = move |event: ProgressEvent| {
+            let event = remap_progress_index(event, &index_map);
+            let _ = tx_progress.send(BackendEvent::Progress {
+                paper_index,
+                event: Box::new(event),
+            });
+        };
+
+        let job = RefJob {
+            reference: reference.clone(),
+            result_tx,
+            ref_index: i,
+            total,
+            progress: Arc::new(progress_cb),
+        };
+
+        let _ = pool_tx.send(job).await;
+        receivers.push((i, result_rx));
+    }
+
+    // Await all receivers (results are already sent via Progress events)
+    for (_i, rx) in receivers {
+        let _ = rx.await;
+    }
+
+    let _ = tx.send(BackendEvent::PaperComplete { paper_index });
+}
+
+/// Retry specific references for a paper, re-checking against failed (or all) databases.
+pub async fn retry_references(
+    paper_index: usize,
+    refs_to_retry: Vec<(usize, hallucinator_core::Reference, Vec<String>)>,
+    config: Config,
+    tx: mpsc::UnboundedSender<BackendEvent>,
+) {
+    let client = reqwest::Client::builder()
+        .pool_max_idle_per_host(2)
+        .pool_idle_timeout(std::time::Duration::from_secs(30))
+        .build()
+        .unwrap_or_else(|_| reqwest::Client::new());
+    let config = Arc::new(config);
+    let semaphore = Arc::new(tokio::sync::Semaphore::new(config.num_workers.max(1)));
+    let total = refs_to_retry.len();
+
+    let mut handles = Vec::new();
+
+    for (ref_index, reference, failed_dbs) in refs_to_retry {
+        let permit = semaphore.clone().acquire_owned().await.unwrap();
+        let client = client.clone();
+        let config = Arc::clone(&config);
+        let tx = tx.clone();
+
+        let handle = tokio::spawn(async move {
+            let _permit = permit;
+
+            let title = reference.title.as_deref().unwrap_or("").to_string();
+            let _ = tx.send(BackendEvent::Progress {
+                paper_index,
+                event: Box::new(hallucinator_core::ProgressEvent::Checking {
+                    index: ref_index,
+                    total,
+                    title,
+                }),
+            });
+
+            let result = if failed_dbs.is_empty() {
+                // Full re-check against all databases
+                hallucinator_core::checker::check_single_reference(
+                    &reference, &config, &client, true, // longer timeout
+                    None,
+                )
+                .await
+            } else {
+                // Retry only against previously failed databases
+                hallucinator_core::checker::check_single_reference_retry(
+                    &reference,
+                    &config,
+                    &client,
+                    &failed_dbs,
+                    None,
+                )
+                .await
+            };
+
+            let _ = tx.send(BackendEvent::Progress {
+                paper_index,
+                event: Box::new(hallucinator_core::ProgressEvent::Result {
+                    index: ref_index,
+                    total,
+                    result: Box::new(result),
+                }),
+            });
+        });
+
+        handles.push(handle);
+    }
+
+    for handle in handles {
+        let _ = handle.await;
+    }
+}
+
+/// Open offline DBLP database if a path is configured, returning the Arc<DblpPool> handle.
+///
+/// `pool_size` should match the caller's configured `num_workers` — a
+/// pool smaller than the actual worker count makes workers queue for a
+/// free connection on top of that connection's own query time, which
+/// shows up as inflated per-query averages in the activity panel even
+/// though nothing individually got slower.
+pub fn open_dblp_db(
+    path: &std::path::Path,
+    pool_size: usize,
+) -> anyhow::Result<Arc<hallucinator_dblp::DblpPool>> {
+    if !path.exists() {
+        anyhow::bail!(
+            "Offline DBLP database not found at {}. Build from Config > Databases (b) or run 'hallucinator-tui update-dblp'.",
+            path.display()
+        );
+    }
+    let pool = hallucinator_dblp::DblpPool::open_with_size(path, pool_size)?;
+    Ok(Arc::new(pool))
+}
+
+/// Open offline ACL Anthology database if a path is configured, returning the Arc<AclPool> handle.
+pub fn open_acl_db(
+    path: &std::path::Path,
+    pool_size: usize,
+) -> anyhow::Result<Arc<hallucinator_acl::AclPool>> {
+    if !path.exists() {
+        anyhow::bail!(
+            "Offline ACL database not found at {}. Build from Config > Databases (b) or run 'hallucinator-tui update-acl'.",
+            path.display(),
+        );
+    }
+    let pool = hallucinator_acl::AclPool::open_with_size(path, pool_size)?;
+    Ok(Arc::new(pool))
+}
+
+/// Open offline arXiv metadata database if a path is configured, returning the Arc<ArxivPool> handle.
+pub fn open_arxiv_db(
+    path: &std::path::Path,
+    pool_size: usize,
+) -> anyhow::Result<Arc<hallucinator_arxiv_offline::ArxivPool>> {
+    if !path.exists() {
+        anyhow::bail!(
+            "Offline arXiv database not found at {}. Build with `hallucinator-cli update-arxiv {}`.",
+            path.display(),
+            path.display(),
+        );
+    }
+    let pool = hallucinator_arxiv_offline::ArxivPool::open_with_size(path, pool_size)
+        .map_err(|e| anyhow::anyhow!("{}", e))?;
+    Ok(Arc::new(pool))
+}
+
+/// Open offline IACR Cryptology ePrint Archive database, returning the
+/// `Arc<IacrPool>` handle. The archive has no online search API, so
+/// without this local index the IACR backend never registers.
+pub fn open_iacr_eprint_db(
+    path: &std::path::Path,
+    pool_size: usize,
+) -> anyhow::Result<Arc<hallucinator_iacr_eprint::IacrPool>> {
+    if !path.exists() {
+        anyhow::bail!(
+            "Offline IACR ePrint database not found at {}. Build it with `hallucinator-cli update-iacr-eprint {}`.",
+            path.display(),
+            path.display(),
+        );
+    }
+    let pool = hallucinator_iacr_eprint::IacrPool::open_with_size(path, pool_size)
+        .map_err(|e| anyhow::anyhow!("{}", e))?;
+    Ok(Arc::new(pool))
+}
+
+/// Open offline OpenAlex Tantivy index if a path is configured, returning the Arc<OpenAlexDatabase> handle.
+pub fn open_openalex_db(
+    path: &std::path::Path,
+) -> anyhow::Result<Arc<hallucinator_openalex::OpenAlexDatabase>> {
+    if !path.exists() {
+        anyhow::bail!(
+            "Offline OpenAlex index not found at {}. Build from Config > Databases (b) or run 'hallucinator-tui update-openalex'.",
+            path.display(),
+        );
+    }
+    let db = hallucinator_openalex::OpenAlexDatabase::open(path)
+        .map_err(|e| anyhow::anyhow!("{}", e))?;
+    Ok(Arc::new(db))
+}
+
+/// Open the local corpus database if a path is configured, returning the
+/// Arc<CorpusPool> handle. Grown incrementally by `hallucinator-cli
+/// import-*` subcommands, not built inside the TUI — no build-progress
+/// UI exists for it here, same as arXiv/IACR ePrint.
+pub fn open_local_corpus_db(
+    path: &std::path::Path,
+    pool_size: usize,
+) -> anyhow::Result<Arc<hallucinator_local_corpus::CorpusPool>> {
+    if !path.exists() {
+        anyhow::bail!(
+            "Local corpus database not found at {}. Build it with `hallucinator-cli import-ndss` / `import-usenix` / `import-corpus-reports` (etc.).",
+            path.display(),
+        );
+    }
+    let pool = hallucinator_local_corpus::CorpusPool::open_with_size(path, pool_size)
+        .map_err(|e| anyhow::anyhow!("{}", e))?;
+    Ok(Arc::new(pool))
+}

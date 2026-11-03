@@ -115,7 +115,7 @@ a likely problem. An info gives context.
 | icse-2027 (default) | ICSE 2027 Research Track | IEEE, two columns, US Letter | 10 plus 2 of references |
 | fse-2027 | FSE 2027 Research Track | ACM acmsmall, one column | 18 plus 4 of references |
 
-A new venue needs a copy of a file in `src/peercheck/profiles/` with its own values, passed by path, such as
+A new venue needs a copy of a file in `src/profiles/` with its own values, passed by path, such as
 `peercheck --profile myvenue.yaml papers pdfs/`.
 
 ## Privacy
@@ -128,36 +128,36 @@ A new venue needs a copy of a file in `src/peercheck/profiles/` with its own val
 ## How it works
 
 `peercheck papers`
-1. `src/peercheck/inputs.py`, static. Maps each PDF to a paper ID and reads the submission sheet and the author list.
-2. `src/peercheck/checks/sigsoft.py`, static. Runs the revised SIGSOFT jar over all PDFs.
-3. `src/peercheck/checks/layout.py`, static. Runs banal and checks the format rules of the profile.
-4. `src/peercheck/checks/hidden_text.py`, static. Runs pdfguardrail and a clip test with PyMuPDF.
-5. `src/peercheck/checks/references.py` and `src/peercheck/retraction_watch.py`, static. Run Hallucinator offline and match DOIs against Retraction Watch.
-6. `src/peercheck/report.py`, static. Writes the workbook and the optional JSON file.
+1. `src/inputs.py`, static. Maps each PDF to a paper ID and reads the submission sheet and the author list.
+2. `src/checks/sigsoft.py`, static. Runs the revised SIGSOFT jar over all PDFs.
+3. `src/checks/layout.py`, static. Runs banal and checks the format rules of the profile.
+4. `src/checks/hidden_text.py`, static. Runs pdfguardrail and a clip test with PyMuPDF.
+5. `src/checks/references.py` and `src/retraction_watch.py`, static. Run Hallucinator offline and match DOIs against Retraction Watch.
+6. `src/report.py`, static. Writes the workbook and the optional JSON file.
 
 `peercheck reviews`
-1. `src/peercheck/inputs.py`, static. Reads the review XML files.
-2. `src/peercheck/reviews/cocodet.py`, call of a local model. Labels each review with CoCoDet.
-3. `src/peercheck/reviews/binoculars.py`, call of two local models. Scores each review with Binoculars.
-4. `src/peercheck/reviews/editlens.py`, call of a local model, on request. Labels each review with EditLens.
-5. `src/peercheck/canary.py`, static, with `--canaries`. Finds the hidden citation of each paper in its reviews.
-6. `src/peercheck/reviews/duplicates.py`, static. Finds paragraphs that appear in two reviews.
-7. `src/peercheck/reviews/citations.py`, static. Finds citation requests.
-8. `src/peercheck/report.py`, static. Writes the workbook.
+1. `src/inputs.py`, static. Reads the review XML files.
+2. `src/reviews/cocodet.py`, call of a local model. Labels each review with CoCoDet.
+3. `src/reviews/binoculars.py`, call of two local models. Scores each review with Binoculars.
+4. `src/reviews/editlens.py`, call of a local model, on request. Labels each review with EditLens.
+5. `src/canary.py`, static, with `--canaries`. Finds the hidden citation of each paper in its reviews.
+6. `src/reviews/duplicates.py`, static. Finds paragraphs that appear in two reviews.
+7. `src/reviews/citations.py`, static. Finds citation requests.
+8. `src/report.py`, static. Writes the workbook.
 
 `peercheck canary`
-1. `src/peercheck/inputs.py`, static. Maps each PDF to a paper ID.
-2. `src/peercheck/canary.py`, static. Draws a citation for each paper, writes the key file, and marks a copy of
+1. `src/inputs.py`, static. Maps each PDF to a paper ID.
+2. `src/canary.py`, static. Draws a citation for each paper, writes the key file, and marks a copy of
    each PDF.
 
 `peercheck conflicts`
-1. `src/peercheck/dblp.py`, static. Builds a publication index of the authors and the committee from the DBLP dump.
-2. `src/peercheck/conflicts.py`, static. Applies the conflict rules.
-3. `src/peercheck/report.py`, static. Writes the workbook.
+1. `src/dblp.py`, static. Builds a publication index of the authors and the committee from the DBLP dump.
+2. `src/conflicts.py`, static. Applies the conflict rules.
+3. `src/report.py`, static. Writes the workbook.
 
-`src/peercheck/cli.py` and `src/peercheck/reviews/cli.py` hold the command line and the menu. `src/peercheck/vendor/`
-holds banal and the revised SIGSOFT jar. `external/` holds the original tools, with a `PORT.md` for each
-change.
+`src/cli.py` and `src/reviews/cli.py` hold the command line and the menu. `external/README.md` lists the tools
+and data of other authors in `external/`, modified or compiled ones included. Each port has a `PORT.md` with its
+changes.
 
 ## Tests
 

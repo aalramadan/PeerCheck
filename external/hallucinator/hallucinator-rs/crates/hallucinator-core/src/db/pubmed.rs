@@ -1,0 +1,131 @@
+use super::{DatabaseBackend, DbQueryError, DbQueryResult};
+use crate::matching::titles_match;
+use crate::text_utils::get_query_words;
+use std::future::Future;
+use std::pin::Pin;
+use std::time::Duration;
+
+/// Check PubMed/NCBI response status, treating 429 and 503 as rate limiting.
+/// NCBI returns HTTP 429 when rate limit exceeded and 503 when overloaded.
+fn check_pubmed_status(resp: &reqwest::Response) -> Result<(), DbQueryError> {
+    let status = resp.status().as_u16();
+    if status == 429 || status == 503 {
+        let retry_after = resp
+            .headers()
+            .get("retry-after")
+            .and_then(|v| v.to_str().ok())
+            .and_then(|s| s.parse::<u64>().ok())
+            .map(Duration::from_secs);
+        Err(DbQueryError::RateLimited {
+            retry_after: retry_after.or(Some(Duration::from_secs(1))),
+        })
+    } else if !resp.status().is_success() {
+        Err(DbQueryError::Other(format!("HTTP {}", resp.status())))
+    } else {
+        Ok(())
+    }
+}
+
+pub struct PubMed;
+
+impl DatabaseBackend for PubMed {
+    fn name(&self) -> &str {
+        "PubMed"
+    }
+
+    fn query<'a>(
+        &'a self,
+        title: &'a str,
+        client: &'a reqwest::Client,
+        timeout: Duration,
+    ) -> Pin<Box<dyn Future<Output = Result<DbQueryResult, DbQueryError>> + Send + 'a>> {
+        Box::pin(async move {
+            let words = get_query_words(title, 6);
+            let query = words.join(" ");
+
+            // Step 1: Search for matching articles
+            let search_url = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi";
+            let term = format!("{}[Title]", query);
+
+            let resp = client
+                .get(search_url)
+                .query(&[
+                    ("db", "pubmed"),
+                    ("term", &term),
+                    ("retmode", "json"),
+                    ("retmax", "10"),
+                ])
+                .header("User-Agent", "Academic Reference Parser")
+                .timeout(timeout)
+                .send()
+                .await
+                .map_err(|e| DbQueryError::Other(e.to_string()))?;
+
+            check_pubmed_status(&resp)?;
+
+            let data: serde_json::Value = resp
+                .json()
+                .await
+                .map_err(|e| DbQueryError::Other(e.to_string()))?;
+            let id_list: Vec<String> = data["esearchresult"]["idlist"]
+                .as_array()
+                .map(|arr| {
+                    arr.iter()
+                        .filter_map(|v| v.as_str().map(String::from))
+                        .collect()
+                })
+                .unwrap_or_default();
+
+            if id_list.is_empty() {
+                return Ok(DbQueryResult::not_found());
+            }
+
+            // Step 2: Fetch details
+            let fetch_url = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esummary.fcgi";
+            let ids = id_list.join(",");
+
+            let resp = client
+                .get(fetch_url)
+                .query(&[("db", "pubmed"), ("id", ids.as_str()), ("retmode", "json")])
+                .header("User-Agent", "Academic Reference Parser")
+                .timeout(timeout)
+                .send()
+                .await
+                .map_err(|e| DbQueryError::Other(e.to_string()))?;
+
+            check_pubmed_status(&resp)?;
+
+            let data: serde_json::Value = resp
+                .json()
+                .await
+                .map_err(|e| DbQueryError::Other(e.to_string()))?;
+            let results = &data["result"];
+
+            for pmid in &id_list {
+                let item = &results[pmid];
+                let found_title = item["title"].as_str().unwrap_or("");
+                if !found_title.is_empty() && titles_match(title, found_title) {
+                    let authors: Vec<String> = item["authors"]
+                        .as_array()
+                        .map(|arr| {
+                            arr.iter()
+                                .filter_map(|a| a["name"].as_str().map(String::from))
+                                .collect()
+                        })
+                        .unwrap_or_default();
+
+                    // Skip results with empty authors - let other DBs verify
+                    if authors.is_empty() {
+                        continue;
+                    }
+
+                    let paper_url = format!("https://pubmed.ncbi.nlm.nih.gov/{}/", pmid);
+
+                    return Ok(DbQueryResult::found(found_title, authors, Some(paper_url)));
+                }
+            }
+
+            Ok(DbQueryResult::not_found())
+        })
+    }
+}

@@ -1,0 +1,3964 @@
+use std::io::Write;
+use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex};
+
+use clap::{Parser, Subcommand};
+use tokio_util::sync::CancellationToken;
+
+mod output;
+
+use output::ColorMode;
+
+/// Hallucinated Reference Detector - Detect fabricated references in academic PDFs
+#[derive(Parser, Debug)]
+#[command(version, about, long_about = None)]
+struct Cli {
+    /// Path to config file (default: auto-detect platform config dir)
+    #[arg(long, global = true)]
+    config: Option<PathBuf>,
+
+    /// Write tracing/debug logs to this file (default: stderr)
+    #[arg(long, global = true)]
+    log: Option<PathBuf>,
+
+    #[command(subcommand)]
+    command: Command,
+}
+
+#[derive(Subcommand, Debug)]
+#[allow(clippy::large_enum_variant)]
+enum Command {
+    /// Check a PDF, .bbl, .bib, or GROBID TEI XML (.xml) file for hallucinated references
+    Check {
+        /// Path to the PDF, .bbl, .bib, or GROBID .xml file to check
+        file_path: PathBuf,
+
+        /// Disable colored output
+        #[arg(long)]
+        no_color: bool,
+
+        /// OpenAlex API key
+        #[arg(long)]
+        openalex_key: Option<String>,
+
+        /// Semantic Scholar API key
+        #[arg(long)]
+        s2_api_key: Option<String>,
+
+        /// GovInfo API key (free from api.data.gov)
+        #[arg(long)]
+        govinfo_key: Option<String>,
+
+        /// PatentsView API key (US patents)
+        #[arg(long)]
+        patentsview_key: Option<String>,
+
+        /// Path to output log file
+        #[arg(short, long)]
+        output: Option<PathBuf>,
+
+        /// Path to offline DBLP database
+        #[arg(long)]
+        dblp_offline: Option<PathBuf>,
+
+        /// Path to offline ACL Anthology database
+        #[arg(long)]
+        acl_offline: Option<PathBuf>,
+
+        /// Path to offline arXiv metadata database (Kaggle snapshot)
+        #[arg(long)]
+        arxiv_offline: Option<PathBuf>,
+
+        /// Path to offline IACR Cryptology ePrint Archive database
+        /// (built by `update-iacr-eprint`). No online counterpart —
+        /// the archive has no public search API, so this backend
+        /// only fires when a local index is available.
+        #[arg(long)]
+        iacr_eprint_offline: Option<PathBuf>,
+
+        /// Path to offline OpenAlex Tantivy index
+        #[arg(long)]
+        openalex_offline: Option<PathBuf>,
+
+        /// Path to local corpus database (recent conference proceedings
+        /// not yet indexed elsewhere, plus references marked safe during
+        /// review). Build/update it with `import-ndss`, `import-usenix`,
+        /// or `import-corpus-reports`.
+        #[arg(long)]
+        local_corpus: Option<PathBuf>,
+
+        /// Comma-separated list of databases to disable
+        #[arg(long, value_delimiter = ',')]
+        disable_dbs: Vec<String>,
+
+        /// Flag author mismatches from OpenAlex (default: skipped)
+        #[arg(long)]
+        check_openalex_authors: bool,
+
+        /// Number of concurrent reference checks (default: 4)
+        #[arg(long)]
+        num_workers: Option<usize>,
+
+        /// Max 429 retries per database query (default: 3)
+        #[arg(long)]
+        max_rate_limit_retries: Option<u32>,
+
+        /// Dry run: extract and print references without querying databases
+        #[arg(long)]
+        dry_run: bool,
+
+        /// Enable SearxNG web search fallback for unverified citations.
+        /// Uses SEARXNG_URL env var or defaults to http://localhost:8080
+        #[arg(long)]
+        searxng: bool,
+
+        /// Force SearxNG off for this run, even if the config file's
+        /// `searxng_url` would otherwise auto-enable it. Without this flag,
+        /// a configured `searxng_url` silently enables the web-search
+        /// fallback regardless of whether `--searxng` was passed — useful
+        /// for e.g. a "local DBs only" pass that shouldn't make network
+        /// calls at all. Takes precedence over both `--searxng` and the
+        /// config file.
+        #[arg(long)]
+        no_searxng: bool,
+
+        /// Cross-check references that fail all DB lookups against their
+        /// raw URL via URL Check (live HTTP) and the Wayback Machine.
+        /// Without this flag, a NotFound ref that still carries a
+        /// non-academic URL is reported as "skipped" rather than
+        /// "not_found" — URL liveness is the only extra signal we'd
+        /// have had, and the URL-check/Wayback layer is noisy (bot
+        /// walls, 404s, slow hosts). Refs with fake arXiv/DOI
+        /// identifiers remain NotFound because `extract_urls` filters
+        /// academic domains, leaving their url list empty.
+        #[arg(long)]
+        url_match: bool,
+
+        /// Path to persistent query cache database (SQLite)
+        #[arg(long)]
+        cache_path: Option<PathBuf>,
+
+        /// Clear the query cache and exit
+        #[arg(long)]
+        clear_cache: bool,
+
+        /// Clear only not-found entries from the cache and exit
+        #[arg(long)]
+        clear_not_found: bool,
+
+        /// Export results as JSON to this path (compatible with hallucinator-tui --load)
+        #[arg(long)]
+        json: Option<PathBuf>,
+    },
+
+    /// Download and build the offline DBLP database
+    ///
+    /// dblp.org has started serving Anubis (bot-protection) challenge
+    /// pages to some clients, which a plain HTTP download can't get past —
+    /// it requires running JS to solve a proof-of-work challenge. If the
+    /// live download fails (or --from-file is more convenient), download
+    /// https://dblp.uni-trier.de/xml/dblp.xml.gz in a real browser and
+    /// pass it via --from-file instead.
+    UpdateDblp {
+        /// Path to store the DBLP SQLite database
+        path: PathBuf,
+
+        /// Build from an already-downloaded dblp.xml.gz instead of
+        /// fetching it live. Use this if the live download is blocked —
+        /// save the file from a real browser first.
+        #[arg(long)]
+        from_file: Option<PathBuf>,
+    },
+
+    /// Download and build the offline ACL Anthology database
+    UpdateAcl {
+        /// Path to store the ACL SQLite database
+        path: PathBuf,
+    },
+
+    /// Ingest the Kaggle arXiv metadata snapshot into a local SQLite database.
+    ///
+    /// By default downloads the ~4 GB Kaggle dump (Cornell-University/arxiv),
+    /// then streams it into the SQLite schema. Credentials come from the
+    /// KAGGLE_API_TOKEN env var or ~/.kaggle/access_token, falling back to
+    /// legacy KAGGLE_USERNAME+KAGGLE_KEY or ~/.kaggle/kaggle.json.
+    /// Use --dump to point at an already-downloaded zip or JSON file.
+    UpdateArxiv {
+        /// Path to store the arXiv SQLite database
+        path: PathBuf,
+
+        /// Use an already-downloaded Kaggle dump (.zip or
+        /// arxiv-metadata-oai-snapshot.json). Skips the download step.
+        #[arg(long)]
+        dump: Option<PathBuf>,
+
+        /// Keep the downloaded zip instead of deleting it after ingest.
+        /// Useful for retrying an ingest without re-downloading 4 GB.
+        #[arg(long)]
+        keep_download: bool,
+    },
+
+    /// Download and build the offline OpenAlex Tantivy index
+    UpdateOpenalex {
+        /// Path to store the OpenAlex index directory
+        path: PathBuf,
+
+        /// Only download S3 partitions newer than this date (YYYY-MM-DD)
+        #[arg(long)]
+        since: Option<String>,
+
+        /// Only index works published in this year or later (e.g. 2020)
+        #[arg(long)]
+        min_year: Option<u32>,
+    },
+
+    /// Harvest the IACR Cryptology ePrint Archive over OAI-PMH into a
+    /// local SQLite + FTS5 index.
+    ///
+    /// The archive has no search API, so this local index is the only
+    /// way to title-match ePrint citations. Full harvest takes a few
+    /// minutes (~25-30k papers); subsequent runs are incremental
+    /// (send only records newer than the stored `last_harvest`
+    /// timestamp). IACR's metadata is CC0.
+    UpdateIacrEprint {
+        /// Path to store the IACR ePrint SQLite database
+        path: PathBuf,
+    },
+
+    /// Import references marked safe (fp_reason set) from this tool's own
+    /// report JSON exports into the local corpus.
+    ///
+    /// Fixes fp_overrides' exact-identity matching being brittle against
+    /// citation-style drift: once a marked-safe reference is in the
+    /// corpus, a differently-worded or author-list-truncated citation of
+    /// the same paper elsewhere still resolves via fuzzy title matching,
+    /// instead of needing byte-for-byte identity.
+    ImportCorpusReports {
+        /// Path to the local corpus SQLite database (created if missing)
+        #[arg(long)]
+        corpus: PathBuf,
+
+        /// One or more report JSON files (this tool's own --json export)
+        reports: Vec<PathBuf>,
+    },
+
+    /// Import an NDSS accepted-papers page into the local corpus.
+    ///
+    /// NDSS publishes no BibTeX/CSV export, so this scrapes the
+    /// WordPress-rendered listing page directly. Fixes recently-accepted
+    /// papers not being indexed yet in CrossRef/DBLP/etc.
+    ImportNdss {
+        /// Path to the local corpus SQLite database (created if missing)
+        #[arg(long)]
+        corpus: PathBuf,
+
+        /// Provenance tag stored on each record, e.g. "ndss2026"
+        #[arg(long)]
+        source_tag: String,
+
+        /// Fetch live from this URL (e.g.
+        /// https://www.ndss-symposium.org/ndss2026/accepted-papers/)
+        #[arg(long, conflicts_with = "from_file")]
+        url: Option<String>,
+
+        /// Parse an already-downloaded copy of the page instead of
+        /// fetching live. Use this if the live fetch is blocked — save
+        /// the page from a real browser first.
+        #[arg(long, conflicts_with = "url")]
+        from_file: Option<PathBuf>,
+    },
+
+    /// Import a USENIX Security `technical-sessions` program page into the
+    /// local corpus.
+    ///
+    /// The listing page embeds each paper's title and full author list in
+    /// one page — no need to enumerate and fetch per-paper BibTeX exports.
+    /// USENIX's site blocks plain bot requests for some clients; if the
+    /// live fetch 403s, save the page from a real browser and pass
+    /// --from-file instead.
+    ImportUsenix {
+        /// Path to the local corpus SQLite database (created if missing)
+        #[arg(long)]
+        corpus: PathBuf,
+
+        /// Provenance tag stored on each record, e.g. "usenix2026"
+        #[arg(long)]
+        source_tag: String,
+
+        /// Fetch live from this URL (e.g.
+        /// https://www.usenix.org/conference/usenixsecurity26/technical-sessions)
+        #[arg(long, conflicts_with = "from_file")]
+        url: Option<String>,
+
+        /// Parse an already-downloaded copy of the page instead of
+        /// fetching live (a Wayback Machine snapshot works too — its
+        /// wrapped URLs are unwrapped back to the live usenix.org link).
+        #[arg(long, conflicts_with = "url")]
+        from_file: Option<PathBuf>,
+    },
+
+    /// Import an IEEE S&P ("Oakland") accepted-papers page into the local
+    /// corpus.
+    ImportIeeeSp {
+        /// Path to the local corpus SQLite database (created if missing)
+        #[arg(long)]
+        corpus: PathBuf,
+
+        /// Provenance tag stored on each record, e.g. "ieeesp2026"
+        #[arg(long)]
+        source_tag: String,
+
+        /// Fetch live from this URL (e.g.
+        /// https://sp2026.ieee-security.org/accepted-papers.html)
+        #[arg(long, conflicts_with = "from_file")]
+        url: Option<String>,
+
+        /// Parse an already-downloaded copy of the page instead of
+        /// fetching live.
+        #[arg(long, conflicts_with = "url")]
+        from_file: Option<PathBuf>,
+    },
+
+    /// Import an ACM CCS accepted-papers page into the local corpus.
+    ImportCcs {
+        /// Path to the local corpus SQLite database (created if missing)
+        #[arg(long)]
+        corpus: PathBuf,
+
+        /// Provenance tag stored on each record, e.g. "ccs2026"
+        #[arg(long)]
+        source_tag: String,
+
+        /// Fetch live from this URL (e.g.
+        /// https://www.sigsac.org/ccs/CCS2026/program/accepted-papers.html)
+        #[arg(long, conflicts_with = "from_file")]
+        url: Option<String>,
+
+        /// Parse an already-downloaded copy of the page instead of
+        /// fetching live.
+        #[arg(long, conflicts_with = "url")]
+        from_file: Option<PathBuf>,
+    },
+
+    /// Import a CVF Open Access (CVPR / ICCV / WACV) `?day=all` paper
+    /// listing page into the local corpus.
+    ImportCvf {
+        /// Path to the local corpus SQLite database (created if missing)
+        #[arg(long)]
+        corpus: PathBuf,
+
+        /// Provenance tag stored on each record, e.g. "cvpr2026"
+        #[arg(long)]
+        source_tag: String,
+
+        /// Fetch live from this URL (e.g.
+        /// https://openaccess.thecvf.com/CVPR2026?day=all)
+        #[arg(long, conflicts_with = "from_file")]
+        url: Option<String>,
+
+        /// Parse an already-downloaded copy of the page instead of
+        /// fetching live.
+        #[arg(long, conflicts_with = "url")]
+        from_file: Option<PathBuf>,
+    },
+
+    /// Import a NeurIPS `papers.nips.cc` year-index page into the local
+    /// corpus. A year's index only exists once its proceedings are
+    /// published (weeks after the conference) — check
+    /// `https://papers.nips.cc/paper_files/paper/<year>` for the current
+    /// `volNN-main-conference` link.
+    ImportNeurips {
+        /// Path to the local corpus SQLite database (created if missing)
+        #[arg(long)]
+        corpus: PathBuf,
+
+        /// Provenance tag stored on each record, e.g. "neurips2025"
+        #[arg(long)]
+        source_tag: String,
+
+        /// Fetch live from this URL (e.g.
+        /// https://papers.nips.cc/paper_files/paper/2025/vol38-main-conference)
+        #[arg(long, conflicts_with = "from_file")]
+        url: Option<String>,
+
+        /// Parse an already-downloaded copy of the page instead of
+        /// fetching live.
+        #[arg(long, conflicts_with = "url")]
+        from_file: Option<PathBuf>,
+    },
+
+    /// Import one ICSE (or other researchr.org-hosted) track page's
+    /// Accepted Papers tab into the local corpus. Each track (Research
+    /// Track, SEIP, NIER, ...) is a separate page — run once per track,
+    /// e.g. --source-tag=icse2026-research and --source-tag=icse2026-seip.
+    ImportIcse {
+        /// Path to the local corpus SQLite database (created if missing)
+        #[arg(long)]
+        corpus: PathBuf,
+
+        /// Provenance tag stored on each record, e.g. "icse2026-research"
+        #[arg(long)]
+        source_tag: String,
+
+        /// Fetch live from this URL (e.g.
+        /// https://conf.researchr.org/track/icse-2026/icse-2026-research-track)
+        #[arg(long, conflicts_with = "from_file")]
+        url: Option<String>,
+
+        /// Parse an already-downloaded copy of the page instead of
+        /// fetching live.
+        #[arg(long, conflicts_with = "url")]
+        from_file: Option<PathBuf>,
+    },
+
+    /// Import one AAAI OJS issue's table-of-contents page into the local
+    /// corpus. Each year's proceedings span many issues (~94 papers
+    /// each) with no single page listing them all — run once per issue,
+    /// enumerating issue ids from
+    /// https://ojs.aaai.org/index.php/AAAI/issue/archive.
+    ImportAaai {
+        /// Path to the local corpus SQLite database (created if missing)
+        #[arg(long)]
+        corpus: PathBuf,
+
+        /// Provenance tag stored on each record, e.g. "aaai26"
+        #[arg(long)]
+        source_tag: String,
+
+        /// Fetch live from this URL (e.g.
+        /// https://ojs.aaai.org/index.php/AAAI/issue/view/683)
+        #[arg(long, conflicts_with = "from_file")]
+        url: Option<String>,
+
+        /// Parse an already-downloaded copy of the page instead of
+        /// fetching live.
+        #[arg(long, conflicts_with = "url")]
+        from_file: Option<PathBuf>,
+    },
+
+    /// Import one DEF CON year's main-track speakers page into the local
+    /// corpus. No formal proceedings/DOIs exist for DEF CON — this reads
+    /// defcon.org's own HTML listing. Note: defcon.org's robots.txt
+    /// disallows ClaudeBot/anthropic-ai by name; per an explicit decision
+    /// made with the user, this venue is meant to be fetched via Wayback
+    /// Machine snapshots rather than the live site directly.
+    ImportDefcon {
+        /// Path to the local corpus SQLite database (created if missing)
+        #[arg(long)]
+        corpus: PathBuf,
+
+        /// Provenance tag stored on each record, e.g. "defcon33"
+        #[arg(long)]
+        source_tag: String,
+
+        /// Fetch live from this URL (e.g. a Wayback Machine snapshot of
+        /// https://defcon.org/html/defcon-33/dc-33-speakers.html)
+        #[arg(long, conflicts_with = "from_file")]
+        url: Option<String>,
+
+        /// Parse an already-downloaded copy of the page instead of
+        /// fetching live.
+        #[arg(long, conflicts_with = "url")]
+        from_file: Option<PathBuf>,
+    },
+
+    /// Import one Black Hat edition's `sessions.json` (Briefings
+    /// schedule data) into the local corpus. The live site 403s all
+    /// requests behind a Cloudflare WAF challenge — this only works
+    /// against a Wayback Machine snapshot of the sessions.json URL, or a
+    /// locally saved copy via --from-file.
+    ImportBlackhat {
+        /// Path to the local corpus SQLite database (created if missing)
+        #[arg(long)]
+        corpus: PathBuf,
+
+        /// Provenance tag stored on each record, e.g. "blackhatus2025"
+        #[arg(long)]
+        source_tag: String,
+
+        /// Fetch live from this URL (e.g. a Wayback Machine snapshot of
+        /// https://www.blackhat.com/us-25/briefings/schedule/sessions.json)
+        #[arg(long, conflicts_with = "from_file")]
+        url: Option<String>,
+
+        /// Parse an already-downloaded copy of the file instead of
+        /// fetching live.
+        #[arg(long, conflicts_with = "url")]
+        from_file: Option<PathBuf>,
+    },
+
+    /// Import an ACSAC accepted-papers page into the local corpus. Note:
+    /// acsac.org's robots.txt disallows generic bots (a blanket policy,
+    /// not AI-specific) — no technical enforcement was found, but be
+    /// aware this runs against that stated policy.
+    ImportAcsac {
+        /// Path to the local corpus SQLite database (created if missing)
+        #[arg(long)]
+        corpus: PathBuf,
+
+        /// Provenance tag stored on each record, e.g. "acsac2025"
+        #[arg(long)]
+        source_tag: String,
+
+        /// Fetch live from this URL (e.g.
+        /// https://www.acsac.org/2025/program/papers/)
+        #[arg(long, conflicts_with = "from_file")]
+        url: Option<String>,
+
+        /// Parse an already-downloaded copy of the page instead of
+        /// fetching live.
+        #[arg(long, conflicts_with = "url")]
+        from_file: Option<PathBuf>,
+    },
+
+    /// Import an ESORICS accepted-papers page into the local corpus.
+    /// Note: ESORICS has no permanent domain — each year is a fresh site
+    /// on a different platform, and past years' domains can go dead or
+    /// get squatted (confirmed for one past edition). Only fetch the
+    /// current year's live URL, or a locally-saved copy via --from-file.
+    ImportEsorics {
+        /// Path to the local corpus SQLite database (created if missing)
+        #[arg(long)]
+        corpus: PathBuf,
+
+        /// Provenance tag stored on each record, e.g. "esorics2025"
+        #[arg(long)]
+        source_tag: String,
+
+        /// Fetch live from this URL
+        #[arg(long, conflicts_with = "from_file")]
+        url: Option<String>,
+
+        /// Parse an already-downloaded copy of the page instead of
+        /// fetching live.
+        #[arg(long, conflicts_with = "url")]
+        from_file: Option<PathBuf>,
+    },
+
+    /// Import a RAID accepted-papers page into the local corpus.
+    ImportRaid {
+        /// Path to the local corpus SQLite database (created if missing)
+        #[arg(long)]
+        corpus: PathBuf,
+
+        /// Provenance tag stored on each record, e.g. "raid2025"
+        #[arg(long)]
+        source_tag: String,
+
+        /// Fetch live from this URL (e.g.
+        /// https://raid2025.github.io/accepted_open.html)
+        #[arg(long, conflicts_with = "from_file")]
+        url: Option<String>,
+
+        /// Parse an already-downloaded copy of the page instead of
+        /// fetching live.
+        #[arg(long, conflicts_with = "url")]
+        from_file: Option<PathBuf>,
+    },
+
+    /// Import one ASIACCS submission-cycle accepted-papers page into the
+    /// local corpus (run once per cycle — cycle-1-papers/, cycle-2-papers/).
+    /// Note: like ESORICS, ASIACCS has no permanent domain; past years'
+    /// domains can go dead or get squatted.
+    ImportAsiaccs {
+        /// Path to the local corpus SQLite database (created if missing)
+        #[arg(long)]
+        corpus: PathBuf,
+
+        /// Provenance tag stored on each record, e.g. "asiaccs2026-cycle1"
+        #[arg(long)]
+        source_tag: String,
+
+        /// Fetch live from this URL
+        #[arg(long, conflicts_with = "from_file")]
+        url: Option<String>,
+
+        /// Parse an already-downloaded copy of the page instead of
+        /// fetching live.
+        #[arg(long, conflicts_with = "url")]
+        from_file: Option<PathBuf>,
+    },
+
+    /// Import a EuroS&P accepted-papers page into the local corpus.
+    ImportEurosp {
+        /// Path to the local corpus SQLite database (created if missing)
+        #[arg(long)]
+        corpus: PathBuf,
+
+        /// Provenance tag stored on each record, e.g. "eurosp2026"
+        #[arg(long)]
+        source_tag: String,
+
+        /// Fetch live from this URL (e.g.
+        /// https://eurosp2026.ieee-security.org/accepted_and_awards.html)
+        #[arg(long, conflicts_with = "from_file")]
+        url: Option<String>,
+
+        /// Parse an already-downloaded copy of the page instead of
+        /// fetching live.
+        #[arg(long, conflicts_with = "url")]
+        from_file: Option<PathBuf>,
+    },
+
+    /// Import a SOSP (ACM SIGOPS Symposium on Operating Systems
+    /// Principles) accepted-papers page into the local corpus.
+    ImportSosp {
+        /// Path to the local corpus SQLite database (created if missing)
+        #[arg(long)]
+        corpus: PathBuf,
+
+        /// Provenance tag stored on each record, e.g. "sosp2025"
+        #[arg(long)]
+        source_tag: String,
+
+        /// Fetch live from this URL (e.g.
+        /// https://sigops.org/s/conferences/sosp/2025/accepted.html)
+        #[arg(long, conflicts_with = "from_file")]
+        url: Option<String>,
+
+        /// Parse an already-downloaded copy of the page instead of
+        /// fetching live.
+        #[arg(long, conflicts_with = "url")]
+        from_file: Option<PathBuf>,
+    },
+
+    /// Import an ASPLOS program page into the local corpus.
+    ImportAsplos {
+        /// Path to the local corpus SQLite database (created if missing)
+        #[arg(long)]
+        corpus: PathBuf,
+
+        /// Provenance tag stored on each record, e.g. "asplos2026"
+        #[arg(long)]
+        source_tag: String,
+
+        /// Fetch live from this URL (e.g.
+        /// https://www.asplos-conference.org/asplos2026/program/index.html)
+        #[arg(long, conflicts_with = "from_file")]
+        url: Option<String>,
+
+        /// Parse an already-downloaded copy of the page instead of
+        /// fetching live.
+        #[arg(long, conflicts_with = "url")]
+        from_file: Option<PathBuf>,
+    },
+
+    /// Import an ISCA program page into the local corpus. Reuses the
+    /// ASPLOS parser — same underlying page template.
+    ImportIsca {
+        /// Path to the local corpus SQLite database (created if missing)
+        #[arg(long)]
+        corpus: PathBuf,
+
+        /// Provenance tag stored on each record, e.g. "isca2026"
+        #[arg(long)]
+        source_tag: String,
+
+        /// Fetch live from this URL (e.g.
+        /// https://iscaconf.org/isca2026/program/index.php)
+        #[arg(long, conflicts_with = "from_file")]
+        url: Option<String>,
+
+        /// Parse an already-downloaded copy of the page instead of
+        /// fetching live.
+        #[arg(long, conflicts_with = "url")]
+        from_file: Option<PathBuf>,
+    },
+
+    /// Import an ICML `proceedings.mlr.press` volume page into the local
+    /// corpus. Only exists once PMLR publishes that year's volume
+    /// (weeks after the conference, same lag as NeurIPS) — check
+    /// https://proceedings.mlr.press/ for the current "Proceedings of
+    /// ICML <year>" volume number first.
+    ImportIcml {
+        /// Path to the local corpus SQLite database (created if missing)
+        #[arg(long)]
+        corpus: PathBuf,
+
+        /// Provenance tag stored on each record, e.g. "icml2026"
+        #[arg(long)]
+        source_tag: String,
+
+        /// Fetch live from this URL (e.g.
+        /// https://proceedings.mlr.press/v267/)
+        #[arg(long, conflicts_with = "from_file")]
+        url: Option<String>,
+
+        /// Parse an already-downloaded copy of the page instead of
+        /// fetching live.
+        #[arg(long, conflicts_with = "url")]
+        from_file: Option<PathBuf>,
+    },
+
+    /// Import a Paper Digest "<Venue> Papers with Code & Data" page into
+    /// the local corpus. Built for ICLR, whose own sources are all
+    /// unusable (OpenReview's clean endpoint 403s behind a challenge and
+    /// its open endpoint leaks review content; ICLR's own site needs
+    /// ~5,500 per-paper fetches and disallows GPTBot from that path;
+    /// Papers With Code no longer exists). Only covers accepted papers
+    /// with an associated public code/data repo — a real but incomplete
+    /// subset of the full accepted list.
+    ImportIclr {
+        /// Path to the local corpus SQLite database (created if missing)
+        #[arg(long)]
+        corpus: PathBuf,
+
+        /// Provenance tag stored on each record, e.g. "iclr2026"
+        #[arg(long)]
+        source_tag: String,
+
+        /// Fetch live from this URL (e.g.
+        /// https://www.paperdigest.org/2026/04/iclr-2026-papers-with-code-data/)
+        #[arg(long, conflicts_with = "from_file")]
+        url: Option<String>,
+
+        /// Parse an already-downloaded copy of the page instead of
+        /// fetching live.
+        #[arg(long, conflicts_with = "url")]
+        from_file: Option<PathBuf>,
+    },
+
+    /// Import a PETS/PoPETs paper-list page into the local corpus. One
+    /// page covers every quarterly issue for the year.
+    ImportPets {
+        /// Path to the local corpus SQLite database (created if missing)
+        #[arg(long)]
+        corpus: PathBuf,
+
+        /// Provenance tag stored on each record, e.g. "pets2026"
+        #[arg(long)]
+        source_tag: String,
+
+        /// Fetch live from this URL (e.g.
+        /// https://petsymposium.org/2026/paperlist.php)
+        #[arg(long, conflicts_with = "from_file")]
+        url: Option<String>,
+
+        /// Parse an already-downloaded copy of the page instead of
+        /// fetching live.
+        #[arg(long, conflicts_with = "url")]
+        from_file: Option<PathBuf>,
+    },
+
+    /// Import an IEEE INFOCOM accepted-paper-list page into the local
+    /// corpus.
+    ImportInfocom {
+        /// Path to the local corpus SQLite database (created if missing)
+        #[arg(long)]
+        corpus: PathBuf,
+
+        /// Provenance tag stored on each record, e.g. "infocom2026"
+        #[arg(long)]
+        source_tag: String,
+
+        /// Fetch live from this URL (e.g.
+        /// https://infocom2026.ieee-infocom.org/accepted-paper-list-main-conference)
+        #[arg(long, conflicts_with = "from_file")]
+        url: Option<String>,
+
+        /// Parse an already-downloaded copy of the page instead of
+        /// fetching live.
+        #[arg(long, conflicts_with = "url")]
+        from_file: Option<PathBuf>,
+    },
+
+    /// Import ACM SIGCOMM's accepted-papers page into the local corpus.
+    ImportSigcomm {
+        #[arg(long)]
+        corpus: PathBuf,
+        /// Provenance tag stored on each record, e.g. "sigcomm2026"
+        #[arg(long)]
+        source_tag: String,
+        /// Fetch live from this URL (e.g.
+        /// https://conferences.sigcomm.org/sigcomm/2026/accepted-papers/)
+        #[arg(long, conflicts_with = "from_file")]
+        url: Option<String>,
+        #[arg(long, conflicts_with = "url")]
+        from_file: Option<PathBuf>,
+    },
+
+    /// Import ACM IMC's accepted-papers page into the local corpus.
+    ImportImc {
+        #[arg(long)]
+        corpus: PathBuf,
+        /// Provenance tag stored on each record, e.g. "imc2026"
+        #[arg(long)]
+        source_tag: String,
+        /// Fetch live from this URL (e.g.
+        /// https://conferences.sigcomm.org/imc/2026/accepted-papers/)
+        #[arg(long, conflicts_with = "from_file")]
+        url: Option<String>,
+        #[arg(long, conflicts_with = "url")]
+        from_file: Option<PathBuf>,
+    },
+
+    /// Import a DSN accepted-papers page into the local corpus.
+    ImportDsn {
+        #[arg(long)]
+        corpus: PathBuf,
+        /// Provenance tag stored on each record, e.g. "dsn2026"
+        #[arg(long)]
+        source_tag: String,
+        /// Fetch live from this URL (e.g.
+        /// https://dsn2026.github.io/cpaccepted.html)
+        #[arg(long, conflicts_with = "from_file")]
+        url: Option<String>,
+        #[arg(long, conflicts_with = "url")]
+        from_file: Option<PathBuf>,
+    },
+
+    /// Import a EuroSys accepted-papers page into the local corpus.
+    ImportEurosys {
+        #[arg(long)]
+        corpus: PathBuf,
+        /// Provenance tag stored on each record, e.g. "eurosys2026"
+        #[arg(long)]
+        source_tag: String,
+        /// Fetch live from this URL (e.g.
+        /// https://2026.eurosys.org/papers.html)
+        #[arg(long, conflicts_with = "from_file")]
+        url: Option<String>,
+        #[arg(long, conflicts_with = "url")]
+        from_file: Option<PathBuf>,
+    },
+
+    /// Import a SIGMOD accepted-papers page into the local corpus.
+    ImportSigmod {
+        #[arg(long)]
+        corpus: PathBuf,
+        /// Provenance tag stored on each record, e.g. "sigmod2026"
+        #[arg(long)]
+        source_tag: String,
+        /// Fetch live from this URL (e.g.
+        /// https://2026.sigmod.org/sigmod_papers.shtml)
+        #[arg(long, conflicts_with = "from_file")]
+        url: Option<String>,
+        #[arg(long, conflicts_with = "url")]
+        from_file: Option<PathBuf>,
+    },
+
+    /// Import a WWW ("The Web Conference") accepted-papers track page
+    /// into the local corpus. Separate pages exist per track — run once
+    /// per page you want indexed.
+    ImportWww {
+        #[arg(long)]
+        corpus: PathBuf,
+        /// Provenance tag stored on each record, e.g. "www2026"
+        #[arg(long)]
+        source_tag: String,
+        /// Fetch live from this URL (e.g.
+        /// https://www2026.thewebconf.org/accepted/research-tracks.html)
+        #[arg(long, conflicts_with = "from_file")]
+        url: Option<String>,
+        #[arg(long, conflicts_with = "url")]
+        from_file: Option<PathBuf>,
+    },
+
+    /// Import a KDD accepted-papers page into the local corpus (parses
+    /// embedded JS data, not HTML — see the `kdd` ingest module).
+    ImportKdd {
+        #[arg(long)]
+        corpus: PathBuf,
+        /// Provenance tag stored on each record, e.g. "kdd2026"
+        #[arg(long)]
+        source_tag: String,
+        /// Fetch live from this URL (e.g.
+        /// https://kdd2026.kdd.org/papers/)
+        #[arg(long, conflicts_with = "from_file")]
+        url: Option<String>,
+        #[arg(long, conflicts_with = "url")]
+        from_file: Option<PathBuf>,
+    },
+
+    /// Import CHI (or any ACM-DL-front-matter-formatted) proceedings
+    /// from its front-matter PDF's table of contents into the local
+    /// corpus. CHI's own program site has no static content to scrape
+    /// (a JS app shell) — the ACM DL front-matter PDF (freely
+    /// downloadable, no paywall, linked from the proceedings' ACM DL
+    /// page) is the only usable source.
+    ImportChi {
+        #[arg(long)]
+        corpus: PathBuf,
+        /// Provenance tag stored on each record, e.g. "chi2026"
+        #[arg(long)]
+        source_tag: String,
+        /// Path to the downloaded front-matter PDF (e.g. a
+        /// `<id>.fm.pdf` file from the ACM DL proceedings page)
+        #[arg(long)]
+        pdf_path: PathBuf,
+    },
+
+    /// Import a PVLDB issue's front-matter PDF (its table of contents)
+    /// into the local corpus. PVLDB publishes monthly with no single
+    /// consolidated "accepted papers" page — run once per issue you
+    /// want indexed (the front-matter PDF is freely downloadable, no
+    /// paywall, from dl.acm.org/journal/pvldb or pvldb.org).
+    ImportVldb {
+        #[arg(long)]
+        corpus: PathBuf,
+        /// Provenance tag stored on each record, e.g. "vldb2026-v19n9"
+        #[arg(long)]
+        source_tag: String,
+        /// Path to the downloaded issue front-matter PDF
+        #[arg(long)]
+        pdf_path: PathBuf,
+    },
+}
+
+#[tokio::main]
+async fn main() -> anyhow::Result<()> {
+    dotenvy::dotenv().ok();
+    let cli = Cli::parse();
+
+    // Initialize tracing: file (no ANSI) if --log given, otherwise stderr.
+    if let Some(ref log_path) = cli.log {
+        let file = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(log_path)
+            .unwrap_or_else(|e| panic!("Cannot open log file {}: {}", log_path.display(), e));
+        tracing_subscriber::fmt()
+            .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
+            .with_writer(std::sync::Mutex::new(file))
+            .with_ansi(false)
+            .init();
+    } else {
+        tracing_subscriber::fmt::init();
+    }
+
+    // Load config file (explicit --config path, or auto-detect)
+    let (file_config, config_source) = match &cli.config {
+        Some(path) => match hallucinator_core::config_file::load_from_path(path) {
+            Some(cfg) => (cfg, Some(path.clone())),
+            None => {
+                eprintln!("Warning: config file not found: {}", path.display());
+                (hallucinator_core::config_file::ConfigFile::default(), None)
+            }
+        },
+        None => {
+            // Auto-detect: try platform config dir, then CWD overlay
+            let cwd_path = PathBuf::from(".hallucinator.toml");
+            let platform_path = hallucinator_core::config_file::config_path();
+
+            let has_cwd = cwd_path.exists();
+            let has_platform = platform_path.as_ref().is_some_and(|p| p.exists());
+
+            let cfg = hallucinator_core::config_file::load_config();
+            let source = if has_cwd {
+                Some(cwd_path)
+            } else if has_platform {
+                platform_path
+            } else {
+                None
+            };
+            (cfg, source)
+        }
+    };
+
+    match cli.command {
+        Command::UpdateDblp { path, from_file } => update_dblp(&path, from_file.as_deref()).await,
+        Command::UpdateAcl { path } => update_acl(&path).await,
+        Command::UpdateArxiv {
+            path,
+            dump,
+            keep_download,
+        } => update_arxiv(&path, dump.as_deref(), keep_download).await,
+        Command::UpdateOpenalex {
+            path,
+            since,
+            min_year,
+        } => update_openalex(&path, since.as_deref(), min_year).await,
+        Command::UpdateIacrEprint { path } => update_iacr_eprint(&path).await,
+        Command::ImportCorpusReports { corpus, reports } => {
+            import_corpus_reports(&corpus, &reports)
+        }
+        Command::ImportNdss {
+            corpus,
+            source_tag,
+            url,
+            from_file,
+        } => import_ndss(&corpus, &source_tag, url, from_file).await,
+        Command::ImportUsenix {
+            corpus,
+            source_tag,
+            url,
+            from_file,
+        } => import_usenix(&corpus, &source_tag, url, from_file).await,
+        Command::ImportIeeeSp {
+            corpus,
+            source_tag,
+            url,
+            from_file,
+        } => import_ieee_sp(&corpus, &source_tag, url, from_file).await,
+        Command::ImportCcs {
+            corpus,
+            source_tag,
+            url,
+            from_file,
+        } => import_ccs(&corpus, &source_tag, url, from_file).await,
+        Command::ImportCvf {
+            corpus,
+            source_tag,
+            url,
+            from_file,
+        } => import_cvf(&corpus, &source_tag, url, from_file).await,
+        Command::ImportNeurips {
+            corpus,
+            source_tag,
+            url,
+            from_file,
+        } => import_neurips(&corpus, &source_tag, url, from_file).await,
+        Command::ImportIcse {
+            corpus,
+            source_tag,
+            url,
+            from_file,
+        } => import_icse(&corpus, &source_tag, url, from_file).await,
+        Command::ImportAaai {
+            corpus,
+            source_tag,
+            url,
+            from_file,
+        } => import_aaai(&corpus, &source_tag, url, from_file).await,
+        Command::ImportDefcon {
+            corpus,
+            source_tag,
+            url,
+            from_file,
+        } => import_defcon(&corpus, &source_tag, url, from_file).await,
+        Command::ImportBlackhat {
+            corpus,
+            source_tag,
+            url,
+            from_file,
+        } => import_blackhat(&corpus, &source_tag, url, from_file).await,
+        Command::ImportAcsac {
+            corpus,
+            source_tag,
+            url,
+            from_file,
+        } => import_acsac(&corpus, &source_tag, url, from_file).await,
+        Command::ImportEsorics {
+            corpus,
+            source_tag,
+            url,
+            from_file,
+        } => import_esorics(&corpus, &source_tag, url, from_file).await,
+        Command::ImportRaid {
+            corpus,
+            source_tag,
+            url,
+            from_file,
+        } => import_raid(&corpus, &source_tag, url, from_file).await,
+        Command::ImportAsiaccs {
+            corpus,
+            source_tag,
+            url,
+            from_file,
+        } => import_asiaccs(&corpus, &source_tag, url, from_file).await,
+        Command::ImportEurosp {
+            corpus,
+            source_tag,
+            url,
+            from_file,
+        } => import_eurosp(&corpus, &source_tag, url, from_file).await,
+        Command::ImportSosp {
+            corpus,
+            source_tag,
+            url,
+            from_file,
+        } => import_sosp(&corpus, &source_tag, url, from_file).await,
+        Command::ImportAsplos {
+            corpus,
+            source_tag,
+            url,
+            from_file,
+        } => import_asplos(&corpus, &source_tag, url, from_file).await,
+        Command::ImportIsca {
+            corpus,
+            source_tag,
+            url,
+            from_file,
+        } => import_isca(&corpus, &source_tag, url, from_file).await,
+        Command::ImportIcml {
+            corpus,
+            source_tag,
+            url,
+            from_file,
+        } => import_icml(&corpus, &source_tag, url, from_file).await,
+        Command::ImportIclr {
+            corpus,
+            source_tag,
+            url,
+            from_file,
+        } => import_iclr(&corpus, &source_tag, url, from_file).await,
+        Command::ImportPets {
+            corpus,
+            source_tag,
+            url,
+            from_file,
+        } => import_pets(&corpus, &source_tag, url, from_file).await,
+        Command::ImportInfocom {
+            corpus,
+            source_tag,
+            url,
+            from_file,
+        } => import_infocom(&corpus, &source_tag, url, from_file).await,
+        Command::ImportSigcomm {
+            corpus,
+            source_tag,
+            url,
+            from_file,
+        } => import_sigcomm(&corpus, &source_tag, url, from_file).await,
+        Command::ImportImc {
+            corpus,
+            source_tag,
+            url,
+            from_file,
+        } => import_imc(&corpus, &source_tag, url, from_file).await,
+        Command::ImportDsn {
+            corpus,
+            source_tag,
+            url,
+            from_file,
+        } => import_dsn(&corpus, &source_tag, url, from_file).await,
+        Command::ImportEurosys {
+            corpus,
+            source_tag,
+            url,
+            from_file,
+        } => import_eurosys(&corpus, &source_tag, url, from_file).await,
+        Command::ImportSigmod {
+            corpus,
+            source_tag,
+            url,
+            from_file,
+        } => import_sigmod(&corpus, &source_tag, url, from_file).await,
+        Command::ImportWww {
+            corpus,
+            source_tag,
+            url,
+            from_file,
+        } => import_www(&corpus, &source_tag, url, from_file).await,
+        Command::ImportKdd {
+            corpus,
+            source_tag,
+            url,
+            from_file,
+        } => import_kdd(&corpus, &source_tag, url, from_file).await,
+        Command::ImportChi {
+            corpus,
+            source_tag,
+            pdf_path,
+        } => import_chi(&corpus, &source_tag, &pdf_path),
+        Command::ImportVldb {
+            corpus,
+            source_tag,
+            pdf_path,
+        } => import_vldb(&corpus, &source_tag, &pdf_path),
+        Command::Check {
+            file_path,
+            no_color,
+            openalex_key,
+            s2_api_key,
+            govinfo_key,
+            patentsview_key,
+            output,
+            dblp_offline,
+            acl_offline,
+            arxiv_offline,
+            iacr_eprint_offline,
+            openalex_offline,
+            local_corpus,
+            disable_dbs,
+            check_openalex_authors,
+            num_workers,
+            max_rate_limit_retries,
+            dry_run,
+            searxng,
+            no_searxng,
+            url_match,
+            cache_path,
+            clear_cache,
+            clear_not_found,
+            json,
+        } => {
+            if clear_cache || clear_not_found {
+                let path = cache_path
+                    .or_else(|| {
+                        std::env::var("HALLUCINATOR_CACHE_PATH")
+                            .ok()
+                            .map(PathBuf::from)
+                    })
+                    .or_else(|| {
+                        file_config
+                            .databases
+                            .as_ref()
+                            .and_then(|d| d.cache_path.as_ref())
+                            .map(PathBuf::from)
+                    });
+                return match path {
+                    Some(p) if p.exists() => {
+                        let cache = hallucinator_core::QueryCache::open(
+                            &p,
+                            std::time::Duration::from_secs(1),
+                            std::time::Duration::from_secs(1),
+                        )
+                        .map_err(|e| anyhow::anyhow!("{}", e))?;
+                        if clear_not_found {
+                            let removed = cache.clear_not_found();
+                            println!(
+                                "Cleared {} not-found entries from cache: {}",
+                                removed,
+                                p.display()
+                            );
+                        } else {
+                            cache.clear();
+                            println!("Cache cleared: {}", p.display());
+                        }
+                        Ok(())
+                    }
+                    Some(p) => {
+                        println!("No cache file at {}", p.display());
+                        Ok(())
+                    }
+                    None => {
+                        anyhow::bail!(
+                            "No cache path specified. Use --cache-path or set HALLUCINATOR_CACHE_PATH"
+                        );
+                    }
+                };
+            }
+            if dry_run {
+                dry_run_check(file_path, no_color, output).await
+            } else {
+                check(
+                    file_path,
+                    no_color,
+                    openalex_key,
+                    s2_api_key,
+                    govinfo_key,
+                    patentsview_key,
+                    output,
+                    dblp_offline,
+                    acl_offline,
+                    arxiv_offline,
+                    iacr_eprint_offline,
+                    openalex_offline,
+                    local_corpus,
+                    disable_dbs,
+                    check_openalex_authors,
+                    num_workers,
+                    max_rate_limit_retries,
+                    searxng,
+                    no_searxng,
+                    url_match,
+                    cache_path,
+                    file_config,
+                    config_source,
+                    json,
+                )
+                .await
+            }
+        }
+    }
+}
+
+/// Saved reference metadata for --json export (captured before check_references consumes refs).
+struct RefMeta {
+    original_number: usize,
+    title: String,
+    skip_reason: Option<String>,
+}
+
+/// Build report data from CLI results for JSON export.
+///
+/// Returns (unused_paper_field, report_refs, results_vec, stats).
+fn build_report_data(
+    _filename: &str,
+    results: &[hallucinator_core::ValidationResult],
+    ref_meta: &[RefMeta],
+    skip_stats: &hallucinator_core::SkipStats,
+) -> (
+    (),
+    Vec<hallucinator_reporting::ReportRef>,
+    Vec<Option<hallucinator_core::ValidationResult>>,
+    hallucinator_core::CheckStats,
+) {
+    // Build results vec: None for skipped refs, Some for checked refs
+    let mut results_vec: Vec<Option<hallucinator_core::ValidationResult>> =
+        Vec::with_capacity(ref_meta.len());
+    let mut report_refs: Vec<hallucinator_reporting::ReportRef> =
+        Vec::with_capacity(ref_meta.len());
+
+    // Results from check_references correspond 1:1 to the input refs
+    for (i, meta) in ref_meta.iter().enumerate() {
+        let index = meta.original_number.saturating_sub(1);
+        if meta.skip_reason.is_some() {
+            // Skipped ref: don't include checker result
+            results_vec.push(None);
+            report_refs.push(hallucinator_reporting::ReportRef {
+                index,
+                title: meta.title.clone(),
+                skip_info: Some(hallucinator_reporting::SkipInfo {
+                    reason: meta.skip_reason.clone().unwrap_or_default(),
+                }),
+                fp_reason: None,
+            });
+        } else if let Some(r) = results.get(i) {
+            results_vec.push(Some(r.clone()));
+            report_refs.push(hallucinator_reporting::ReportRef {
+                index,
+                title: meta.title.clone(),
+                skip_info: None,
+                fp_reason: None,
+            });
+        }
+    }
+
+    // Compute stats from the non-skipped results
+    let mut stats = hallucinator_core::CheckStats {
+        total: ref_meta.len(),
+        skipped: skip_stats.url_only + skip_stats.short_title + skip_stats.no_title,
+        ..Default::default()
+    };
+    for result in results_vec.iter().flatten() {
+        // A NotFound ref with `url_check_skipped = true` was URL-bearing
+        // but `--url-match` was off, so reporting classifies it as
+        // skipped rather than not_found. Without this branch the count
+        // would double-bucket into "potential hallucination" despite
+        // the flag.
+        if result.url_check_skipped {
+            stats.skipped += 1;
+            continue;
+        }
+        // A NotFound ref where a database failed after retries is
+        // "we could not check", not "potentially fabricated". Bucket it
+        // separately so it never lands in the hallucination count.
+        if result.is_inconclusive() {
+            stats.inconclusive += 1;
+            continue;
+        }
+        match &result.status {
+            hallucinator_core::Status::Verified => stats.verified += 1,
+            hallucinator_core::Status::NotFound => stats.not_found += 1,
+            hallucinator_core::Status::Mismatch(kind) => {
+                stats.mismatch += 1;
+                if kind.contains(hallucinator_core::MismatchKind::AUTHOR) {
+                    stats.author_mismatch += 1;
+                }
+                if kind.contains(hallucinator_core::MismatchKind::DOI) {
+                    stats.doi_mismatch += 1;
+                }
+                if kind.contains(hallucinator_core::MismatchKind::ARXIV_ID) {
+                    stats.arxiv_mismatch += 1;
+                }
+            }
+        }
+        if result
+            .retraction_info
+            .as_ref()
+            .is_some_and(|ri| ri.is_retracted)
+        {
+            stats.retracted += 1;
+        }
+    }
+
+    ((), report_refs, results_vec, stats)
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn check(
+    file_path: PathBuf,
+    no_color: bool,
+    openalex_key: Option<String>,
+    s2_api_key: Option<String>,
+    govinfo_key: Option<String>,
+    patentsview_key: Option<String>,
+    output: Option<PathBuf>,
+    dblp_offline: Option<PathBuf>,
+    acl_offline: Option<PathBuf>,
+    arxiv_offline: Option<PathBuf>,
+    iacr_eprint_offline: Option<PathBuf>,
+    openalex_offline: Option<PathBuf>,
+    local_corpus: Option<PathBuf>,
+    disable_dbs: Vec<String>,
+    check_openalex_authors: bool,
+    num_workers: Option<usize>,
+    max_rate_limit_retries: Option<u32>,
+    searxng: bool,
+    no_searxng: bool,
+    url_match: bool,
+    cache_path: Option<PathBuf>,
+    file_config: hallucinator_core::config_file::ConfigFile,
+    config_source: Option<PathBuf>,
+    json_output: Option<PathBuf>,
+) -> anyhow::Result<()> {
+    // Print config file source
+    match &config_source {
+        Some(path) => eprintln!("Config file: {}", path.display()),
+        None => eprintln!("Config file: none (use --config <path> or create .hallucinator.toml)"),
+    }
+
+    // Resolve configuration: CLI flags > env vars > config file > defaults
+    let openalex_key = openalex_key
+        .or_else(|| std::env::var("OPENALEX_KEY").ok())
+        .or_else(|| {
+            file_config
+                .api_keys
+                .as_ref()
+                .and_then(|a| a.openalex_key.clone())
+        });
+    let s2_api_key = s2_api_key
+        .or_else(|| std::env::var("S2_API_KEY").ok())
+        .or_else(|| {
+            file_config
+                .api_keys
+                .as_ref()
+                .and_then(|a| a.s2_api_key.clone())
+        });
+    let govinfo_key = govinfo_key
+        .or_else(|| std::env::var("GOVINFO_KEY").ok())
+        .or_else(|| {
+            file_config
+                .api_keys
+                .as_ref()
+                .and_then(|a| a.govinfo_key.clone())
+        });
+    let patentsview_key = patentsview_key
+        .or_else(|| std::env::var("PATENTSVIEW_KEY").ok())
+        .or_else(|| {
+            file_config
+                .api_keys
+                .as_ref()
+                .and_then(|a| a.patentsview_key.clone())
+        });
+    let dblp_offline_path = dblp_offline
+        .or_else(|| std::env::var("DBLP_OFFLINE_PATH").ok().map(PathBuf::from))
+        .or_else(|| {
+            file_config
+                .databases
+                .as_ref()
+                .and_then(|d| d.dblp_offline_path.as_ref())
+                .map(PathBuf::from)
+        });
+    let acl_offline_path = acl_offline
+        .or_else(|| std::env::var("ACL_OFFLINE_PATH").ok().map(PathBuf::from))
+        .or_else(|| {
+            file_config
+                .databases
+                .as_ref()
+                .and_then(|d| d.acl_offline_path.as_ref())
+                .map(PathBuf::from)
+        });
+    let arxiv_offline_path = arxiv_offline
+        .or_else(|| std::env::var("ARXIV_OFFLINE_PATH").ok().map(PathBuf::from))
+        .or_else(|| {
+            file_config
+                .databases
+                .as_ref()
+                .and_then(|d| d.arxiv_offline_path.as_ref())
+                .map(PathBuf::from)
+        });
+    let iacr_eprint_offline_path = iacr_eprint_offline
+        .or_else(|| {
+            std::env::var("IACR_EPRINT_OFFLINE_PATH")
+                .ok()
+                .map(PathBuf::from)
+        })
+        .or_else(|| {
+            file_config
+                .databases
+                .as_ref()
+                .and_then(|d| d.iacr_eprint_offline_path.as_ref())
+                .map(PathBuf::from)
+        });
+    let openalex_offline_path = openalex_offline
+        .or_else(|| {
+            std::env::var("OPENALEX_OFFLINE_PATH")
+                .ok()
+                .map(PathBuf::from)
+        })
+        .or_else(|| {
+            file_config
+                .databases
+                .as_ref()
+                .and_then(|d| d.openalex_offline_path.as_ref())
+                .map(PathBuf::from)
+        });
+    let local_corpus_path = local_corpus
+        .or_else(|| std::env::var("LOCAL_CORPUS_PATH").ok().map(PathBuf::from))
+        .or_else(|| {
+            file_config
+                .databases
+                .as_ref()
+                .and_then(|d| d.local_corpus_path.as_ref())
+                .map(PathBuf::from)
+        });
+    let db_timeout_secs: u64 = std::env::var("DB_TIMEOUT")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .or_else(|| {
+            file_config
+                .concurrency
+                .as_ref()
+                .and_then(|c| c.db_timeout_secs)
+        })
+        .unwrap_or(10);
+    let db_timeout_short_secs: u64 = std::env::var("DB_TIMEOUT_SHORT")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .or_else(|| {
+            file_config
+                .concurrency
+                .as_ref()
+                .and_then(|c| c.db_timeout_short_secs)
+        })
+        .unwrap_or(5);
+
+    // SearxNG URL: --no-searxng (forces off) > --searxng flag > env var > config file
+    let searxng_url = if no_searxng {
+        None
+    } else if searxng {
+        let url = std::env::var("SEARXNG_URL")
+            .ok()
+            .filter(|s| !s.is_empty())
+            .or_else(|| {
+                file_config
+                    .databases
+                    .as_ref()
+                    .and_then(|d| d.searxng_url.clone())
+            })
+            .unwrap_or_else(|| "http://localhost:8080".to_string());
+
+        // Check connectivity and warn if not reachable
+        let searxng = hallucinator_core::db::searxng::Searxng::new(url.clone());
+        if let Err(msg) = searxng.check_connectivity().await {
+            eprintln!("\x1b[33mWarning:\x1b[0m {}", msg);
+        }
+
+        Some(url)
+    } else {
+        // Even without --searxng flag, config file can enable it
+        file_config
+            .databases
+            .as_ref()
+            .and_then(|d| d.searxng_url.clone())
+    };
+
+    // Determine color mode and output writer
+    let use_color = !no_color && output.is_none();
+    let color = ColorMode(use_color);
+
+    let mut writer: Box<dyn Write> = if let Some(ref output_path) = output {
+        Box::new(std::fs::File::create(output_path)?)
+    } else {
+        Box::new(std::io::stdout())
+    };
+
+    // Resolved before opening offline DBs so their read-connection pools can
+    // be sized to match — otherwise a user-raised worker count queues behind
+    // a fixed-size pool, inflating the DB's reported average latency (each
+    // worker waits for a free connection on top of that connection's own
+    // query time).
+    let num_workers = num_workers
+        .or_else(|| file_config.concurrency.as_ref().and_then(|c| c.num_workers))
+        .unwrap_or(4);
+
+    // Open offline DBLP database if configured
+    let dblp_offline_db = if let Some(ref path) = dblp_offline_path {
+        if !path.exists() {
+            anyhow::bail!(
+                "Offline DBLP database not found at {}. Build it with: hallucinator-cli update-dblp {}",
+                path.display(),
+                path.display()
+            );
+        }
+        let pool = hallucinator_dblp::DblpPool::open_with_size(path, num_workers)?;
+
+        // Check staleness
+        if let Ok(staleness) = pool.check_staleness(30)
+            && staleness.is_stale
+        {
+            let msg = if let Some(days) = staleness.age_days {
+                format!(
+                    "Offline DBLP database is {} days old. Consider running: hallucinator-cli update-dblp {}",
+                    days,
+                    path.display()
+                )
+            } else {
+                format!(
+                    "Offline DBLP database may be stale. Consider running: hallucinator-cli update-dblp {}",
+                    path.display()
+                )
+            };
+            if color.enabled() {
+                use owo_colors::OwoColorize;
+                writeln!(writer, "{}", msg.yellow())?;
+            } else {
+                writeln!(writer, "{}", msg)?;
+            }
+            writeln!(writer)?;
+        }
+
+        Some(Arc::new(pool))
+    } else {
+        None
+    };
+
+    // Open offline ACL Anthology database if configured
+    let acl_offline_db = if let Some(ref path) = acl_offline_path {
+        if !path.exists() {
+            anyhow::bail!(
+                "Offline ACL database not found at {}. Build it with: hallucinator-cli update-acl {}",
+                path.display(),
+                path.display()
+            );
+        }
+        let db = hallucinator_acl::AclPool::open_with_size(path, num_workers)?;
+
+        if let Ok(staleness) = db.check_staleness(30)
+            && staleness.is_stale
+        {
+            let msg = if let Some(days) = staleness.age_days {
+                format!(
+                    "Offline ACL database is {} days old. Consider running: hallucinator-cli update-acl {}",
+                    days,
+                    path.display()
+                )
+            } else {
+                format!(
+                    "Offline ACL database may be stale. Consider running: hallucinator-cli update-acl {}",
+                    path.display()
+                )
+            };
+            if color.enabled() {
+                use owo_colors::OwoColorize;
+                writeln!(writer, "{}", msg.yellow())?;
+            } else {
+                writeln!(writer, "{}", msg)?;
+            }
+            writeln!(writer)?;
+        }
+
+        Some(Arc::new(db))
+    } else {
+        None
+    };
+
+    // Open offline arXiv database if configured
+    let arxiv_offline_db = if let Some(ref path) = arxiv_offline_path {
+        if !path.exists() {
+            anyhow::bail!(
+                "Offline arXiv database not found at {}. Build it with: hallucinator-cli update-arxiv {}",
+                path.display(),
+                path.display()
+            );
+        }
+        let db = hallucinator_arxiv_offline::ArxivPool::open_with_size(path, num_workers)
+            .map_err(|e| anyhow::anyhow!("{}", e))?;
+
+        if let Ok(staleness) = db.staleness(30)
+            && staleness.is_stale
+        {
+            let msg = if let Some(days) = staleness.age_days {
+                format!(
+                    "Offline arXiv database is {} days old. Consider running: hallucinator-cli update-arxiv {}",
+                    days,
+                    path.display()
+                )
+            } else {
+                format!(
+                    "Offline arXiv database may be stale. Consider running: hallucinator-cli update-arxiv {}",
+                    path.display()
+                )
+            };
+            if color.enabled() {
+                use owo_colors::OwoColorize;
+                writeln!(writer, "{}", msg.yellow())?;
+            } else {
+                writeln!(writer, "{}", msg)?;
+            }
+            writeln!(writer)?;
+        }
+
+        Some(Arc::new(db))
+    } else {
+        None
+    };
+
+    // Open offline IACR ePrint database if configured. No online
+    // counterpart exists — `eprint.iacr.org` has no search API — so
+    // the backend only registers when a local index is present.
+    let iacr_eprint_offline_db = if let Some(ref path) = iacr_eprint_offline_path {
+        if !path.exists() {
+            anyhow::bail!(
+                "Offline IACR ePrint database not found at {}. Build it with: hallucinator-cli update-iacr-eprint {}",
+                path.display(),
+                path.display()
+            );
+        }
+        let db = hallucinator_iacr_eprint::IacrPool::open_with_size(path, num_workers)
+            .map_err(|e| anyhow::anyhow!("{}", e))?;
+
+        if let Ok(staleness) = db.staleness(30)
+            && staleness.is_stale
+        {
+            let msg = if let Some(days) = staleness.age_days {
+                format!(
+                    "Offline IACR ePrint database is {} days old. Consider running: hallucinator-cli update-iacr-eprint {}",
+                    days,
+                    path.display()
+                )
+            } else {
+                format!(
+                    "Offline IACR ePrint database may be stale. Consider running: hallucinator-cli update-iacr-eprint {}",
+                    path.display()
+                )
+            };
+            if color.enabled() {
+                use owo_colors::OwoColorize;
+                writeln!(writer, "{}", msg.yellow())?;
+            } else {
+                writeln!(writer, "{}", msg)?;
+            }
+            writeln!(writer)?;
+        }
+
+        Some(Arc::new(db))
+    } else {
+        None
+    };
+
+    // Open offline OpenAlex index if configured
+    let openalex_offline_db = if let Some(ref path) = openalex_offline_path {
+        if !path.exists() {
+            anyhow::bail!(
+                "Offline OpenAlex index not found at {}. Build it with: hallucinator-cli update-openalex {}",
+                path.display(),
+                path.display()
+            );
+        }
+        let db = hallucinator_openalex::OpenAlexDatabase::open(path)
+            .map_err(|e| anyhow::anyhow!("{}", e))?;
+
+        if let Ok(staleness) = db.check_staleness(30)
+            && staleness.is_stale
+        {
+            let msg = if let Some(days) = staleness.age_days {
+                format!(
+                    "Offline OpenAlex index is {} days old. Consider running: hallucinator-cli update-openalex {}",
+                    days,
+                    path.display()
+                )
+            } else {
+                format!(
+                    "Offline OpenAlex index may be stale. Consider running: hallucinator-cli update-openalex {}",
+                    path.display()
+                )
+            };
+            if color.enabled() {
+                use owo_colors::OwoColorize;
+                writeln!(writer, "{}", msg.yellow())?;
+            } else {
+                writeln!(writer, "{}", msg)?;
+            }
+            writeln!(writer)?;
+        }
+
+        Some(Arc::new(db))
+    } else {
+        None
+    };
+
+    // Open local corpus database if configured. No staleness check (unlike
+    // the other offline sources) — the corpus is grown incrementally via
+    // `import-*` subcommands, not rebuilt wholesale from a dated snapshot.
+    let local_corpus_db = if let Some(ref path) = local_corpus_path {
+        if !path.exists() {
+            anyhow::bail!(
+                "Local corpus database not found at {}. Build it with: \
+                 hallucinator-cli import-ndss / import-usenix / import-corpus-reports",
+                path.display()
+            );
+        }
+        let db = hallucinator_local_corpus::CorpusPool::open_with_size(path, num_workers)
+            .map_err(|e| anyhow::anyhow!("{}", e))?;
+        Some(Arc::new(db))
+    } else {
+        None
+    };
+
+    if !file_path.exists() {
+        anyhow::bail!("File not found: {}", file_path.display());
+    }
+
+    let crossref_mailto: Option<String> = std::env::var("CROSSREF_MAILTO")
+        .ok()
+        .filter(|s| !s.is_empty())
+        .or_else(|| {
+            file_config
+                .api_keys
+                .as_ref()
+                .and_then(|a| a.crossref_mailto.clone())
+        });
+
+    // Merge disable_dbs: CLI flags + config file disabled list
+    let disable_dbs = if disable_dbs.is_empty() {
+        file_config
+            .databases
+            .as_ref()
+            .and_then(|d| d.disabled.clone())
+            .unwrap_or_default()
+    } else {
+        disable_dbs
+    };
+
+    // Build config: CLI flags > env vars > config file > defaults
+    let max_rate_limit_retries = max_rate_limit_retries
+        .or_else(|| {
+            file_config
+                .concurrency
+                .as_ref()
+                .and_then(|c| c.max_rate_limit_retries)
+        })
+        .unwrap_or(3);
+    let rate_limiters = std::sync::Arc::new(hallucinator_core::RateLimiters::new(
+        crossref_mailto.is_some(),
+        s2_api_key.is_some(),
+    ));
+
+    let cache_path = cache_path
+        .or_else(|| {
+            std::env::var("HALLUCINATOR_CACHE_PATH")
+                .ok()
+                .map(PathBuf::from)
+        })
+        .or_else(|| {
+            file_config
+                .databases
+                .as_ref()
+                .and_then(|d| d.cache_path.as_ref())
+                .map(PathBuf::from)
+        });
+    let positive_ttl = hallucinator_core::DEFAULT_POSITIVE_TTL.as_secs();
+    let negative_ttl = hallucinator_core::DEFAULT_NEGATIVE_TTL.as_secs();
+    let query_cache =
+        hallucinator_core::build_query_cache(cache_path.as_deref(), positive_ttl, negative_ttl);
+
+    let config = hallucinator_core::Config {
+        openalex_key: openalex_key.clone(),
+        s2_api_key,
+        govinfo_key,
+        patentsview_key,
+        dblp_offline_path: dblp_offline_path.clone(),
+        dblp_offline_db,
+        acl_offline_path: acl_offline_path.clone(),
+        acl_offline_db,
+        arxiv_offline_path: arxiv_offline_path.clone(),
+        arxiv_offline_db,
+        iacr_eprint_offline_path: iacr_eprint_offline_path.clone(),
+        iacr_eprint_offline_db,
+        openalex_offline_path: openalex_offline_path.clone(),
+        openalex_offline_db,
+        local_corpus_path: local_corpus_path.clone(),
+        local_corpus_db,
+        num_workers,
+        db_timeout_secs,
+        db_timeout_short_secs,
+        disabled_dbs: disable_dbs,
+        check_openalex_authors,
+        crossref_mailto,
+        max_rate_limit_retries,
+        rate_limiters,
+        searxng_url,
+        query_cache: Some(query_cache),
+        cache_path,
+        cache_positive_ttl_secs: positive_ttl,
+        cache_negative_ttl_secs: negative_ttl,
+        url_match,
+    };
+
+    // Handle archives: extract each file and run check on each independently
+    if hallucinator_ingest::is_archive_path(&file_path) {
+        return run_archive_check(&file_path, config, output, color, json_output).await;
+    }
+
+    // Single file: extract then check
+    let extraction = hallucinator_ingest::extract_references(&file_path)
+        .map_err(|e| anyhow::anyhow!("{}", e))?;
+
+    let file_name = file_path
+        .file_name()
+        .map(|n| n.to_string_lossy().to_string())
+        .unwrap_or_else(|| file_path.display().to_string());
+
+    output::print_extraction_summary(
+        &mut writer,
+        &file_name,
+        extraction.references.len(),
+        &extraction.skip_stats,
+        color,
+    )?;
+
+    if extraction.references.is_empty() {
+        writeln!(writer, "No references to check.")?;
+        return Ok(());
+    }
+
+    // Set up progress callback
+    let progress_writer: Arc<Mutex<Box<dyn Write + Send>>> = if output.is_some() {
+        Arc::new(Mutex::new(Box::new(std::io::stderr())))
+    } else {
+        Arc::new(Mutex::new(Box::new(std::io::stdout())))
+    };
+
+    let progress_color = color;
+    let progress_cb = {
+        let pw = Arc::clone(&progress_writer);
+        move |event: hallucinator_core::ProgressEvent| {
+            if let Ok(mut w) = pw.lock() {
+                let _ = output::print_progress(&mut *w, &event, progress_color);
+                let _ = w.flush();
+            }
+        }
+    };
+
+    let cancel = CancellationToken::new();
+
+    // Set up Ctrl+C handler
+    let cancel_clone = cancel.clone();
+    tokio::spawn(async move {
+        if tokio::signal::ctrl_c().await.is_ok() {
+            cancel_clone.cancel();
+        }
+    });
+
+    let skip_stats = extraction.skip_stats.clone();
+
+    // Save ref metadata for --json export (before check_references consumes them)
+    let ref_meta: Vec<RefMeta> = extraction
+        .references
+        .iter()
+        .map(|r| RefMeta {
+            original_number: r.original_number,
+            title: r.title.clone().unwrap_or_default(),
+            skip_reason: r.skip_reason.clone(),
+        })
+        .collect();
+
+    let results =
+        hallucinator_core::check_references(extraction.references, config, progress_cb, cancel)
+            .await;
+
+    // Print final report
+    writeln!(writer)?;
+
+    output::print_hallucination_report(&mut writer, &results, openalex_key.is_some(), color)?;
+
+    output::print_doi_issues(&mut writer, &results, color)?;
+    output::print_retraction_warnings(&mut writer, &results, color)?;
+    output::print_summary(&mut writer, &results, &skip_stats, color)?;
+
+    // --json export
+    if let Some(json_path) = json_output {
+        let (_, report_refs, results_vec, stats) =
+            build_report_data(&file_name, &results, &ref_meta, &skip_stats);
+        let paper = hallucinator_reporting::ReportPaper {
+            filename: &file_name,
+            stats: &stats,
+            results: &results_vec,
+            verdict: None,
+        };
+        let ref_slices: &[&[hallucinator_reporting::ReportRef]] = &[&report_refs];
+        hallucinator_reporting::export_results(
+            &[paper],
+            ref_slices,
+            hallucinator_reporting::ExportFormat::Json,
+            &json_path,
+            false,
+        )
+        .map_err(|e| anyhow::anyhow!("{}", e))?;
+        eprintln!("Results saved to {}", json_path.display());
+    }
+
+    Ok(())
+}
+
+/// Process all extractable files inside an archive, printing a per-file report for each.
+async fn run_archive_check(
+    archive_path: &std::path::Path,
+    config: hallucinator_core::Config,
+    output: Option<PathBuf>,
+    color: ColorMode,
+    json_output: Option<PathBuf>,
+) -> anyhow::Result<()> {
+    use hallucinator_ingest::archive::{ArchiveItem, extract_archive_streaming};
+
+    let mut writer: Box<dyn Write> = if let Some(ref output_path) = output {
+        Box::new(std::fs::File::create(output_path)?)
+    } else {
+        Box::new(std::io::stdout())
+    };
+
+    let archive_name = archive_path
+        .file_name()
+        .map(|n| n.to_string_lossy().to_string())
+        .unwrap_or_else(|| archive_path.display().to_string());
+
+    writeln!(writer, "Archive: {}", archive_name)?;
+    writeln!(writer)?;
+
+    let temp_dir = tempfile::tempdir()?;
+    let (tx, rx) = std::sync::mpsc::channel::<ArchiveItem>();
+
+    let archive_path = archive_path.to_path_buf();
+    let dir = temp_dir.path().to_path_buf();
+    let extract_handle =
+        std::thread::spawn(move || extract_archive_streaming(&archive_path, &dir, 0, &tx));
+
+    let mut file_count = 0usize;
+    let config = Arc::new(config);
+
+    // Accumulator for --json export
+    struct PerFileData {
+        filename: String,
+        report_refs: Vec<hallucinator_reporting::ReportRef>,
+        results_vec: Vec<Option<hallucinator_core::ValidationResult>>,
+        stats: hallucinator_core::CheckStats,
+    }
+    let mut json_data: Vec<PerFileData> = Vec::new();
+
+    for item in rx {
+        match item {
+            ArchiveItem::Warning(msg) => {
+                writeln!(writer, "Warning: {}", msg)?;
+            }
+            ArchiveItem::Pdf(extracted) => {
+                file_count += 1;
+
+                // Print a header separator for each file
+                writeln!(writer, "─── {} ───", extracted.filename)?;
+                writeln!(writer)?;
+
+                let path = extracted.path.clone();
+                let extraction = match hallucinator_ingest::extract_references(&path) {
+                    Ok(e) => e,
+                    Err(e) => {
+                        writeln!(writer, "  Error: {}", e)?;
+                        writeln!(writer)?;
+                        continue;
+                    }
+                };
+
+                output::print_extraction_summary(
+                    &mut writer,
+                    &extracted.filename,
+                    extraction.references.len(),
+                    &extraction.skip_stats,
+                    color,
+                )?;
+
+                if extraction.references.is_empty() {
+                    writeln!(writer, "No references to check.")?;
+                    writeln!(writer)?;
+                    continue;
+                }
+
+                let progress_writer: Arc<Mutex<Box<dyn Write + Send>>> = if output.is_some() {
+                    Arc::new(Mutex::new(Box::new(std::io::stderr())))
+                } else {
+                    Arc::new(Mutex::new(Box::new(std::io::stdout())))
+                };
+                let progress_color = color;
+                let progress_cb = {
+                    let pw = Arc::clone(&progress_writer);
+                    move |event: hallucinator_core::ProgressEvent| {
+                        if let Ok(mut w) = pw.lock() {
+                            let _ = output::print_progress(&mut *w, &event, progress_color);
+                            let _ = w.flush();
+                        }
+                    }
+                };
+
+                let cancel = CancellationToken::new();
+                let cancel_clone = cancel.clone();
+                tokio::spawn(async move {
+                    if tokio::signal::ctrl_c().await.is_ok() {
+                        cancel_clone.cancel();
+                    }
+                });
+
+                let skip_stats = extraction.skip_stats.clone();
+                let config_clone = Arc::clone(&config);
+
+                // Save ref metadata for --json export
+                let ref_meta: Vec<RefMeta> = extraction
+                    .references
+                    .iter()
+                    .map(|r| RefMeta {
+                        original_number: r.original_number,
+                        title: r.title.clone().unwrap_or_default(),
+                        skip_reason: r.skip_reason.clone(),
+                    })
+                    .collect();
+
+                let refs = extraction.references;
+
+                let results = hallucinator_core::check_references(
+                    refs,
+                    (*config_clone).clone(),
+                    progress_cb,
+                    cancel,
+                )
+                .await;
+
+                writeln!(writer)?;
+                // Use the first openalex key for the report (openalex_key is in config)
+                let has_openalex = config_clone.openalex_key.is_some();
+                output::print_hallucination_report(&mut writer, &results, has_openalex, color)?;
+                output::print_doi_issues(&mut writer, &results, color)?;
+                output::print_retraction_warnings(&mut writer, &results, color)?;
+                output::print_summary(&mut writer, &results, &skip_stats, color)?;
+                writeln!(writer)?;
+
+                // Accumulate for --json export
+                if json_output.is_some() {
+                    let (_, report_refs, results_vec, stats) =
+                        build_report_data(&extracted.filename, &results, &ref_meta, &skip_stats);
+                    json_data.push(PerFileData {
+                        filename: extracted.filename.clone(),
+                        report_refs,
+                        results_vec,
+                        stats,
+                    });
+                }
+            }
+            ArchiveItem::Done { total } => {
+                writeln!(writer, "Processed {} file(s) from archive.", total)?;
+            }
+        }
+    }
+
+    extract_handle
+        .join()
+        .map_err(|_| anyhow::anyhow!("Archive extraction thread panicked"))?
+        .map_err(|e| anyhow::anyhow!("Archive extraction failed: {}", e))?;
+
+    if file_count == 0 {
+        writeln!(writer, "No processable files found in archive.")?;
+    }
+
+    // --json export for archive
+    if let Some(json_path) = json_output {
+        let report_papers: Vec<hallucinator_reporting::ReportPaper<'_>> = json_data
+            .iter()
+            .map(|d| hallucinator_reporting::ReportPaper {
+                filename: &d.filename,
+                stats: &d.stats,
+                results: &d.results_vec,
+                verdict: None,
+            })
+            .collect();
+        let ref_slices: Vec<&[hallucinator_reporting::ReportRef]> =
+            json_data.iter().map(|d| d.report_refs.as_slice()).collect();
+        hallucinator_reporting::export_results(
+            &report_papers,
+            &ref_slices,
+            hallucinator_reporting::ExportFormat::Json,
+            &json_path,
+            false,
+        )
+        .map_err(|e| anyhow::anyhow!("{}", e))?;
+        eprintln!("Results saved to {}", json_path.display());
+    }
+
+    Ok(())
+}
+
+async fn dry_run_check(
+    file_path: PathBuf,
+    no_color: bool,
+    output: Option<PathBuf>,
+) -> anyhow::Result<()> {
+    let use_color = !no_color && output.is_none();
+
+    let mut writer: Box<dyn Write> = if let Some(ref output_path) = output {
+        Box::new(std::fs::File::create(output_path)?)
+    } else {
+        Box::new(std::io::stdout())
+    };
+
+    if !file_path.exists() {
+        anyhow::bail!("File not found: {}", file_path.display());
+    }
+
+    let file_name = file_path
+        .file_name()
+        .map(|n| n.to_string_lossy().to_string())
+        .unwrap_or_else(|| file_path.display().to_string());
+
+    let is_bbl = file_path
+        .extension()
+        .map(|e| e.eq_ignore_ascii_case("bbl"))
+        .unwrap_or(false);
+    let is_bib = file_path
+        .extension()
+        .map(|e| e.eq_ignore_ascii_case("bib"))
+        .unwrap_or(false);
+
+    if is_bbl || is_bib {
+        dry_run_bbl(&file_path, &file_name, use_color, &mut writer)
+    } else {
+        dry_run_pdf(&file_path, &file_name, use_color, &mut writer)
+    }
+}
+
+fn dry_run_pdf(
+    file_path: &std::path::Path,
+    file_name: &str,
+    use_color: bool,
+    writer: &mut Box<dyn Write>,
+) -> anyhow::Result<()> {
+    use owo_colors::OwoColorize;
+
+    use hallucinator_core::PdfBackend as _;
+    let text = hallucinator_pdf_mupdf::MupdfBackend
+        .extract_text(file_path)
+        .map_err(|e| anyhow::anyhow!("{}", e))?;
+    let ref_section = hallucinator_parsing::section::find_references_section(&text)
+        .ok_or_else(|| anyhow::anyhow!("No references section found"))?;
+    let raw_refs = hallucinator_parsing::section::segment_references(&ref_section);
+
+    if use_color {
+        writeln!(
+            writer,
+            "{} {} ({} raw references segmented)\n",
+            "DRY RUN:".bold().cyan(),
+            file_name.bold(),
+            raw_refs.len()
+        )?;
+    } else {
+        writeln!(
+            writer,
+            "DRY RUN: {} ({} raw references segmented)\n",
+            file_name,
+            raw_refs.len()
+        )?;
+    }
+
+    for (i, ref_text) in raw_refs.iter().enumerate() {
+        let doi = hallucinator_parsing::identifiers::extract_doi(ref_text);
+        let arxiv_id = hallucinator_parsing::identifiers::extract_arxiv_id(ref_text);
+        let (extracted_title, from_quotes) =
+            hallucinator_parsing::title::extract_title_from_reference(ref_text);
+        let cleaned_title = hallucinator_parsing::title::clean_title(&extracted_title, from_quotes);
+        let authors = hallucinator_parsing::authors::extract_authors_from_reference(ref_text);
+
+        // Normalize raw citation for display
+        let raw_display: String = ref_text.split_whitespace().collect::<Vec<_>>().join(" ");
+        let raw_display = if raw_display.len() > 200 {
+            // Find a char boundary at or before position 200
+            let boundary = raw_display
+                .char_indices()
+                .take_while(|(i, _)| *i <= 200)
+                .last()
+                .map(|(i, _)| i)
+                .unwrap_or(0);
+            format!("{}...", &raw_display[..boundary])
+        } else {
+            raw_display
+        };
+
+        if use_color {
+            writeln!(writer, "{}", format!("[{}]", i + 1).bold().yellow())?;
+        } else {
+            writeln!(writer, "[{}]", i + 1)?;
+        }
+
+        writeln!(writer, "  Title:   {}", cleaned_title)?;
+        writeln!(
+            writer,
+            "  Authors: {}",
+            if authors.is_empty() {
+                "(none)".to_string()
+            } else {
+                authors.join("; ")
+            }
+        )?;
+
+        if let Some(ref d) = doi {
+            writeln!(writer, "  DOI:     {}", d)?;
+        }
+        if let Some(ref a) = arxiv_id {
+            writeln!(writer, "  arXiv:   {}", a)?;
+        }
+
+        if use_color {
+            writeln!(writer, "  Raw:     {}", raw_display.dimmed())?;
+        } else {
+            writeln!(writer, "  Raw:     {}", raw_display)?;
+        }
+
+        let word_count = cleaned_title.split_whitespace().count();
+        if cleaned_title.is_empty() || word_count < 4 {
+            // Check for strong signals that override the short-title skip
+            let has_signal =
+                !cleaned_title.is_empty() && (doi.is_some() || arxiv_id.is_some() || from_quotes);
+            if !has_signal {
+                if use_color {
+                    writeln!(
+                        writer,
+                        "  {}",
+                        format!("SKIPPED (title too short: {} words)", word_count).red()
+                    )?;
+                } else {
+                    writeln!(writer, "  SKIPPED (title too short: {} words)", word_count)?;
+                }
+            }
+        }
+
+        writeln!(writer)?;
+    }
+
+    writeln!(writer, "Total: {} raw references", raw_refs.len())?;
+
+    Ok(())
+}
+
+fn dry_run_bbl(
+    file_path: &std::path::Path,
+    file_name: &str,
+    use_color: bool,
+    writer: &mut Box<dyn Write>,
+) -> anyhow::Result<()> {
+    use owo_colors::OwoColorize;
+
+    let is_bib = file_path
+        .extension()
+        .map(|e| e.eq_ignore_ascii_case("bib"))
+        .unwrap_or(false);
+    let extraction = if is_bib {
+        hallucinator_bbl::extract_references_from_bib(file_path)
+            .map_err(|e| anyhow::anyhow!("BIB extraction failed: {}", e))?
+    } else {
+        hallucinator_bbl::extract_references_from_bbl(file_path)
+            .map_err(|e| anyhow::anyhow!("BBL extraction failed: {}", e))?
+    };
+
+    let total = extraction.skip_stats.total_raw;
+    let kept = extraction.references.len();
+
+    if use_color {
+        writeln!(
+            writer,
+            "{} {} ({} entries, {} after filtering)\n",
+            "DRY RUN:".bold().cyan(),
+            file_name.bold(),
+            total,
+            kept
+        )?;
+    } else {
+        writeln!(
+            writer,
+            "DRY RUN: {} ({} entries, {} after filtering)\n",
+            file_name, total, kept
+        )?;
+    }
+
+    for (i, reference) in extraction.references.iter().enumerate() {
+        let title = reference.title.as_deref().unwrap_or("");
+
+        if use_color {
+            writeln!(writer, "{}", format!("[{}]", i + 1).bold().yellow())?;
+        } else {
+            writeln!(writer, "[{}]", i + 1)?;
+        }
+
+        writeln!(writer, "  Title:   {}", title)?;
+        writeln!(
+            writer,
+            "  Authors: {}",
+            if reference.authors.is_empty() {
+                "(none)".to_string()
+            } else {
+                reference.authors.join("; ")
+            }
+        )?;
+
+        if let Some(ref d) = reference.doi {
+            writeln!(writer, "  DOI:     {}", d)?;
+        }
+        if let Some(ref a) = reference.arxiv_id {
+            writeln!(writer, "  arXiv:   {}", a)?;
+        }
+
+        // Truncate raw citation for display
+        let raw_display = if reference.raw_citation.len() > 200 {
+            format!("{}...", &reference.raw_citation[..200])
+        } else {
+            reference.raw_citation.clone()
+        };
+
+        if use_color {
+            writeln!(writer, "  Raw:     {}", raw_display.dimmed())?;
+        } else {
+            writeln!(writer, "  Raw:     {}", raw_display)?;
+        }
+
+        writeln!(writer)?;
+    }
+
+    let stats = &extraction.skip_stats;
+    writeln!(
+        writer,
+        "Total: {} raw entries ({} kept, {} skipped: {} URL-only, {} short title, {} no title)",
+        stats.total_raw,
+        kept,
+        stats.url_only + stats.short_title + stats.no_title,
+        stats.url_only,
+        stats.short_title,
+        stats.no_title
+    )?;
+
+    Ok(())
+}
+
+async fn update_dblp(db_path: &PathBuf, from_file: Option<&Path>) -> anyhow::Result<()> {
+    use indicatif::{HumanBytes, HumanCount, MultiProgress, ProgressBar, ProgressStyle};
+    use std::time::{Duration, Instant};
+
+    let multi = MultiProgress::new();
+
+    let dl_bar_style = ProgressStyle::with_template(
+        "{spinner:.cyan} {msg} [{bar:40.cyan/dim}] {bytes}/{total_bytes} ({bytes_per_sec}, eta {eta})",
+    )
+    .unwrap()
+    .progress_chars("=> ");
+
+    let dl_unknown_style =
+        ProgressStyle::with_template("{spinner:.cyan} {msg} {bytes} ({bytes_per_sec})").unwrap();
+
+    let parse_bar_style = ProgressStyle::with_template(
+        "{spinner:.green} [{elapsed_precise}] {msg} [{bar:40.green/dim}] {percent}% (eta {eta})",
+    )
+    .unwrap()
+    .progress_chars("=> ");
+
+    let parse_spinner_style =
+        ProgressStyle::with_template("{spinner:.green} [{elapsed_precise}] {msg}").unwrap();
+
+    let dl_bar = multi.add(ProgressBar::new(0));
+    dl_bar.set_style(dl_unknown_style.clone());
+    dl_bar.set_message("Connecting to dblp.org...");
+    if from_file.is_some() {
+        // build_database_from_file never emits a Downloading event — hide
+        // this bar entirely instead of leaving a stale "Connecting..."
+        // spinner on screen.
+        dl_bar.set_draw_target(indicatif::ProgressDrawTarget::hidden());
+    } else {
+        dl_bar.enable_steady_tick(Duration::from_millis(120));
+    }
+
+    let parse_bar = multi.add(ProgressBar::new(0));
+    parse_bar.set_style(parse_spinner_style.clone());
+    parse_bar.set_draw_target(indicatif::ProgressDrawTarget::hidden());
+
+    let finalize_bar = multi.add(ProgressBar::new_spinner());
+    finalize_bar.set_style(parse_spinner_style.clone());
+    finalize_bar.set_draw_target(indicatif::ProgressDrawTarget::hidden());
+
+    let build_start = Instant::now();
+    let parse_start = std::cell::Cell::new(None::<Instant>);
+
+    let mut progress_cb = |event| match event {
+        hallucinator_dblp::BuildProgress::Downloading {
+            bytes_downloaded,
+            total_bytes,
+            ..
+        } => {
+            if let Some(total) = total_bytes {
+                if dl_bar.length() == Some(0) {
+                    dl_bar.set_length(total);
+                    dl_bar.set_style(dl_bar_style.clone());
+                }
+                dl_bar.set_position(bytes_downloaded);
+                dl_bar.set_message("Downloading dblp.xml.gz");
+                if bytes_downloaded >= total && !dl_bar.is_finished() {
+                    dl_bar.finish_with_message(format!(
+                        "Downloaded {} in {:.0?}",
+                        HumanBytes(total),
+                        dl_bar.elapsed()
+                    ));
+                }
+            } else {
+                dl_bar.set_position(bytes_downloaded);
+                dl_bar.set_message("Downloading dblp.xml.gz");
+            }
+        }
+        hallucinator_dblp::BuildProgress::Parsing {
+            records_inserted,
+            bytes_read,
+            bytes_total,
+        } => {
+            if !dl_bar.is_finished() {
+                dl_bar.finish_with_message(format!(
+                    "Downloaded {} in {:.0?}",
+                    HumanBytes(dl_bar.position()),
+                    dl_bar.elapsed()
+                ));
+            }
+            if parse_start.get().is_none() {
+                parse_start.set(Some(Instant::now()));
+                parse_bar.reset_elapsed();
+                parse_bar.set_draw_target(indicatif::ProgressDrawTarget::stderr());
+                parse_bar.enable_steady_tick(Duration::from_millis(120));
+            }
+            // Switch to progress bar style on first event with a known total
+            if bytes_total > 0 && parse_bar.length() == Some(0) {
+                parse_bar.set_length(bytes_total);
+                parse_bar.set_style(parse_bar_style.clone());
+            }
+            parse_bar.set_position(bytes_read);
+            let elapsed = parse_start.get().unwrap().elapsed().as_secs_f64();
+            let per_sec = if elapsed > 0.0 {
+                records_inserted as f64 / elapsed
+            } else {
+                0.0
+            };
+            parse_bar.set_message(format!(
+                "{} publications ({}/s)",
+                HumanCount(records_inserted),
+                HumanCount(per_sec as u64),
+            ));
+        }
+        hallucinator_dblp::BuildProgress::RebuildingIndex => {
+            if !dl_bar.is_finished() {
+                dl_bar.finish_with_message(format!(
+                    "Downloaded {} in {:.0?}",
+                    HumanBytes(dl_bar.position()),
+                    dl_bar.elapsed()
+                ));
+            }
+            if !parse_bar.is_finished() {
+                let elapsed = parse_start.get().map(|s| s.elapsed());
+                parse_bar.finish_with_message(format!(
+                    "Inserted publications in {:.0?}",
+                    elapsed.unwrap_or_default()
+                ));
+            }
+            finalize_bar.reset_elapsed();
+            finalize_bar.set_draw_target(indicatif::ProgressDrawTarget::stderr());
+            finalize_bar.enable_steady_tick(Duration::from_millis(120));
+            finalize_bar.set_message("Rebuilding FTS search index...");
+        }
+        hallucinator_dblp::BuildProgress::Compacting => {
+            finalize_bar.set_message("Compacting database (VACUUM)...");
+        }
+        hallucinator_dblp::BuildProgress::Complete {
+            publications,
+            authors,
+            skipped,
+        } => {
+            if !parse_bar.is_finished() {
+                parse_bar.finish_and_clear();
+            }
+            if skipped {
+                finalize_bar
+                    .finish_with_message("Database is already up to date (304 Not Modified)");
+            } else {
+                finalize_bar.finish_with_message(format!(
+                    "Indexed {} publications, {} authors (total {:.0?})",
+                    HumanCount(publications),
+                    HumanCount(authors),
+                    build_start.elapsed()
+                ));
+            }
+        }
+    };
+
+    let updated = if let Some(xml_gz_path) = from_file {
+        hallucinator_dblp::build_database_from_file(db_path, xml_gz_path, &mut progress_cb)?;
+        true // no "already up to date" concept when building from a local file
+    } else {
+        hallucinator_dblp::build_database(db_path, &mut progress_cb).await?
+    };
+
+    let canonical = std::fs::canonicalize(db_path).unwrap_or_else(|_| db_path.clone());
+    if !updated {
+        println!("Database is already up to date: {}", canonical.display());
+    } else {
+        println!("DBLP database saved to: {}", canonical.display());
+    }
+
+    Ok(())
+}
+
+async fn update_acl(db_path: &PathBuf) -> anyhow::Result<()> {
+    use indicatif::{HumanCount, MultiProgress, ProgressBar, ProgressStyle};
+    use std::time::{Duration, Instant};
+
+    let multi = MultiProgress::new();
+
+    let dl_bar_style = ProgressStyle::with_template(
+        "{spinner:.cyan} {msg} [{bar:40.cyan/dim}] {bytes}/{total_bytes} ({bytes_per_sec}, eta {eta})",
+    )
+    .unwrap()
+    .progress_chars("=> ");
+
+    let dl_unknown_style =
+        ProgressStyle::with_template("{spinner:.cyan} {msg} {bytes} ({bytes_per_sec})").unwrap();
+
+    let parse_bar_style = ProgressStyle::with_template(
+        "{spinner:.green} [{elapsed_precise}] {msg} [{bar:40.green/dim}] {percent}% (eta {eta})",
+    )
+    .unwrap()
+    .progress_chars("=> ");
+
+    let parse_spinner_style =
+        ProgressStyle::with_template("{spinner:.green} [{elapsed_precise}] {msg}").unwrap();
+
+    let dl_bar = multi.add(ProgressBar::new(0));
+    dl_bar.set_style(dl_unknown_style.clone());
+    dl_bar.set_message("Connecting to GitHub...");
+    dl_bar.enable_steady_tick(Duration::from_millis(120));
+
+    let parse_bar = multi.add(ProgressBar::new(0));
+    parse_bar.set_style(parse_spinner_style.clone());
+    parse_bar.set_draw_target(indicatif::ProgressDrawTarget::hidden());
+
+    let finalize_bar = multi.add(ProgressBar::new_spinner());
+    finalize_bar.set_style(parse_spinner_style.clone());
+    finalize_bar.set_draw_target(indicatif::ProgressDrawTarget::hidden());
+
+    let build_start = Instant::now();
+    let parse_start = std::cell::Cell::new(None::<Instant>);
+
+    let updated = hallucinator_acl::build_database(db_path, |event| match event {
+        hallucinator_acl::BuildProgress::Downloading {
+            bytes_downloaded,
+            total_bytes,
+        } => {
+            if let Some(total) = total_bytes {
+                if dl_bar.length() == Some(0) {
+                    dl_bar.set_length(total);
+                    dl_bar.set_style(dl_bar_style.clone());
+                }
+                dl_bar.set_position(bytes_downloaded);
+                dl_bar.set_message("Downloading acl-anthology.tar.gz");
+            } else {
+                dl_bar.set_position(bytes_downloaded);
+                dl_bar.set_message("Downloading acl-anthology.tar.gz");
+            }
+        }
+        hallucinator_acl::BuildProgress::Extracting { files_extracted } => {
+            if !dl_bar.is_finished() {
+                dl_bar.finish_with_message(format!("Downloaded in {:.0?}", dl_bar.elapsed()));
+            }
+            if parse_bar.is_hidden() {
+                parse_bar.reset_elapsed();
+                parse_bar.set_draw_target(indicatif::ProgressDrawTarget::stderr());
+                parse_bar.enable_steady_tick(Duration::from_millis(120));
+            }
+            parse_bar.set_message(format!("Extracting XML files... ({})", files_extracted));
+        }
+        hallucinator_acl::BuildProgress::Parsing {
+            records_parsed,
+            records_inserted,
+            files_processed,
+            files_total,
+        } => {
+            if !dl_bar.is_finished() {
+                dl_bar.finish_with_message(format!("Downloaded in {:.0?}", dl_bar.elapsed()));
+            }
+            if parse_start.get().is_none() {
+                parse_start.set(Some(Instant::now()));
+                if parse_bar.is_hidden() {
+                    parse_bar.reset_elapsed();
+                    parse_bar.set_draw_target(indicatif::ProgressDrawTarget::stderr());
+                    parse_bar.enable_steady_tick(Duration::from_millis(120));
+                }
+            }
+            if files_total > 0 && parse_bar.length() == Some(0) {
+                parse_bar.set_length(files_total);
+                parse_bar.set_style(parse_bar_style.clone());
+            }
+            parse_bar.set_position(files_processed);
+            let elapsed = parse_start.get().unwrap().elapsed().as_secs_f64();
+            let per_sec = if elapsed > 0.0 {
+                records_inserted as f64 / elapsed
+            } else {
+                0.0
+            };
+            parse_bar.set_message(format!(
+                "{} parsed, {} inserted ({}/s)",
+                HumanCount(records_parsed),
+                HumanCount(records_inserted),
+                HumanCount(per_sec as u64),
+            ));
+        }
+        hallucinator_acl::BuildProgress::RebuildingIndex => {
+            if !dl_bar.is_finished() {
+                dl_bar.finish_with_message(format!("Downloaded in {:.0?}", dl_bar.elapsed()));
+            }
+            if !parse_bar.is_finished() {
+                let elapsed = parse_start.get().map(|s| s.elapsed());
+                parse_bar.finish_with_message(format!(
+                    "Inserted publications in {:.0?}",
+                    elapsed.unwrap_or_default()
+                ));
+            }
+            finalize_bar.reset_elapsed();
+            finalize_bar.set_draw_target(indicatif::ProgressDrawTarget::stderr());
+            finalize_bar.enable_steady_tick(Duration::from_millis(120));
+            finalize_bar.set_message("Rebuilding FTS search index...");
+        }
+        hallucinator_acl::BuildProgress::Complete {
+            publications,
+            authors,
+            skipped,
+        } => {
+            if !parse_bar.is_finished() {
+                parse_bar.finish_and_clear();
+            }
+            if skipped {
+                finalize_bar
+                    .finish_with_message("Database is already up to date (same commit SHA)");
+            } else {
+                finalize_bar.finish_with_message(format!(
+                    "Indexed {} publications, {} authors (total {:.0?})",
+                    HumanCount(publications),
+                    HumanCount(authors),
+                    build_start.elapsed()
+                ));
+            }
+        }
+    })
+    .await?;
+
+    let canonical = std::fs::canonicalize(db_path).unwrap_or_else(|_| db_path.clone());
+    if !updated {
+        println!("Database is already up to date: {}", canonical.display());
+    } else {
+        println!("ACL database saved to: {}", canonical.display());
+    }
+
+    Ok(())
+}
+
+/// Build (or incrementally refresh) the offline IACR Cryptology
+/// ePrint Archive database.
+///
+/// OAI-PMH is the only machine-readable interface the archive
+/// exposes, so there's no "fast path" — full first-time harvests
+/// page through every record, typically in a few minutes for the
+/// ~25–30k papers currently in the archive. Subsequent runs send
+/// `from=<last_harvest>` and only receive records that changed
+/// since, so day-to-day updates are near-instant.
+async fn update_iacr_eprint(db_path: &Path) -> anyhow::Result<()> {
+    use indicatif::{HumanCount, ProgressBar, ProgressStyle};
+    use std::time::{Duration, Instant};
+
+    let spinner = ProgressBar::new_spinner();
+    spinner.set_style(
+        ProgressStyle::with_template("{spinner:.cyan} [{elapsed_precise}] {msg}").unwrap(),
+    );
+    spinner.enable_steady_tick(Duration::from_millis(120));
+    spinner.set_message("Contacting eprint.iacr.org OAI-PMH endpoint...");
+
+    let build_start = Instant::now();
+
+    let updated = hallucinator_iacr_eprint::builder::build(db_path, |event| match event {
+        hallucinator_iacr_eprint::BuildProgress::Starting { incremental_from } => {
+            if let Some(from) = incremental_from {
+                spinner.set_message(format!(
+                    "Incremental harvest from {} (records changed since last run)",
+                    from
+                ));
+            } else {
+                spinner.set_message("Full harvest: fetching every OAI-PMH page");
+            }
+        }
+        hallucinator_iacr_eprint::BuildProgress::Fetched { records, pages } => {
+            spinner.set_message(format!(
+                "Indexed {} records across {} pages",
+                HumanCount(records),
+                HumanCount(pages)
+            ));
+        }
+        hallucinator_iacr_eprint::BuildProgress::Indexed { records } => {
+            spinner.set_message(format!(
+                "Finalizing index ({} records)",
+                HumanCount(records)
+            ));
+        }
+        hallucinator_iacr_eprint::BuildProgress::Complete { records, skipped } => {
+            let elapsed = build_start.elapsed();
+            if skipped {
+                spinner.finish_with_message(
+                    "Already up to date — server reports no new records since last harvest"
+                        .to_string(),
+                );
+            } else {
+                spinner.finish_with_message(format!(
+                    "Done: {} records indexed in {:.1?}",
+                    HumanCount(records),
+                    elapsed
+                ));
+            }
+        }
+    })
+    .await
+    .map_err(|e| anyhow::anyhow!("IACR ePrint harvest failed: {e}"))?;
+
+    // Caller probably wants the exit status to reflect whether
+    // anything new was actually ingested — returning Ok here
+    // either way matches the sibling update commands; `updated`
+    // would be useful for CI-style workflows but can't be surfaced
+    // via this signature without an API break.
+    let _ = updated;
+    Ok(())
+}
+
+async fn update_openalex(
+    db_path: &PathBuf,
+    since: Option<&str>,
+    min_year: Option<u32>,
+) -> anyhow::Result<()> {
+    use indicatif::{HumanBytes, HumanCount, MultiProgress, ProgressBar, ProgressStyle};
+    use std::collections::HashMap;
+    use std::time::{Duration, Instant};
+
+    if since.is_none() && min_year.is_none() {
+        eprintln!("Warning: This may use ~15-30 GB of disk space for the full OpenAlex index.");
+    }
+    if let Some(since) = since {
+        eprintln!("Only downloading S3 partitions newer than {since}");
+    }
+    if let Some(min_year) = min_year {
+        eprintln!("Only indexing works published in {min_year} or later");
+    }
+
+    let multi = MultiProgress::new();
+
+    let bar_style = ProgressStyle::with_template(
+        "{spinner:.cyan} [{bar:40.cyan/dim}] {pos}/{len} files  {msg}",
+    )
+    .unwrap()
+    .progress_chars("=> ");
+
+    let spinner_style = ProgressStyle::with_template("{spinner:.cyan} {msg}").unwrap();
+    let file_spinner_style = ProgressStyle::with_template("  {spinner:.dim} {msg:.dim}").unwrap();
+
+    let bar = multi.add(ProgressBar::new(0));
+    bar.set_style(spinner_style.clone());
+    bar.set_message("Listing OpenAlex S3 partitions...");
+    bar.enable_steady_tick(Duration::from_millis(120));
+
+    let mut file_spinners: HashMap<String, ProgressBar> = HashMap::new();
+
+    let build_start = Instant::now();
+
+    let updated = hallucinator_openalex::build_database_filtered(
+        db_path,
+        since,
+        min_year,
+        |event| match event {
+            hallucinator_openalex::BuildProgress::ListingPartitions { message } => {
+                bar.set_message(message);
+            }
+            hallucinator_openalex::BuildProgress::FileStarted { filename } => {
+                let s = multi.add(ProgressBar::new_spinner());
+                s.set_style(file_spinner_style.clone());
+                s.set_message(filename.clone());
+                s.enable_steady_tick(Duration::from_millis(120));
+                file_spinners.insert(filename, s);
+            }
+            hallucinator_openalex::BuildProgress::FileComplete { filename } => {
+                if let Some(s) = file_spinners.remove(&filename) {
+                    s.finish_and_clear();
+                }
+            }
+            hallucinator_openalex::BuildProgress::FileProgress {
+                filename,
+                bytes_downloaded,
+            } => {
+                if let Some(s) = file_spinners.get(&filename) {
+                    s.set_message(format!("{} ({})", filename, HumanBytes(bytes_downloaded)));
+                }
+            }
+            hallucinator_openalex::BuildProgress::Downloading {
+                files_done,
+                files_total,
+                bytes_downloaded,
+                records_indexed,
+            } => {
+                if bar.length() == Some(0) && files_total > 0 {
+                    bar.set_length(files_total);
+                    bar.set_style(bar_style.clone());
+                }
+                bar.set_position(files_done);
+                let elapsed = build_start.elapsed().as_secs_f64();
+                let speed = if elapsed > 0.5 {
+                    format!(
+                        " ({}/s)",
+                        HumanBytes((bytes_downloaded as f64 / elapsed) as u64)
+                    )
+                } else {
+                    String::new()
+                };
+                let rate = if elapsed > 0.5 && records_indexed > 0 {
+                    format!(
+                        ", {} records ({}/s)",
+                        HumanCount(records_indexed),
+                        HumanCount((records_indexed as f64 / elapsed) as u64)
+                    )
+                } else if records_indexed > 0 {
+                    format!(", {} records", HumanCount(records_indexed))
+                } else {
+                    String::new()
+                };
+                bar.set_message(format!("{}{}{}", HumanBytes(bytes_downloaded), speed, rate));
+            }
+            hallucinator_openalex::BuildProgress::Committing { records_indexed } => {
+                bar.set_message(format!(
+                    "Committing... {} records",
+                    HumanCount(records_indexed)
+                ));
+            }
+            hallucinator_openalex::BuildProgress::FileSkipped { filename, error } => {
+                if let Some(s) = file_spinners.remove(&filename) {
+                    s.finish_and_clear();
+                }
+                bar.suspend(|| {
+                    eprintln!("Warning: skipped {} ({error})", filename);
+                });
+            }
+            hallucinator_openalex::BuildProgress::Merging => {
+                for (_, s) in file_spinners.drain() {
+                    s.finish_and_clear();
+                }
+                bar.set_message("Merging index segments...");
+            }
+            hallucinator_openalex::BuildProgress::Complete {
+                publications,
+                skipped,
+                failed_files,
+            } => {
+                if skipped {
+                    bar.finish_with_message("Index is already up to date");
+                } else {
+                    let warn = if failed_files.is_empty() {
+                        String::new()
+                    } else {
+                        format!(" ({} files failed)", failed_files.len())
+                    };
+                    bar.finish_with_message(format!(
+                        "Indexed {} publications (total {:.0?}){}",
+                        HumanCount(publications),
+                        build_start.elapsed(),
+                        warn,
+                    ));
+                }
+            }
+        },
+    )
+    .await
+    .map_err(|e| anyhow::anyhow!("{}", e))?;
+
+    let canonical = std::fs::canonicalize(db_path).unwrap_or_else(|_| db_path.clone());
+    if !updated {
+        println!("Index is already up to date: {}", canonical.display());
+    } else {
+        println!("OpenAlex index saved to: {}", canonical.display());
+    }
+
+    Ok(())
+}
+
+async fn update_arxiv(
+    db_path: &PathBuf,
+    dump: Option<&std::path::Path>,
+    keep_download: bool,
+) -> anyhow::Result<()> {
+    use hallucinator_arxiv_offline::ArxivDatabase;
+    use hallucinator_arxiv_offline::download::{self, DownloadProgress};
+    use hallucinator_arxiv_offline::ingest::IngestProgress;
+    use indicatif::{HumanBytes, HumanCount, ProgressBar, ProgressStyle};
+    use std::time::{Duration, Instant};
+
+    // Open (or create) the database BEFORE downloading, so we fail
+    // fast on a bad path rather than after an hour of downloading.
+    let db = if db_path.exists() {
+        let opened = ArxivDatabase::open(db_path)
+            .map_err(|e| anyhow::anyhow!("open {}: {}", db_path.display(), e))?;
+        println!(
+            "Refreshing existing database ({} papers): {}",
+            opened.paper_count().unwrap_or(0),
+            db_path.display()
+        );
+        opened
+    } else {
+        let created = ArxivDatabase::create(db_path)
+            .map_err(|e| anyhow::anyhow!("create {}: {}", db_path.display(), e))?;
+        println!("Creating new database at: {}", db_path.display());
+        created
+    };
+
+    // 1. Acquire the dump. Either the caller pre-downloaded one
+    // (--dump) or we download a fresh copy from Kaggle next to the
+    // DB (so it stays on the same volume as the target SQLite file).
+    let (dump_path, downloaded_fresh) = match dump {
+        Some(p) => {
+            if !p.exists() {
+                return Err(anyhow::anyhow!(
+                    "--dump path does not exist: {}",
+                    p.display()
+                ));
+            }
+            (p.to_path_buf(), false)
+        }
+        None => {
+            let dest = db_path
+                .parent()
+                .map(|p| p.to_path_buf())
+                .unwrap_or_else(|| PathBuf::from("."))
+                .join("arxiv-kaggle.zip");
+            // Resolve credentials up front: a missing token should fail
+            // in a second, not after the progress bar is on screen. The
+            // kind is worth echoing during the token migration, when a
+            // stale kaggle.json and a fresh access_token can both be
+            // sitting in ~/.kaggle.
+            let auth = download::load_credentials()?;
+            println!("Authenticating to Kaggle with your {}", auth.kind());
+            println!("Downloading Kaggle arxiv snapshot to: {}", dest.display());
+            let bar = ProgressBar::new(0);
+            bar.set_style(
+                ProgressStyle::with_template(
+                    "{spinner:.cyan} {msg} [{elapsed_precise}] {bytes}/{total_bytes} ({binary_bytes_per_sec}, eta {eta})",
+                )
+                .unwrap(),
+            );
+            bar.enable_steady_tick(Duration::from_millis(100));
+            bar.set_message("downloading …");
+            let bar_cb = bar.clone();
+            download::download_kaggle_zip(&dest, move |ev| match ev {
+                DownloadProgress::Started { total_bytes } => {
+                    if let Some(t) = total_bytes {
+                        bar_cb.set_length(t);
+                    }
+                }
+                DownloadProgress::Progress {
+                    bytes_downloaded, ..
+                } => {
+                    bar_cb.set_position(bytes_downloaded);
+                }
+                DownloadProgress::Complete { bytes, elapsed } => {
+                    bar_cb.set_position(bytes);
+                    bar_cb.finish_with_message(format!(
+                        "downloaded {} in {:.0?}",
+                        HumanBytes(bytes),
+                        elapsed
+                    ));
+                }
+            })
+            .await
+            .map_err(|e| anyhow::anyhow!("download failed: {e}"))?;
+            (dest, true)
+        }
+    };
+
+    // 2. Stream records into SQLite. Auto-detect by extension:
+    //    .zip           — look for arxiv-metadata-oai-snapshot.json inside
+    //    .json / .jsonl — read directly
+    //    .json.gz       — gzip-decompress and read
+    // The zip path is the common one; the others exist for users who
+    // decompress the download themselves.
+    let ingest_start = Instant::now();
+    let bar = ProgressBar::new(2_500_000);
+    bar.set_style(
+        ProgressStyle::with_template(
+            "{spinner:.cyan} {msg} [{elapsed_precise}] {pos}/~{len} ({per_sec}, eta {eta})",
+        )
+        .unwrap(),
+    );
+    bar.enable_steady_tick(Duration::from_millis(100));
+    bar.set_message("ingesting …");
+    let bar_for_sink = bar.clone();
+    let bar_for_progress = bar.clone();
+
+    // Batch all upserts into a single transaction with periodic
+    // checkpoints. Without this, SQLite autocommits after every
+    // statement and fsync-caps us at a few hundred inserts/sec —
+    // a full ingest takes hours. With batching, disk sync fires
+    // ~50× per ingest, not 10M+ times.
+    const COMMIT_EVERY: u64 = 50_000;
+    db.begin_bulk()
+        .map_err(|e| anyhow::anyhow!("begin transaction: {e}"))?;
+
+    let mut inserted: u64 = 0;
+    let sink = |rec: hallucinator_arxiv_offline::ArxivRecord| {
+        // `upsert_bulk` skips the FTS5 index update — we rebuild
+        // it once after the ingest completes. For 2.5M records
+        // this is ~10× faster than updating FTS inline.
+        db.upsert_bulk(&rec)
+            .map_err(|e| hallucinator_arxiv_offline::ArxivError::Harvest(e.to_string()))?;
+        inserted += 1;
+        if inserted.is_multiple_of(1_000) {
+            bar_for_sink.set_position(inserted);
+        }
+        if inserted.is_multiple_of(COMMIT_EVERY) {
+            db.commit_and_continue().map_err(|e| {
+                hallucinator_arxiv_offline::ArxivError::Harvest(format!("mid-ingest commit: {e}"))
+            })?;
+        }
+        Ok(())
+    };
+    let on_progress = move |ev| match ev {
+        IngestProgress::Started => {
+            bar_for_progress.set_message("ingesting …");
+        }
+        IngestProgress::Progress { records_parsed } => {
+            bar_for_progress.set_position(records_parsed);
+        }
+        IngestProgress::Complete { total, elapsed } => {
+            bar_for_progress.set_position(total);
+            bar_for_progress.finish_with_message(format!(
+                "ingested {} records in {:.0?}",
+                HumanCount(total),
+                elapsed
+            ));
+        }
+    };
+
+    let result = ingest_dump(&dump_path, 10_000, sink, on_progress);
+
+    // Always close the transaction — commit on success, roll back
+    // on failure. Rolling back avoids leaving the DB in an
+    // in-transaction state that would block subsequent opens.
+    match &result {
+        Ok(_) => {
+            // Rebuild the FTS index from `papers` before final commit.
+            // Surfaces progress in its own bar because the rebuild
+            // takes a minute or two on a full ingest and would
+            // otherwise look like the CLI hung.
+            let fts_bar = ProgressBar::new_spinner();
+            fts_bar.set_style(
+                ProgressStyle::with_template("{spinner:.cyan} {msg} [{elapsed_precise}]").unwrap(),
+            );
+            fts_bar.enable_steady_tick(Duration::from_millis(100));
+            fts_bar.set_message("rebuilding FTS title index …");
+            db.rebuild_fts()
+                .map_err(|e| anyhow::anyhow!("rebuild FTS: {e}"))?;
+            fts_bar.finish_with_message("FTS title index rebuilt");
+
+            db.commit_bulk()
+                .map_err(|e| anyhow::anyhow!("final commit: {e}"))?;
+        }
+        Err(_) => {
+            if let Err(rb) = db.rollback_bulk() {
+                eprintln!("warning: rollback failed: {rb}");
+            }
+        }
+    }
+
+    // Record build_date BEFORE propagating any ingest error — even
+    // partial builds get a timestamp so the staleness check has
+    // something to compare against. (An explicit error-logged partial
+    // ingest is better than a DB whose age says "never built".)
+    let today = format_today_iso();
+    if let Err(e) = db.record_build_date(&today) {
+        eprintln!("warning: failed to record build_date: {e}");
+    }
+
+    let total = result.map_err(|e| anyhow::anyhow!("ingest failed: {e}"))?;
+
+    // 4. Clean up the downloaded zip — unless --keep-download was
+    // passed or the user supplied their own file (which we don't own).
+    if downloaded_fresh
+        && !keep_download
+        && let Err(e) = std::fs::remove_file(&dump_path)
+    {
+        eprintln!(
+            "warning: could not remove downloaded zip {}: {e}",
+            dump_path.display()
+        );
+    }
+
+    let canonical = std::fs::canonicalize(db_path).unwrap_or_else(|_| db_path.clone());
+    let count = db.paper_count().unwrap_or(0);
+    let _ = ingest_start; // kept for potential future summary use
+    println!(
+        "arXiv database saved to: {} ({} total papers, {} ingested this run)",
+        canonical.display(),
+        HumanCount(count),
+        HumanCount(total)
+    );
+    Ok(())
+}
+
+/// Ingest a Kaggle dump from disk into a sink. Auto-detects the
+/// compression / container:
+/// - `.zip` — open the archive, read `arxiv-metadata-oai-snapshot.json`
+/// - `.json.gz` / `.jsonl.gz` — gzip-streams
+/// - `.json` / `.jsonl` — reads directly
+///
+/// Inlined rather than returning a `Box<dyn BufRead>` because the zip
+/// entry reader borrows from the `ZipArchive`, which must stay on
+/// the stack for the lifetime of the ingest. Keeping the match arms
+/// local sidesteps the self-referential-struct gymnastics.
+fn ingest_dump<F, P>(
+    path: &std::path::Path,
+    progress_every: u64,
+    sink: F,
+    progress: P,
+) -> Result<u64, hallucinator_arxiv_offline::ArxivError>
+where
+    F: FnMut(
+        hallucinator_arxiv_offline::ArxivRecord,
+    ) -> Result<(), hallucinator_arxiv_offline::ArxivError>,
+    P: FnMut(hallucinator_arxiv_offline::ingest::IngestProgress),
+{
+    use hallucinator_arxiv_offline::ArxivError;
+    use hallucinator_arxiv_offline::download::KAGGLE_DUMP_ENTRY;
+    use hallucinator_arxiv_offline::ingest;
+    use std::fs::File;
+    use std::io::BufReader;
+
+    let file = File::open(path)
+        .map_err(|e| ArxivError::Harvest(format!("open {}: {e}", path.display())))?;
+    let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
+
+    if name.ends_with(".zip") {
+        let mut archive = zip::ZipArchive::new(BufReader::new(file))
+            .map_err(|e| ArxivError::Harvest(format!("open zip {}: {e}", path.display())))?;
+        let entry = archive.by_name(KAGGLE_DUMP_ENTRY).map_err(|e| {
+            ArxivError::Harvest(format!(
+                "zip `{}` does not contain `{KAGGLE_DUMP_ENTRY}`: {e} \
+                 (Kaggle dataset layout may have changed)",
+                path.display()
+            ))
+        })?;
+        let reader = BufReader::with_capacity(1 << 20, entry);
+        return ingest::ingest_jsonl(reader, progress_every, sink, progress);
+    }
+    if name.ends_with(".json.gz") || name.ends_with(".jsonl.gz") {
+        let gz = flate2::read::GzDecoder::new(file);
+        let reader = BufReader::with_capacity(1 << 20, gz);
+        return ingest::ingest_jsonl(reader, progress_every, sink, progress);
+    }
+    let reader = BufReader::with_capacity(1 << 20, file);
+    ingest::ingest_jsonl(reader, progress_every, sink, progress)
+}
+
+/// Today's date as `YYYY-MM-DD` (UTC). Avoids pulling in chrono just
+/// for this one stamp — matches the simple formatter used by the
+/// update-dblp / update-acl commands.
+fn format_today_iso() -> String {
+    let secs = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    let days = secs / 86_400;
+    let (y, m, d) = days_to_ymd(days as i64 + 719_162);
+    format!("{:04}-{:02}-{:02}", y, m, d)
+}
+
+/// Inverse of `hallucinator_arxiv_offline::ymd_to_days` — good enough
+/// for human-readable build stamps.
+fn days_to_ymd(days: i64) -> (i32, u32, u32) {
+    let era = if days >= 0 { days } else { days - 146_096 } / 146_097;
+    let doe = (days - era * 146_097) as u64;
+    let yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365;
+    let y = yoe as i64 + era * 400;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let d = doy - (153 * mp + 2) / 5 + 1;
+    let m = if mp < 10 { mp + 3 } else { mp - 9 };
+    let y = if m <= 2 { y + 1 } else { y };
+    (y as i32, m as u32, d as u32)
+}
+
+fn print_import_stats(stats: &hallucinator_local_corpus::ImportStats) {
+    println!(
+        "  {} seen, {} inserted, {} already present (skipped), {} skipped (no authors), {} skipped (no title)",
+        stats.seen,
+        stats.inserted,
+        stats.skipped_duplicate,
+        stats.skipped_no_authors,
+        stats.skipped_no_title,
+    );
+}
+
+/// Import marked-safe references from one or more of this tool's own
+/// report JSON exports into the local corpus.
+fn import_corpus_reports(corpus_path: &Path, reports: &[PathBuf]) -> anyhow::Result<()> {
+    if reports.is_empty() {
+        anyhow::bail!("No report JSON files given");
+    }
+    let conn = hallucinator_local_corpus::open_or_create(corpus_path)
+        .map_err(|e| anyhow::anyhow!("{}", e))?;
+
+    let mut total = hallucinator_local_corpus::ImportStats::default();
+    for report_path in reports {
+        let content = std::fs::read_to_string(report_path)
+            .map_err(|e| anyhow::anyhow!("Failed to read {}: {}", report_path.display(), e))?;
+        let stats = hallucinator_local_corpus::ingest::import_report_json(&conn, &content)
+            .map_err(|e| anyhow::anyhow!("{}: {}", report_path.display(), e))?;
+        println!("{}:", report_path.display());
+        print_import_stats(&stats);
+        total.seen += stats.seen;
+        total.inserted += stats.inserted;
+        total.skipped_duplicate += stats.skipped_duplicate;
+        total.skipped_no_authors += stats.skipped_no_authors;
+        total.skipped_no_title += stats.skipped_no_title;
+    }
+    println!("\nTotal:");
+    print_import_stats(&total);
+    println!(
+        "\nCorpus now has {} publications: {}",
+        hallucinator_local_corpus::CorpusPool::open(corpus_path)
+            .map_err(|e| anyhow::anyhow!("{}", e))?
+            .total_count()
+            .map_err(|e| anyhow::anyhow!("{}", e))?,
+        corpus_path.display()
+    );
+    Ok(())
+}
+
+fn resolve_html_source(
+    url: Option<String>,
+    from_file: Option<PathBuf>,
+) -> anyhow::Result<hallucinator_local_corpus::HtmlSource> {
+    match (url, from_file) {
+        (Some(url), None) => Ok(hallucinator_local_corpus::HtmlSource::Url(url)),
+        (None, Some(path)) => Ok(hallucinator_local_corpus::HtmlSource::File(path)),
+        (None, None) => anyhow::bail!("Pass either --url or --from-file"),
+        (Some(_), Some(_)) => unreachable!("clap enforces --url/--from-file are exclusive"),
+    }
+}
+
+/// Import an NDSS accepted-papers page into the local corpus.
+async fn import_ndss(
+    corpus_path: &Path,
+    source_tag: &str,
+    url: Option<String>,
+    from_file: Option<PathBuf>,
+) -> anyhow::Result<()> {
+    let source = resolve_html_source(url, from_file)?;
+    let conn = hallucinator_local_corpus::open_or_create(corpus_path)
+        .map_err(|e| anyhow::anyhow!("{}", e))?;
+    let stats = hallucinator_local_corpus::ingest::import_ndss(&conn, source, source_tag)
+        .await
+        .map_err(|e| anyhow::anyhow!("{}", e))?;
+    print_import_stats(&stats);
+    let total_for_tag = hallucinator_local_corpus::count_by_source(&conn, source_tag)
+        .map_err(|e| anyhow::anyhow!("{}", e))?;
+    println!("Corpus now has {total_for_tag} publications tagged \"{source_tag}\"");
+    Ok(())
+}
+
+/// Import a USENIX Security `technical-sessions` program page into the
+/// local corpus.
+async fn import_usenix(
+    corpus_path: &Path,
+    source_tag: &str,
+    url: Option<String>,
+    from_file: Option<PathBuf>,
+) -> anyhow::Result<()> {
+    let source = resolve_html_source(url, from_file)?;
+    let conn = hallucinator_local_corpus::open_or_create(corpus_path)
+        .map_err(|e| anyhow::anyhow!("{}", e))?;
+    let stats = hallucinator_local_corpus::ingest::import_usenix(&conn, source, source_tag)
+        .await
+        .map_err(|e| anyhow::anyhow!("{}", e))?;
+    print_import_stats(&stats);
+    let total_for_tag = hallucinator_local_corpus::count_by_source(&conn, source_tag)
+        .map_err(|e| anyhow::anyhow!("{}", e))?;
+    println!("Corpus now has {total_for_tag} publications tagged \"{source_tag}\"");
+    Ok(())
+}
+
+/// Import an IEEE S&P ("Oakland") accepted-papers page into the local corpus.
+async fn import_ieee_sp(
+    corpus_path: &Path,
+    source_tag: &str,
+    url: Option<String>,
+    from_file: Option<PathBuf>,
+) -> anyhow::Result<()> {
+    let source = resolve_html_source(url, from_file)?;
+    let conn = hallucinator_local_corpus::open_or_create(corpus_path)
+        .map_err(|e| anyhow::anyhow!("{}", e))?;
+    let stats = hallucinator_local_corpus::ingest::import_ieee_sp(&conn, source, source_tag)
+        .await
+        .map_err(|e| anyhow::anyhow!("{}", e))?;
+    print_import_stats(&stats);
+    let total_for_tag = hallucinator_local_corpus::count_by_source(&conn, source_tag)
+        .map_err(|e| anyhow::anyhow!("{}", e))?;
+    println!("Corpus now has {total_for_tag} publications tagged \"{source_tag}\"");
+    Ok(())
+}
+
+/// Import an ACM CCS accepted-papers page into the local corpus.
+async fn import_ccs(
+    corpus_path: &Path,
+    source_tag: &str,
+    url: Option<String>,
+    from_file: Option<PathBuf>,
+) -> anyhow::Result<()> {
+    let source = resolve_html_source(url, from_file)?;
+    let conn = hallucinator_local_corpus::open_or_create(corpus_path)
+        .map_err(|e| anyhow::anyhow!("{}", e))?;
+    let stats = hallucinator_local_corpus::ingest::import_ccs(&conn, source, source_tag)
+        .await
+        .map_err(|e| anyhow::anyhow!("{}", e))?;
+    print_import_stats(&stats);
+    let total_for_tag = hallucinator_local_corpus::count_by_source(&conn, source_tag)
+        .map_err(|e| anyhow::anyhow!("{}", e))?;
+    println!("Corpus now has {total_for_tag} publications tagged \"{source_tag}\"");
+    Ok(())
+}
+
+/// Import a CVF Open Access (CVPR / ICCV / WACV) paper-listing page into
+/// the local corpus.
+async fn import_cvf(
+    corpus_path: &Path,
+    source_tag: &str,
+    url: Option<String>,
+    from_file: Option<PathBuf>,
+) -> anyhow::Result<()> {
+    let source = resolve_html_source(url, from_file)?;
+    let conn = hallucinator_local_corpus::open_or_create(corpus_path)
+        .map_err(|e| anyhow::anyhow!("{}", e))?;
+    let stats = hallucinator_local_corpus::ingest::import_cvf(&conn, source, source_tag)
+        .await
+        .map_err(|e| anyhow::anyhow!("{}", e))?;
+    print_import_stats(&stats);
+    let total_for_tag = hallucinator_local_corpus::count_by_source(&conn, source_tag)
+        .map_err(|e| anyhow::anyhow!("{}", e))?;
+    println!("Corpus now has {total_for_tag} publications tagged \"{source_tag}\"");
+    Ok(())
+}
+
+/// Import a NeurIPS `papers.nips.cc` year-index page into the local corpus.
+async fn import_neurips(
+    corpus_path: &Path,
+    source_tag: &str,
+    url: Option<String>,
+    from_file: Option<PathBuf>,
+) -> anyhow::Result<()> {
+    let source = resolve_html_source(url, from_file)?;
+    let conn = hallucinator_local_corpus::open_or_create(corpus_path)
+        .map_err(|e| anyhow::anyhow!("{}", e))?;
+    let stats = hallucinator_local_corpus::ingest::import_neurips(&conn, source, source_tag)
+        .await
+        .map_err(|e| anyhow::anyhow!("{}", e))?;
+    print_import_stats(&stats);
+    let total_for_tag = hallucinator_local_corpus::count_by_source(&conn, source_tag)
+        .map_err(|e| anyhow::anyhow!("{}", e))?;
+    println!("Corpus now has {total_for_tag} publications tagged \"{source_tag}\"");
+    Ok(())
+}
+
+/// Import one ICSE (or other researchr.org-hosted) track page into the
+/// local corpus.
+async fn import_icse(
+    corpus_path: &Path,
+    source_tag: &str,
+    url: Option<String>,
+    from_file: Option<PathBuf>,
+) -> anyhow::Result<()> {
+    let source = resolve_html_source(url, from_file)?;
+    let conn = hallucinator_local_corpus::open_or_create(corpus_path)
+        .map_err(|e| anyhow::anyhow!("{}", e))?;
+    let stats = hallucinator_local_corpus::ingest::import_icse(&conn, source, source_tag)
+        .await
+        .map_err(|e| anyhow::anyhow!("{}", e))?;
+    print_import_stats(&stats);
+    let total_for_tag = hallucinator_local_corpus::count_by_source(&conn, source_tag)
+        .map_err(|e| anyhow::anyhow!("{}", e))?;
+    println!("Corpus now has {total_for_tag} publications tagged \"{source_tag}\"");
+    Ok(())
+}
+
+/// Import one AAAI OJS issue's table-of-contents page into the local
+/// corpus.
+async fn import_aaai(
+    corpus_path: &Path,
+    source_tag: &str,
+    url: Option<String>,
+    from_file: Option<PathBuf>,
+) -> anyhow::Result<()> {
+    let source = resolve_html_source(url, from_file)?;
+    let conn = hallucinator_local_corpus::open_or_create(corpus_path)
+        .map_err(|e| anyhow::anyhow!("{}", e))?;
+    let stats = hallucinator_local_corpus::ingest::import_aaai(&conn, source, source_tag)
+        .await
+        .map_err(|e| anyhow::anyhow!("{}", e))?;
+    print_import_stats(&stats);
+    let total_for_tag = hallucinator_local_corpus::count_by_source(&conn, source_tag)
+        .map_err(|e| anyhow::anyhow!("{}", e))?;
+    println!("Corpus now has {total_for_tag} publications tagged \"{source_tag}\"");
+    Ok(())
+}
+
+/// Import one DEF CON year's speakers page into the local corpus.
+async fn import_defcon(
+    corpus_path: &Path,
+    source_tag: &str,
+    url: Option<String>,
+    from_file: Option<PathBuf>,
+) -> anyhow::Result<()> {
+    let source = resolve_html_source(url, from_file)?;
+    let conn = hallucinator_local_corpus::open_or_create(corpus_path)
+        .map_err(|e| anyhow::anyhow!("{}", e))?;
+    let stats = hallucinator_local_corpus::ingest::import_defcon(&conn, source, source_tag)
+        .await
+        .map_err(|e| anyhow::anyhow!("{}", e))?;
+    print_import_stats(&stats);
+    let total_for_tag = hallucinator_local_corpus::count_by_source(&conn, source_tag)
+        .map_err(|e| anyhow::anyhow!("{}", e))?;
+    println!("Corpus now has {total_for_tag} publications tagged \"{source_tag}\"");
+    Ok(())
+}
+
+/// Import one Black Hat edition's sessions.json into the local corpus.
+async fn import_blackhat(
+    corpus_path: &Path,
+    source_tag: &str,
+    url: Option<String>,
+    from_file: Option<PathBuf>,
+) -> anyhow::Result<()> {
+    let source = resolve_html_source(url, from_file)?;
+    let conn = hallucinator_local_corpus::open_or_create(corpus_path)
+        .map_err(|e| anyhow::anyhow!("{}", e))?;
+    let stats = hallucinator_local_corpus::ingest::import_blackhat(&conn, source, source_tag)
+        .await
+        .map_err(|e| anyhow::anyhow!("{}", e))?;
+    print_import_stats(&stats);
+    let total_for_tag = hallucinator_local_corpus::count_by_source(&conn, source_tag)
+        .map_err(|e| anyhow::anyhow!("{}", e))?;
+    println!("Corpus now has {total_for_tag} publications tagged \"{source_tag}\"");
+    Ok(())
+}
+
+/// Import an ACSAC accepted-papers page into the local corpus.
+async fn import_acsac(
+    corpus_path: &Path,
+    source_tag: &str,
+    url: Option<String>,
+    from_file: Option<PathBuf>,
+) -> anyhow::Result<()> {
+    let source = resolve_html_source(url, from_file)?;
+    let conn = hallucinator_local_corpus::open_or_create(corpus_path)
+        .map_err(|e| anyhow::anyhow!("{}", e))?;
+    let stats = hallucinator_local_corpus::ingest::import_acsac(&conn, source, source_tag)
+        .await
+        .map_err(|e| anyhow::anyhow!("{}", e))?;
+    print_import_stats(&stats);
+    let total_for_tag = hallucinator_local_corpus::count_by_source(&conn, source_tag)
+        .map_err(|e| anyhow::anyhow!("{}", e))?;
+    println!("Corpus now has {total_for_tag} publications tagged \"{source_tag}\"");
+    Ok(())
+}
+
+/// Import an ESORICS accepted-papers page into the local corpus.
+async fn import_esorics(
+    corpus_path: &Path,
+    source_tag: &str,
+    url: Option<String>,
+    from_file: Option<PathBuf>,
+) -> anyhow::Result<()> {
+    let source = resolve_html_source(url, from_file)?;
+    let conn = hallucinator_local_corpus::open_or_create(corpus_path)
+        .map_err(|e| anyhow::anyhow!("{}", e))?;
+    let stats = hallucinator_local_corpus::ingest::import_esorics(&conn, source, source_tag)
+        .await
+        .map_err(|e| anyhow::anyhow!("{}", e))?;
+    print_import_stats(&stats);
+    let total_for_tag = hallucinator_local_corpus::count_by_source(&conn, source_tag)
+        .map_err(|e| anyhow::anyhow!("{}", e))?;
+    println!("Corpus now has {total_for_tag} publications tagged \"{source_tag}\"");
+    Ok(())
+}
+
+/// Import a RAID accepted-papers page into the local corpus.
+async fn import_raid(
+    corpus_path: &Path,
+    source_tag: &str,
+    url: Option<String>,
+    from_file: Option<PathBuf>,
+) -> anyhow::Result<()> {
+    let source = resolve_html_source(url, from_file)?;
+    let conn = hallucinator_local_corpus::open_or_create(corpus_path)
+        .map_err(|e| anyhow::anyhow!("{}", e))?;
+    let stats = hallucinator_local_corpus::ingest::import_raid(&conn, source, source_tag)
+        .await
+        .map_err(|e| anyhow::anyhow!("{}", e))?;
+    print_import_stats(&stats);
+    let total_for_tag = hallucinator_local_corpus::count_by_source(&conn, source_tag)
+        .map_err(|e| anyhow::anyhow!("{}", e))?;
+    println!("Corpus now has {total_for_tag} publications tagged \"{source_tag}\"");
+    Ok(())
+}
+
+/// Import one ASIACCS submission-cycle accepted-papers page into the
+/// local corpus.
+async fn import_asiaccs(
+    corpus_path: &Path,
+    source_tag: &str,
+    url: Option<String>,
+    from_file: Option<PathBuf>,
+) -> anyhow::Result<()> {
+    let source = resolve_html_source(url, from_file)?;
+    let conn = hallucinator_local_corpus::open_or_create(corpus_path)
+        .map_err(|e| anyhow::anyhow!("{}", e))?;
+    let stats = hallucinator_local_corpus::ingest::import_asiaccs(&conn, source, source_tag)
+        .await
+        .map_err(|e| anyhow::anyhow!("{}", e))?;
+    print_import_stats(&stats);
+    let total_for_tag = hallucinator_local_corpus::count_by_source(&conn, source_tag)
+        .map_err(|e| anyhow::anyhow!("{}", e))?;
+    println!("Corpus now has {total_for_tag} publications tagged \"{source_tag}\"");
+    Ok(())
+}
+
+/// Import a EuroS&P accepted-papers page into the local corpus.
+async fn import_eurosp(
+    corpus_path: &Path,
+    source_tag: &str,
+    url: Option<String>,
+    from_file: Option<PathBuf>,
+) -> anyhow::Result<()> {
+    let source = resolve_html_source(url, from_file)?;
+    let conn = hallucinator_local_corpus::open_or_create(corpus_path)
+        .map_err(|e| anyhow::anyhow!("{}", e))?;
+    let stats = hallucinator_local_corpus::ingest::import_eurosp(&conn, source, source_tag)
+        .await
+        .map_err(|e| anyhow::anyhow!("{}", e))?;
+    print_import_stats(&stats);
+    let total_for_tag = hallucinator_local_corpus::count_by_source(&conn, source_tag)
+        .map_err(|e| anyhow::anyhow!("{}", e))?;
+    println!("Corpus now has {total_for_tag} publications tagged \"{source_tag}\"");
+    Ok(())
+}
+
+/// Import a SOSP accepted-papers page into the local corpus.
+async fn import_sosp(
+    corpus_path: &Path,
+    source_tag: &str,
+    url: Option<String>,
+    from_file: Option<PathBuf>,
+) -> anyhow::Result<()> {
+    let source = resolve_html_source(url, from_file)?;
+    let conn = hallucinator_local_corpus::open_or_create(corpus_path)
+        .map_err(|e| anyhow::anyhow!("{}", e))?;
+    let stats = hallucinator_local_corpus::ingest::import_sosp(&conn, source, source_tag)
+        .await
+        .map_err(|e| anyhow::anyhow!("{}", e))?;
+    print_import_stats(&stats);
+    let total_for_tag = hallucinator_local_corpus::count_by_source(&conn, source_tag)
+        .map_err(|e| anyhow::anyhow!("{}", e))?;
+    println!("Corpus now has {total_for_tag} publications tagged \"{source_tag}\"");
+    Ok(())
+}
+
+/// Import an ASPLOS program page into the local corpus.
+async fn import_asplos(
+    corpus_path: &Path,
+    source_tag: &str,
+    url: Option<String>,
+    from_file: Option<PathBuf>,
+) -> anyhow::Result<()> {
+    let source = resolve_html_source(url, from_file)?;
+    let conn = hallucinator_local_corpus::open_or_create(corpus_path)
+        .map_err(|e| anyhow::anyhow!("{}", e))?;
+    let stats = hallucinator_local_corpus::ingest::import_asplos(&conn, source, source_tag)
+        .await
+        .map_err(|e| anyhow::anyhow!("{}", e))?;
+    print_import_stats(&stats);
+    let total_for_tag = hallucinator_local_corpus::count_by_source(&conn, source_tag)
+        .map_err(|e| anyhow::anyhow!("{}", e))?;
+    println!("Corpus now has {total_for_tag} publications tagged \"{source_tag}\"");
+    Ok(())
+}
+
+/// Import an ISCA program page into the local corpus.
+async fn import_isca(
+    corpus_path: &Path,
+    source_tag: &str,
+    url: Option<String>,
+    from_file: Option<PathBuf>,
+) -> anyhow::Result<()> {
+    let source = resolve_html_source(url, from_file)?;
+    let conn = hallucinator_local_corpus::open_or_create(corpus_path)
+        .map_err(|e| anyhow::anyhow!("{}", e))?;
+    let stats = hallucinator_local_corpus::ingest::import_isca(&conn, source, source_tag)
+        .await
+        .map_err(|e| anyhow::anyhow!("{}", e))?;
+    print_import_stats(&stats);
+    let total_for_tag = hallucinator_local_corpus::count_by_source(&conn, source_tag)
+        .map_err(|e| anyhow::anyhow!("{}", e))?;
+    println!("Corpus now has {total_for_tag} publications tagged \"{source_tag}\"");
+    Ok(())
+}
+
+/// Import an ICML PMLR volume page into the local corpus.
+async fn import_icml(
+    corpus_path: &Path,
+    source_tag: &str,
+    url: Option<String>,
+    from_file: Option<PathBuf>,
+) -> anyhow::Result<()> {
+    let source = resolve_html_source(url, from_file)?;
+    let conn = hallucinator_local_corpus::open_or_create(corpus_path)
+        .map_err(|e| anyhow::anyhow!("{}", e))?;
+    let stats = hallucinator_local_corpus::ingest::import_icml(&conn, source, source_tag)
+        .await
+        .map_err(|e| anyhow::anyhow!("{}", e))?;
+    print_import_stats(&stats);
+    let total_for_tag = hallucinator_local_corpus::count_by_source(&conn, source_tag)
+        .map_err(|e| anyhow::anyhow!("{}", e))?;
+    println!("Corpus now has {total_for_tag} publications tagged \"{source_tag}\"");
+    Ok(())
+}
+
+/// Import a Paper Digest "papers with code & data" page into the local
+/// corpus.
+async fn import_iclr(
+    corpus_path: &Path,
+    source_tag: &str,
+    url: Option<String>,
+    from_file: Option<PathBuf>,
+) -> anyhow::Result<()> {
+    let source = resolve_html_source(url, from_file)?;
+    let conn = hallucinator_local_corpus::open_or_create(corpus_path)
+        .map_err(|e| anyhow::anyhow!("{}", e))?;
+    let stats = hallucinator_local_corpus::ingest::import_iclr(&conn, source, source_tag)
+        .await
+        .map_err(|e| anyhow::anyhow!("{}", e))?;
+    print_import_stats(&stats);
+    let total_for_tag = hallucinator_local_corpus::count_by_source(&conn, source_tag)
+        .map_err(|e| anyhow::anyhow!("{}", e))?;
+    println!("Corpus now has {total_for_tag} publications tagged \"{source_tag}\"");
+    Ok(())
+}
+
+/// Import a PETS/PoPETs paper-list page into the local corpus.
+async fn import_pets(
+    corpus_path: &Path,
+    source_tag: &str,
+    url: Option<String>,
+    from_file: Option<PathBuf>,
+) -> anyhow::Result<()> {
+    let source = resolve_html_source(url, from_file)?;
+    let conn = hallucinator_local_corpus::open_or_create(corpus_path)
+        .map_err(|e| anyhow::anyhow!("{}", e))?;
+    let stats = hallucinator_local_corpus::ingest::import_pets(&conn, source, source_tag)
+        .await
+        .map_err(|e| anyhow::anyhow!("{}", e))?;
+    print_import_stats(&stats);
+    let total_for_tag = hallucinator_local_corpus::count_by_source(&conn, source_tag)
+        .map_err(|e| anyhow::anyhow!("{}", e))?;
+    println!("Corpus now has {total_for_tag} publications tagged \"{source_tag}\"");
+    Ok(())
+}
+
+/// Import an IEEE INFOCOM accepted-paper-list page into the local corpus.
+async fn import_infocom(
+    corpus_path: &Path,
+    source_tag: &str,
+    url: Option<String>,
+    from_file: Option<PathBuf>,
+) -> anyhow::Result<()> {
+    let source = resolve_html_source(url, from_file)?;
+    let conn = hallucinator_local_corpus::open_or_create(corpus_path)
+        .map_err(|e| anyhow::anyhow!("{}", e))?;
+    let stats = hallucinator_local_corpus::ingest::import_infocom(&conn, source, source_tag)
+        .await
+        .map_err(|e| anyhow::anyhow!("{}", e))?;
+    print_import_stats(&stats);
+    let total_for_tag = hallucinator_local_corpus::count_by_source(&conn, source_tag)
+        .map_err(|e| anyhow::anyhow!("{}", e))?;
+    println!("Corpus now has {total_for_tag} publications tagged \"{source_tag}\"");
+    Ok(())
+}
+
+/// Import an ACM SIGCOMM accepted-papers page into the local corpus.
+async fn import_sigcomm(
+    corpus_path: &Path,
+    source_tag: &str,
+    url: Option<String>,
+    from_file: Option<PathBuf>,
+) -> anyhow::Result<()> {
+    let source = resolve_html_source(url, from_file)?;
+    let conn = hallucinator_local_corpus::open_or_create(corpus_path)
+        .map_err(|e| anyhow::anyhow!("{}", e))?;
+    let stats = hallucinator_local_corpus::ingest::import_sigcomm(&conn, source, source_tag)
+        .await
+        .map_err(|e| anyhow::anyhow!("{}", e))?;
+    print_import_stats(&stats);
+    let total_for_tag = hallucinator_local_corpus::count_by_source(&conn, source_tag)
+        .map_err(|e| anyhow::anyhow!("{}", e))?;
+    println!("Corpus now has {total_for_tag} publications tagged \"{source_tag}\"");
+    Ok(())
+}
+
+/// Import an ACM IMC accepted-papers page into the local corpus.
+async fn import_imc(
+    corpus_path: &Path,
+    source_tag: &str,
+    url: Option<String>,
+    from_file: Option<PathBuf>,
+) -> anyhow::Result<()> {
+    let source = resolve_html_source(url, from_file)?;
+    let conn = hallucinator_local_corpus::open_or_create(corpus_path)
+        .map_err(|e| anyhow::anyhow!("{}", e))?;
+    let stats = hallucinator_local_corpus::ingest::import_imc(&conn, source, source_tag)
+        .await
+        .map_err(|e| anyhow::anyhow!("{}", e))?;
+    print_import_stats(&stats);
+    let total_for_tag = hallucinator_local_corpus::count_by_source(&conn, source_tag)
+        .map_err(|e| anyhow::anyhow!("{}", e))?;
+    println!("Corpus now has {total_for_tag} publications tagged \"{source_tag}\"");
+    Ok(())
+}
+
+/// Import a DSN accepted-papers page into the local corpus.
+async fn import_dsn(
+    corpus_path: &Path,
+    source_tag: &str,
+    url: Option<String>,
+    from_file: Option<PathBuf>,
+) -> anyhow::Result<()> {
+    let source = resolve_html_source(url, from_file)?;
+    let conn = hallucinator_local_corpus::open_or_create(corpus_path)
+        .map_err(|e| anyhow::anyhow!("{}", e))?;
+    let stats = hallucinator_local_corpus::ingest::import_dsn(&conn, source, source_tag)
+        .await
+        .map_err(|e| anyhow::anyhow!("{}", e))?;
+    print_import_stats(&stats);
+    let total_for_tag = hallucinator_local_corpus::count_by_source(&conn, source_tag)
+        .map_err(|e| anyhow::anyhow!("{}", e))?;
+    println!("Corpus now has {total_for_tag} publications tagged \"{source_tag}\"");
+    Ok(())
+}
+
+/// Import a EuroSys accepted-papers page into the local corpus.
+async fn import_eurosys(
+    corpus_path: &Path,
+    source_tag: &str,
+    url: Option<String>,
+    from_file: Option<PathBuf>,
+) -> anyhow::Result<()> {
+    let source = resolve_html_source(url, from_file)?;
+    let conn = hallucinator_local_corpus::open_or_create(corpus_path)
+        .map_err(|e| anyhow::anyhow!("{}", e))?;
+    let stats = hallucinator_local_corpus::ingest::import_eurosys(&conn, source, source_tag)
+        .await
+        .map_err(|e| anyhow::anyhow!("{}", e))?;
+    print_import_stats(&stats);
+    let total_for_tag = hallucinator_local_corpus::count_by_source(&conn, source_tag)
+        .map_err(|e| anyhow::anyhow!("{}", e))?;
+    println!("Corpus now has {total_for_tag} publications tagged \"{source_tag}\"");
+    Ok(())
+}
+
+/// Import a SIGMOD accepted-papers page into the local corpus.
+async fn import_sigmod(
+    corpus_path: &Path,
+    source_tag: &str,
+    url: Option<String>,
+    from_file: Option<PathBuf>,
+) -> anyhow::Result<()> {
+    let source = resolve_html_source(url, from_file)?;
+    let conn = hallucinator_local_corpus::open_or_create(corpus_path)
+        .map_err(|e| anyhow::anyhow!("{}", e))?;
+    let stats = hallucinator_local_corpus::ingest::import_sigmod(&conn, source, source_tag)
+        .await
+        .map_err(|e| anyhow::anyhow!("{}", e))?;
+    print_import_stats(&stats);
+    let total_for_tag = hallucinator_local_corpus::count_by_source(&conn, source_tag)
+        .map_err(|e| anyhow::anyhow!("{}", e))?;
+    println!("Corpus now has {total_for_tag} publications tagged \"{source_tag}\"");
+    Ok(())
+}
+
+/// Import a WWW accepted-papers track page into the local corpus.
+async fn import_www(
+    corpus_path: &Path,
+    source_tag: &str,
+    url: Option<String>,
+    from_file: Option<PathBuf>,
+) -> anyhow::Result<()> {
+    let source = resolve_html_source(url, from_file)?;
+    let conn = hallucinator_local_corpus::open_or_create(corpus_path)
+        .map_err(|e| anyhow::anyhow!("{}", e))?;
+    let stats = hallucinator_local_corpus::ingest::import_www(&conn, source, source_tag)
+        .await
+        .map_err(|e| anyhow::anyhow!("{}", e))?;
+    print_import_stats(&stats);
+    let total_for_tag = hallucinator_local_corpus::count_by_source(&conn, source_tag)
+        .map_err(|e| anyhow::anyhow!("{}", e))?;
+    println!("Corpus now has {total_for_tag} publications tagged \"{source_tag}\"");
+    Ok(())
+}
+
+/// Import CHI (or any ACM-DL-front-matter-formatted) proceedings from
+/// its front-matter PDF into the local corpus. Not `async` — no network
+/// access, just local PDF text extraction + parsing.
+fn import_chi(corpus_path: &Path, source_tag: &str, pdf_path: &Path) -> anyhow::Result<()> {
+    use hallucinator_core::PdfBackend as _;
+    let text = hallucinator_pdf_mupdf::MupdfBackend
+        .extract_text(pdf_path)
+        .map_err(|e| anyhow::anyhow!("{}", e))?;
+
+    let conn = hallucinator_local_corpus::open_or_create(corpus_path)
+        .map_err(|e| anyhow::anyhow!("{}", e))?;
+    let stats = hallucinator_local_corpus::ingest::import_chi_frontmatter(&conn, &text, source_tag)
+        .map_err(|e| anyhow::anyhow!("{}", e))?;
+    print_import_stats(&stats);
+    let total_for_tag = hallucinator_local_corpus::count_by_source(&conn, source_tag)
+        .map_err(|e| anyhow::anyhow!("{}", e))?;
+    println!("Corpus now has {total_for_tag} publications tagged \"{source_tag}\"");
+    Ok(())
+}
+
+/// Import a PVLDB issue's front-matter PDF into the local corpus. Not
+/// `async` — no network access, just local PDF text extraction + parsing.
+fn import_vldb(corpus_path: &Path, source_tag: &str, pdf_path: &Path) -> anyhow::Result<()> {
+    use hallucinator_core::PdfBackend as _;
+    let text = hallucinator_pdf_mupdf::MupdfBackend
+        .extract_text(pdf_path)
+        .map_err(|e| anyhow::anyhow!("{}", e))?;
+
+    let conn = hallucinator_local_corpus::open_or_create(corpus_path)
+        .map_err(|e| anyhow::anyhow!("{}", e))?;
+    let stats = hallucinator_local_corpus::ingest::import_vldb_toc(&conn, &text, source_tag)
+        .map_err(|e| anyhow::anyhow!("{}", e))?;
+    print_import_stats(&stats);
+    let total_for_tag = hallucinator_local_corpus::count_by_source(&conn, source_tag)
+        .map_err(|e| anyhow::anyhow!("{}", e))?;
+    println!("Corpus now has {total_for_tag} publications tagged \"{source_tag}\"");
+    Ok(())
+}
+
+/// Import a KDD accepted-papers page into the local corpus.
+async fn import_kdd(
+    corpus_path: &Path,
+    source_tag: &str,
+    url: Option<String>,
+    from_file: Option<PathBuf>,
+) -> anyhow::Result<()> {
+    let source = resolve_html_source(url, from_file)?;
+    let conn = hallucinator_local_corpus::open_or_create(corpus_path)
+        .map_err(|e| anyhow::anyhow!("{}", e))?;
+    let stats = hallucinator_local_corpus::ingest::import_kdd(&conn, source, source_tag)
+        .await
+        .map_err(|e| anyhow::anyhow!("{}", e))?;
+    print_import_stats(&stats);
+    let total_for_tag = hallucinator_local_corpus::count_by_source(&conn, source_tag)
+        .map_err(|e| anyhow::anyhow!("{}", e))?;
+    println!("Corpus now has {total_for_tag} publications tagged \"{source_tag}\"");
+    Ok(())
+}

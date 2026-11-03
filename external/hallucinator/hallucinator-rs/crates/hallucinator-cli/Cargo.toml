@@ -1,0 +1,32 @@
+[package]
+name = "hallucinator-cli"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "CLI binary for hallucinated reference detection"
+repository.workspace = true
+
+[dependencies]
+hallucinator-core.workspace = true
+hallucinator-ingest.workspace = true
+hallucinator-reporting.workspace = true
+hallucinator-parsing.workspace = true
+hallucinator-pdf-mupdf.workspace = true
+hallucinator-bbl.workspace = true
+hallucinator-dblp.workspace = true
+hallucinator-acl.workspace = true
+hallucinator-arxiv-offline.workspace = true
+hallucinator-iacr-eprint.workspace = true
+hallucinator-openalex.workspace = true
+hallucinator-local-corpus.workspace = true
+tempfile.workspace = true
+tokio.workspace = true
+tokio-util.workspace = true
+clap.workspace = true
+owo-colors.workspace = true
+anyhow.workspace = true
+dotenvy.workspace = true
+indicatif.workspace = true
+tracing-subscriber.workspace = true
+flate2.workspace = true
+zip.workspace = true

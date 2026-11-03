@@ -9,8 +9,8 @@ Every modified upstream file names the port in its license header, as section 4 
 
 ```bash
 mvn package    # JDK 11 or later with Maven 3.9; runs the JUnit tests
-cp target/submission-checker-0.4.3-peercheck.1-jar-with-dependencies.jar ../../src/peercheck/vendor/submission-checker/submission-checker.jar
-java -jar ../../src/peercheck/vendor/submission-checker/submission-checker.jar --json --id-pattern '_paper_(\d+)\.pdf$' \
+cp target/submission-checker-0.4.3-peercheck.1-jar-with-dependencies.jar submission-checker.jar
+java -jar submission-checker.jar --json --id-pattern '_paper_(\d+)\.pdf$' \
   --allowed-hosts anonymous.4open.science,zenodo.org,figshare.com,osf.io,doi.org --flag-acknowledgments \
   --meta authors.csv submissions/
 ```

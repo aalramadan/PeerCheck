@@ -1,0 +1,585 @@
+// Licensed under either AGPL-3.0-or-later or MIT license, at your option.
+
+use std::path::PathBuf;
+use std::sync::Arc;
+use std::time::Duration;
+use thiserror::Error;
+use tokio_util::sync::CancellationToken;
+
+use bitflags::bitflags;
+
+bitflags! {
+    /// Kinds of mismatches detected during reference validation.
+    ///
+    /// Multiple mismatch types can be combined (e.g., author mismatch AND invalid DOI).
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+    pub struct MismatchKind: u8 {
+        /// Authors in the reference don't match authors in the database.
+        const AUTHOR = 0b0001;
+        /// DOI in the reference doesn't resolve or points to a different paper.
+        const DOI = 0b0010;
+        /// arXiv ID in the reference doesn't resolve or points to a different paper.
+        const ARXIV_ID = 0b0100;
+    }
+}
+
+impl MismatchKind {
+    /// Returns a human-readable description of the mismatch types.
+    pub fn description(&self) -> String {
+        let mut parts = Vec::new();
+        if self.contains(MismatchKind::AUTHOR) {
+            parts.push("author");
+        }
+        if self.contains(MismatchKind::DOI) {
+            parts.push("DOI");
+        }
+        if self.contains(MismatchKind::ARXIV_ID) {
+            parts.push("arXiv ID");
+        }
+        if parts.is_empty() {
+            "unknown".to_string()
+        } else {
+            parts.join(", ")
+        }
+    }
+}
+
+pub mod authors;
+pub mod backend;
+pub mod cache;
+pub mod checker;
+pub mod config_file;
+pub mod db;
+pub mod doi;
+pub mod matching;
+pub mod orchestrator;
+pub mod pool;
+pub mod rate_limit;
+pub mod retraction;
+pub mod text_utils;
+
+// Re-export for convenience
+pub use backend::{BackendError, PdfBackend};
+pub use cache::{DEFAULT_NEGATIVE_TTL, DEFAULT_POSITIVE_TTL, QueryCache};
+pub use orchestrator::{DbSearchResult, query_all_databases};
+pub use rate_limit::{DbQueryError, RateLimitedResult, RateLimiters};
+pub use text_utils::{extract_arxiv_id, extract_doi, extract_urls, get_query_words};
+
+/// A parsed reference extracted from a document.
+#[derive(Debug, Clone)]
+pub struct Reference {
+    pub raw_citation: String,
+    pub title: Option<String>,
+    pub authors: Vec<String>,
+    pub doi: Option<String>,
+    pub arxiv_id: Option<String>,
+    /// URLs extracted from the reference (e.g., GitHub links, blog posts).
+    /// Used for URL liveness check fallback when academic databases don't find the paper.
+    pub urls: Vec<String>,
+    /// 1-based position in the original reference list (before skip filtering).
+    pub original_number: usize,
+    /// If set, this reference was skipped during extraction (e.g. "url_only", "short_title").
+    pub skip_reason: Option<String>,
+}
+
+/// Statistics about references that were skipped during extraction.
+#[derive(Debug, Clone, Default)]
+pub struct SkipStats {
+    pub url_only: usize,
+    pub short_title: usize,
+    pub no_title: usize,
+    pub no_authors: usize,
+    pub total_raw: usize,
+}
+
+/// Result of extracting references from a document.
+#[derive(Debug, Clone)]
+pub struct ExtractionResult {
+    pub references: Vec<Reference>,
+    pub skip_stats: SkipStats,
+}
+
+/// Status of a single database query within an orchestrator run.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum DbStatus {
+    Match,
+    NoMatch,
+    AuthorMismatch,
+    Timeout,
+    /// Server returned 429 (rate limited / out of credits).
+    RateLimited,
+    Error,
+    Skipped,
+}
+
+/// Result from querying a single database backend.
+#[derive(Debug, Clone)]
+pub struct DbResult {
+    pub db_name: String,
+    pub status: DbStatus,
+    pub elapsed: Option<Duration>,
+    pub found_authors: Vec<String>,
+    pub paper_url: Option<String>,
+    pub error_message: Option<String>,
+}
+
+#[derive(Error, Debug)]
+pub enum CoreError {
+    #[error("HTTP request error: {0}")]
+    Http(#[from] reqwest::Error),
+    #[error("DBLP error: {0}")]
+    Dblp(#[from] hallucinator_dblp::DblpError),
+    #[error("ACL error: {0}")]
+    Acl(#[from] hallucinator_acl::AclError),
+    #[error("OpenAlex error: {0}")]
+    OpenAlex(#[from] hallucinator_openalex::OpenAlexError),
+    #[error("validation error: {0}")]
+    Validation(String),
+}
+
+/// The validation status of a reference.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Status {
+    Verified,
+    NotFound,
+    /// One or more mismatches detected (author, DOI, arXiv ID, or combinations).
+    Mismatch(MismatchKind),
+}
+
+impl Status {
+    /// Returns true if this status contains any kind of mismatch.
+    pub fn is_mismatch(&self) -> bool {
+        matches!(self, Status::Mismatch(_))
+    }
+
+    /// Returns the mismatch kinds if this is a Mismatch status.
+    pub fn mismatch_kind(&self) -> Option<MismatchKind> {
+        match self {
+            Status::Mismatch(kind) => Some(*kind),
+            _ => None,
+        }
+    }
+}
+
+/// Information about a DOI lookup.
+#[derive(Debug, Clone)]
+pub struct DoiInfo {
+    pub doi: String,
+    pub valid: bool,
+    pub title: Option<String>,
+}
+
+/// Information about an arXiv lookup.
+#[derive(Debug, Clone)]
+pub struct ArxivInfo {
+    pub arxiv_id: String,
+    pub valid: bool,
+    pub title: Option<String>,
+}
+
+/// Information about a retraction check.
+#[derive(Debug, Clone)]
+pub struct RetractionInfo {
+    pub is_retracted: bool,
+    pub retraction_doi: Option<String>,
+    pub retraction_source: Option<String>,
+}
+
+/// The result of validating a single reference.
+#[derive(Debug, Clone)]
+pub struct ValidationResult {
+    pub title: String,
+    pub raw_citation: String,
+    pub ref_authors: Vec<String>,
+    pub status: Status,
+    pub source: Option<String>,
+    pub found_authors: Vec<String>,
+    pub paper_url: Option<String>,
+    pub failed_dbs: Vec<String>,
+    pub db_results: Vec<DbResult>,
+    pub doi_info: Option<DoiInfo>,
+    pub arxiv_info: Option<ArxivInfo>,
+    pub retraction_info: Option<RetractionInfo>,
+    /// True iff this ref finished as `Status::NotFound` with a non-academic
+    /// URL still in hand, but URL Check / Wayback were not run because
+    /// `Config::url_match` was disabled. Reporting layers treat this as
+    /// "skipped" (incrementing `CheckStats.skipped`, emitting
+    /// `"status": "skipped"` in JSON, suppressing the hallucination
+    /// banner) so the absence of URL matching doesn't inflate the
+    /// not-found / potential-hallucination count.
+    pub url_check_skipped: bool,
+}
+
+impl ValidationResult {
+    /// True iff this ref finished as `Status::NotFound` while at least one
+    /// database failed outright (timeout, transport error, or 429) *after*
+    /// the retry pass.
+    ///
+    /// A `NotFound` verdict is an accusation: it says "no database has this
+    /// reference, so it may be fabricated". That claim is only sound when
+    /// every database actually answered. When a source times out it returns
+    /// no evidence at all — not evidence of absence — so a `NotFound` built
+    /// on top of a failed query is *inconclusive*, not incriminating.
+    ///
+    /// This is the automatic counterpart to the user-applied
+    /// `FpReason::AllTimedOut` mark: same judgement, made by the tool
+    /// instead of by hand.
+    ///
+    /// Why `failed_dbs` rather than counting `DbStatus::Error` in
+    /// `db_results`: on the retry path (`check_single_reference_retry`)
+    /// `db_results` holds only the retried subset, so it cannot be used to
+    /// reason about the run as a whole. `failed_dbs` is rebuilt by the
+    /// retry and therefore always reflects what is *still* failing once
+    /// retries are exhausted.
+    pub fn is_inconclusive(&self) -> bool {
+        self.status == Status::NotFound && !self.failed_dbs.is_empty()
+    }
+}
+
+/// Progress events emitted during validation.
+#[derive(Debug, Clone)]
+pub enum ProgressEvent {
+    Checking {
+        index: usize,
+        total: usize,
+        title: String,
+    },
+    Result {
+        index: usize,
+        total: usize,
+        result: Box<ValidationResult>,
+    },
+    Warning {
+        index: usize,
+        total: usize,
+        title: String,
+        failed_dbs: Vec<String>,
+        message: String,
+    },
+    RetryPass {
+        count: usize,
+    },
+    /// A ref is being retried (handed off from main worker to retry worker).
+    Retrying {
+        index: usize,
+        total: usize,
+        title: String,
+        failed_dbs: Vec<String>,
+    },
+    DatabaseQueryComplete {
+        paper_index: usize,
+        ref_index: usize,
+        db_name: String,
+        status: DbStatus,
+        elapsed: Duration,
+    },
+    RateLimitWait {
+        db_name: String,
+        wait_duration: Duration,
+    },
+    RateLimitRetry {
+        ref_index: usize,
+        db_name: String,
+        attempt: u32,
+        backoff: Duration,
+    },
+}
+
+/// Summary statistics for a complete check run.
+#[derive(Debug, Clone, Default)]
+pub struct CheckStats {
+    pub total: usize,
+    pub verified: usize,
+    pub not_found: usize,
+    /// References with any kind of mismatch (author, DOI, arXiv ID).
+    pub mismatch: usize,
+    /// References with author mismatches specifically.
+    pub author_mismatch: usize,
+    /// References with invalid DOIs specifically.
+    pub doi_mismatch: usize,
+    /// References with invalid arXiv IDs specifically.
+    pub arxiv_mismatch: usize,
+    pub retracted: usize,
+    pub skipped: usize,
+    /// References that came back `NotFound` but had at least one database
+    /// fail after retries. Counted here *instead of* in `not_found`, so the
+    /// headline "potential hallucination" number never includes a reference
+    /// we simply failed to look up. See
+    /// [`ValidationResult::is_inconclusive`].
+    pub inconclusive: usize,
+}
+
+/// Configuration for the reference checker.
+#[derive(Clone)]
+pub struct Config {
+    pub openalex_key: Option<String>,
+    pub s2_api_key: Option<String>,
+    pub govinfo_key: Option<String>,
+    pub patentsview_key: Option<String>,
+    pub dblp_offline_path: Option<PathBuf>,
+    pub dblp_offline_db: Option<Arc<hallucinator_dblp::DblpPool>>,
+    pub acl_offline_path: Option<PathBuf>,
+    pub acl_offline_db: Option<Arc<hallucinator_acl::AclPool>>,
+    pub arxiv_offline_path: Option<PathBuf>,
+    pub arxiv_offline_db: Option<Arc<hallucinator_arxiv_offline::ArxivPool>>,
+    pub iacr_eprint_offline_path: Option<PathBuf>,
+    pub iacr_eprint_offline_db: Option<Arc<hallucinator_iacr_eprint::IacrPool>>,
+    pub openalex_offline_path: Option<PathBuf>,
+    pub openalex_offline_db: Option<Arc<hallucinator_openalex::OpenAlexDatabase>>,
+    /// Local corpus of manually-verified and not-yet-indexed papers (see
+    /// `hallucinator-local-corpus`): recent conference proceedings not yet
+    /// picked up by CrossRef/DBLP/etc., plus references marked safe during
+    /// review. Grown incrementally by `import-*` CLI subcommands, not
+    /// built once and pointed at like a downloaded dump.
+    pub local_corpus_path: Option<PathBuf>,
+    pub local_corpus_db: Option<Arc<hallucinator_local_corpus::CorpusPool>>,
+    pub num_workers: usize,
+    pub db_timeout_secs: u64,
+    pub db_timeout_short_secs: u64,
+    pub disabled_dbs: Vec<String>,
+    pub check_openalex_authors: bool,
+    pub crossref_mailto: Option<String>,
+    pub max_rate_limit_retries: u32,
+    pub rate_limiters: Arc<RateLimiters>,
+    /// SearxNG base URL for web search fallback (e.g., "http://localhost:8080").
+    /// If set, SearxNG will be queried as a fallback when a reference is not found
+    /// in any academic database.
+    pub searxng_url: Option<String>,
+    pub query_cache: Option<Arc<QueryCache>>,
+    /// Path to the persistent SQLite cache database (optional).
+    /// When set, the query cache is backed by SQLite for persistence across restarts.
+    pub cache_path: Option<PathBuf>,
+    /// TTL in seconds for positive (found) cache entries. Default: 7 days.
+    pub cache_positive_ttl_secs: u64,
+    /// TTL in seconds for negative (not-found) cache entries. Default: 24 hours.
+    pub cache_negative_ttl_secs: u64,
+    /// Cross-check references that fail all DB lookups against their raw
+    /// URL via URL Check (live HTTP) and the Wayback Machine. When false
+    /// (the default), neither check runs and a NotFound ref that still
+    /// carries a non-academic URL is reported as "skipped" rather than
+    /// "not_found" — the URL's liveness is the only signal we'd have had,
+    /// and without it we can't justify flagging the ref as a potential
+    /// hallucination. Refs whose only URL is an academic domain
+    /// (arxiv.org, doi.org, …) are unaffected because
+    /// `text_utils::extract_urls` filters those out at parse time, so
+    /// they carry `urls = []` and stay `NotFound` regardless of this
+    /// flag — preserving the fake-arXiv-ID / fake-DOI hallucination
+    /// signal.
+    pub url_match: bool,
+}
+
+impl std::fmt::Debug for Config {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Config")
+            .field("openalex_key", &self.openalex_key.as_ref().map(|_| "***"))
+            .field("s2_api_key", &self.s2_api_key.as_ref().map(|_| "***"))
+            .field("govinfo_key", &self.govinfo_key.as_ref().map(|_| "***"))
+            .field(
+                "patentsview_key",
+                &self.patentsview_key.as_ref().map(|_| "***"),
+            )
+            .field("dblp_offline_path", &self.dblp_offline_path)
+            .field(
+                "dblp_offline_db",
+                &self.dblp_offline_db.as_ref().map(|_| "<open>"),
+            )
+            .field("arxiv_offline_path", &self.arxiv_offline_path)
+            .field(
+                "arxiv_offline_db",
+                &self.arxiv_offline_db.as_ref().map(|_| "<open>"),
+            )
+            .field("iacr_eprint_offline_path", &self.iacr_eprint_offline_path)
+            .field(
+                "iacr_eprint_offline_db",
+                &self.iacr_eprint_offline_db.as_ref().map(|_| "<open>"),
+            )
+            .field("acl_offline_path", &self.acl_offline_path)
+            .field(
+                "acl_offline_db",
+                &self.acl_offline_db.as_ref().map(|_| "<open>"),
+            )
+            .field("openalex_offline_path", &self.openalex_offline_path)
+            .field(
+                "openalex_offline_db",
+                &self.openalex_offline_db.as_ref().map(|_| "<open>"),
+            )
+            .field("local_corpus_path", &self.local_corpus_path)
+            .field(
+                "local_corpus_db",
+                &self.local_corpus_db.as_ref().map(|_| "<open>"),
+            )
+            .field("num_workers", &self.num_workers)
+            .field("db_timeout_secs", &self.db_timeout_secs)
+            .field("db_timeout_short_secs", &self.db_timeout_short_secs)
+            .field("disabled_dbs", &self.disabled_dbs)
+            .field("check_openalex_authors", &self.check_openalex_authors)
+            .field(
+                "crossref_mailto",
+                &self.crossref_mailto.as_ref().map(|_| "***"),
+            )
+            .field("max_rate_limit_retries", &self.max_rate_limit_retries)
+            .field("searxng_url", &self.searxng_url)
+            .field(
+                "query_cache",
+                &self.query_cache.as_ref().map(|c| format!("{:?}", c)),
+            )
+            .field("cache_path", &self.cache_path)
+            .field("cache_positive_ttl_secs", &self.cache_positive_ttl_secs)
+            .field("cache_negative_ttl_secs", &self.cache_negative_ttl_secs)
+            .field("url_match", &self.url_match)
+            .finish()
+    }
+}
+
+impl Default for Config {
+    fn default() -> Self {
+        Self {
+            openalex_key: None,
+            s2_api_key: None,
+            govinfo_key: None,
+            patentsview_key: None,
+            dblp_offline_path: None,
+            dblp_offline_db: None,
+            acl_offline_path: None,
+            acl_offline_db: None,
+            arxiv_offline_path: None,
+            arxiv_offline_db: None,
+            iacr_eprint_offline_path: None,
+            iacr_eprint_offline_db: None,
+            openalex_offline_path: None,
+            openalex_offline_db: None,
+            local_corpus_path: None,
+            local_corpus_db: None,
+            num_workers: 4,
+            db_timeout_secs: 10,
+            db_timeout_short_secs: 5,
+            disabled_dbs: vec![],
+            check_openalex_authors: false,
+            crossref_mailto: None,
+            max_rate_limit_retries: 3,
+            rate_limiters: Arc::new(RateLimiters::default()),
+            searxng_url: None,
+            query_cache: Some(Arc::new(QueryCache::default())),
+            cache_path: None,
+            cache_positive_ttl_secs: DEFAULT_POSITIVE_TTL.as_secs(),
+            cache_negative_ttl_secs: DEFAULT_NEGATIVE_TTL.as_secs(),
+            url_match: false,
+        }
+    }
+}
+
+/// Build a [`QueryCache`] from configuration.
+///
+/// If `cache_path` is set, opens a persistent SQLite-backed cache.
+/// Otherwise, returns an in-memory-only cache.
+pub fn build_query_cache(
+    cache_path: Option<&std::path::Path>,
+    positive_ttl_secs: u64,
+    negative_ttl_secs: u64,
+) -> Arc<QueryCache> {
+    let positive_ttl = Duration::from_secs(positive_ttl_secs);
+    let negative_ttl = Duration::from_secs(negative_ttl_secs);
+    if let Some(path) = cache_path {
+        // Ensure parent directory exists
+        if let Some(parent) = path.parent() {
+            let _ = std::fs::create_dir_all(parent);
+        }
+        match QueryCache::open(path, positive_ttl, negative_ttl) {
+            Ok(cache) => {
+                tracing::info!(path = %path.display(), "opened persistent cache");
+                return Arc::new(cache);
+            }
+            Err(e) => {
+                tracing::warn!(path = %path.display(), error = %e, "failed to open cache, falling back to in-memory");
+            }
+        }
+    }
+    Arc::new(QueryCache::new(positive_ttl, negative_ttl))
+}
+
+/// Check a list of references against academic databases.
+///
+/// Validates each reference concurrently, querying multiple databases in parallel.
+/// Progress events are emitted via the callback. The operation can be cancelled
+/// via the CancellationToken.
+pub async fn check_references(
+    refs: Vec<Reference>,
+    config: Config,
+    progress: impl Fn(ProgressEvent) + Send + Sync + 'static,
+    cancel: CancellationToken,
+) -> Vec<ValidationResult> {
+    checker::check_references(refs, config, progress, cancel).await
+}
+
+#[cfg(test)]
+mod build_cache_tests {
+    use super::*;
+    use std::sync::atomic::{AtomicU32, Ordering};
+
+    static COUNTER: AtomicU32 = AtomicU32::new(0);
+
+    fn temp_path() -> PathBuf {
+        let id = COUNTER.fetch_add(1, Ordering::SeqCst);
+        std::env::temp_dir()
+            .join(format!(
+                "hallucinator_build_cache_test_{}_{}",
+                std::process::id(),
+                id,
+            ))
+            .join("cache.db")
+    }
+
+    #[test]
+    fn none_path_returns_in_memory() {
+        let cache = build_query_cache(
+            None,
+            DEFAULT_POSITIVE_TTL.as_secs(),
+            DEFAULT_NEGATIVE_TTL.as_secs(),
+        );
+        assert!(!cache.has_persistence());
+    }
+
+    #[test]
+    fn valid_path_returns_persistent() {
+        let path = temp_path();
+        let _ = std::fs::remove_file(&path);
+
+        let cache = build_query_cache(
+            Some(&path),
+            DEFAULT_POSITIVE_TTL.as_secs(),
+            DEFAULT_NEGATIVE_TTL.as_secs(),
+        );
+        assert!(cache.has_persistence());
+
+        // Verify default TTLs (7 days positive, 24 hours negative)
+        assert_eq!(
+            cache.positive_ttl(),
+            std::time::Duration::from_secs(7 * 24 * 60 * 60)
+        );
+        assert_eq!(
+            cache.negative_ttl(),
+            std::time::Duration::from_secs(24 * 60 * 60)
+        );
+
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn creates_parent_directory() {
+        let path = temp_path();
+        // Remove the parent directory entirely
+        if let Some(parent) = path.parent() {
+            let _ = std::fs::remove_dir_all(parent);
+        }
+
+        let cache = build_query_cache(
+            Some(&path),
+            DEFAULT_POSITIVE_TTL.as_secs(),
+            DEFAULT_NEGATIVE_TTL.as_secs(),
+        );
+        assert!(cache.has_persistence());
+        assert!(path.parent().unwrap().exists());
+
+        let _ = std::fs::remove_file(&path);
+    }
+}

@@ -1,0 +1,172 @@
+//! Database backend trait and implementations for querying academic databases.
+
+pub mod acl;
+pub mod arxiv;
+pub mod arxiv_offline;
+pub mod crossref;
+pub mod dblp;
+pub mod doi_resolver;
+pub mod europe_pmc;
+pub mod govinfo;
+pub mod iacr_eprint;
+pub mod local_corpus;
+pub mod openalex;
+pub mod openalex_offline;
+pub mod openlibrary;
+pub mod patentsview;
+pub mod pubmed;
+pub mod searxng;
+pub mod semantic_scholar;
+pub mod ssrn;
+pub mod standards;
+pub mod url_check;
+pub mod wayback;
+
+#[cfg(test)]
+pub(crate) mod mock;
+
+use std::future::Future;
+use std::pin::Pin;
+
+pub use crate::rate_limit::DbQueryError;
+
+/// Result of a database query.
+///
+/// `found_title == None` means the paper was not found in this database.
+/// The optional `retraction` field is populated only by CrossRef (which has
+/// retraction metadata in its response); all other backends leave it `None`.
+#[derive(Debug, Clone, Default)]
+pub struct DbQueryResult {
+    pub found_title: Option<String>,
+    pub authors: Vec<String>,
+    pub paper_url: Option<String>,
+    pub retraction: Option<crate::retraction::RetractionResult>,
+    /// Optional override for the source label shown in results.
+    /// When set, the pool uses this instead of `db.name()` (e.g., "Standards (pattern)").
+    pub source_label: Option<String>,
+}
+
+impl DbQueryResult {
+    /// Construct a "found" result (no retraction info).
+    pub fn found(title: impl Into<String>, authors: Vec<String>, url: Option<String>) -> Self {
+        Self {
+            found_title: Some(title.into()),
+            authors,
+            paper_url: url,
+            retraction: None,
+            source_label: None,
+        }
+    }
+
+    /// Construct a "found" result with a custom source label.
+    pub fn found_with_source(
+        title: impl Into<String>,
+        authors: Vec<String>,
+        url: Option<String>,
+        source_label: impl Into<String>,
+    ) -> Self {
+        Self {
+            found_title: Some(title.into()),
+            authors,
+            paper_url: url,
+            retraction: None,
+            source_label: Some(source_label.into()),
+        }
+    }
+
+    /// Construct a "not found" result.
+    pub fn not_found() -> Self {
+        Self {
+            found_title: None,
+            authors: Vec::new(),
+            paper_url: None,
+            retraction: None,
+            source_label: None,
+        }
+    }
+
+    /// Whether this result represents a found paper.
+    pub fn is_found(&self) -> bool {
+        self.found_title.is_some()
+    }
+}
+
+/// Result type for `query_doi`: `None` means the backend doesn't handle DOI queries.
+pub type DoiQueryResult<'a> =
+    Pin<Box<dyn Future<Output = Option<Result<DbQueryResult, DbQueryError>>> + Send + 'a>>;
+
+/// Result type for `query_arxiv_id`: `None` means the backend doesn't handle arXiv ID queries.
+pub type ArxivIdQueryResult<'a> =
+    Pin<Box<dyn Future<Output = Option<Result<DbQueryResult, DbQueryError>>> + Send + 'a>>;
+
+/// A database backend that can search for papers by title.
+pub trait DatabaseBackend: Send + Sync {
+    /// The canonical name of this database (e.g., "CrossRef", "arXiv").
+    fn name(&self) -> &str;
+
+    /// Whether this backend is local (offline SQLite, etc.) and needs no rate limiting.
+    fn is_local(&self) -> bool {
+        false
+    }
+
+    /// Whether this backend requires a DOI instead of a title search.
+    /// When true, the drainer skips refs without a DOI and uses `query_doi` instead of `query`.
+    fn requires_doi(&self) -> bool {
+        false
+    }
+
+    /// Query the database for a paper matching the given title.
+    fn query<'a>(
+        &'a self,
+        title: &'a str,
+        client: &'a reqwest::Client,
+        timeout: std::time::Duration,
+    ) -> Pin<Box<dyn Future<Output = Result<DbQueryResult, DbQueryError>> + Send + 'a>>;
+
+    /// Query the database for a paper matching the given title, using the
+    /// citation's authors as a tie-break hint among equally-good title matches.
+    ///
+    /// Default implementation ignores `ref_authors` and delegates to `query`.
+    /// Backends where multiple DB entries can share a title (notably DBLP,
+    /// where "Making Smart Contracts Smarter" has five+ distinct records)
+    /// override this to break ties by surname overlap.
+    fn query_with_authors<'a>(
+        &'a self,
+        title: &'a str,
+        _ref_authors: &'a [String],
+        client: &'a reqwest::Client,
+        timeout: std::time::Duration,
+    ) -> Pin<Box<dyn Future<Output = Result<DbQueryResult, DbQueryError>> + Send + 'a>> {
+        self.query(title, client, timeout)
+    }
+
+    /// Query the database using a DOI.
+    ///
+    /// Returns `None` if this backend doesn't support DOI queries (default).
+    /// Returns `Some(result)` when the backend handled the query via DOI.
+    fn query_doi<'a>(
+        &'a self,
+        _doi: &'a str,
+        _title: &'a str,
+        _authors: &'a [String],
+        _client: &'a reqwest::Client,
+        _timeout: std::time::Duration,
+    ) -> DoiQueryResult<'a> {
+        Box::pin(async { None })
+    }
+
+    /// Query the database using an arXiv ID for direct lookup.
+    ///
+    /// Returns `None` if this backend doesn't support arXiv ID queries (default).
+    /// Returns `Some(result)` when the backend handled the query via arXiv ID.
+    fn query_arxiv_id<'a>(
+        &'a self,
+        _arxiv_id: &'a str,
+        _title: &'a str,
+        _authors: &'a [String],
+        _client: &'a reqwest::Client,
+        _timeout: std::time::Duration,
+    ) -> ArxivIdQueryResult<'a> {
+        Box::pin(async { None })
+    }
+}

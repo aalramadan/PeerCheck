@@ -1,0 +1,1718 @@
+#[cfg(feature = "mimalloc")]
+#[global_allocator]
+static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
+
+use std::io;
+use std::path::{Path, PathBuf};
+use std::sync::Arc;
+use std::time::Duration;
+
+use clap::{Parser, Subcommand};
+use ratatui::Terminal;
+use ratatui::crossterm::event;
+use ratatui::crossterm::event::{DisableMouseCapture, EnableMouseCapture};
+use ratatui::crossterm::execute;
+use ratatui::crossterm::terminal::{
+    EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode,
+};
+use ratatui::prelude::CrosstermBackend;
+use tokio::sync::mpsc;
+use tokio_util::sync::CancellationToken;
+
+mod action;
+mod app;
+mod backend;
+mod config_file;
+mod input;
+mod load;
+mod model;
+mod persistence;
+mod theme;
+mod tui_event;
+mod view;
+
+use app::{App, Screen};
+
+/// Hallucinator TUI — batch academic reference validation with a terminal interface.
+#[derive(Parser, Debug)]
+#[command(version, about, long_about = None)]
+struct Cli {
+    #[command(subcommand)]
+    command: Option<Command>,
+
+    /// PDF, .bbl, .bib files, or archives (.zip, .tar.gz) to check
+    file_paths: Vec<PathBuf>,
+
+    /// OpenAlex API key
+    #[arg(long)]
+    openalex_key: Option<String>,
+
+    /// Semantic Scholar API key
+    #[arg(long)]
+    s2_api_key: Option<String>,
+
+    /// GovInfo API key (free from api.data.gov)
+    #[arg(long)]
+    govinfo_key: Option<String>,
+
+    /// Path to offline DBLP database
+    #[arg(long)]
+    dblp_offline: Option<PathBuf>,
+
+    /// Path to offline ACL Anthology database
+    #[arg(long)]
+    acl_offline: Option<PathBuf>,
+
+    /// Path to offline arXiv metadata database (Kaggle snapshot)
+    #[arg(long)]
+    arxiv_offline: Option<PathBuf>,
+
+    /// Path to offline IACR Cryptology ePrint Archive database
+    /// (build with `hallucinator-cli update-iacr-eprint`).
+    #[arg(long)]
+    iacr_eprint_offline: Option<PathBuf>,
+
+    /// Path to offline OpenAlex Tantivy index
+    #[arg(long)]
+    openalex_offline: Option<PathBuf>,
+
+    /// Path to local corpus database (recent conference proceedings not
+    /// yet indexed elsewhere, plus references marked safe during review).
+    /// Built with `hallucinator-cli import-*` subcommands — no in-TUI
+    /// build support, same as --arxiv-offline / --iacr-eprint-offline.
+    #[arg(long)]
+    local_corpus: Option<PathBuf>,
+
+    /// Comma-separated list of databases to disable
+    #[arg(long, value_delimiter = ',')]
+    disable_dbs: Vec<String>,
+
+    /// Flag author mismatches from OpenAlex (default: skipped)
+    #[arg(long)]
+    check_openalex_authors: bool,
+
+    /// Color theme: hacker (default), modern, or gnr
+    #[arg(long)]
+    theme: Option<String>,
+
+    /// Load previously saved results (.json) instead of processing PDFs
+    #[arg(long)]
+    load: Option<PathBuf>,
+
+    /// Enable mouse support (click to select rows, scroll)
+    #[arg(long)]
+    mouse: bool,
+
+    /// Target frames per second (default: 30)
+    #[arg(long)]
+    fps: Option<u32>,
+
+    /// Number of concurrent reference-validation workers (default: 4).
+    /// Raise for offline-heavy workloads; diminishing returns past
+    /// ~16 because SQLite mutexes on offline DBs become the ceiling.
+    #[arg(long)]
+    num_workers: Option<usize>,
+
+    /// Enable SearxNG web search fallback for unverified citations.
+    /// Uses SEARXNG_URL env var or defaults to http://localhost:8080
+    #[arg(long)]
+    searxng: bool,
+}
+
+#[derive(Subcommand, Debug)]
+#[allow(clippy::enum_variant_names)]
+enum Command {
+    /// Download and build the offline DBLP database
+    ///
+    /// dblp.org has started serving Anubis (bot-protection) challenge
+    /// pages to some clients, which a plain HTTP download can't get past —
+    /// it requires running JS to solve a proof-of-work challenge. If the
+    /// live download fails (or --from-file is more convenient), download
+    /// https://dblp.uni-trier.de/xml/dblp.xml.gz in a real browser and
+    /// pass it via --from-file instead.
+    UpdateDblp {
+        /// Path to store the DBLP SQLite database (default: ./dblp.db)
+        path: Option<PathBuf>,
+
+        /// Build from an already-downloaded dblp.xml.gz instead of
+        /// fetching it live. Use this if the live download is blocked —
+        /// save the file from a real browser first.
+        #[arg(long)]
+        from_file: Option<PathBuf>,
+    },
+    /// Download and build the offline ACL Anthology database
+    UpdateAcl {
+        /// Path to store the ACL SQLite database (default: ./acl.db)
+        path: Option<PathBuf>,
+    },
+    /// Download and build the offline OpenAlex Tantivy index
+    UpdateOpenalex {
+        /// Path to store the OpenAlex index directory (default: ./openalex.idx)
+        path: Option<PathBuf>,
+
+        /// Only download S3 partitions newer than this date (YYYY-MM-DD)
+        #[arg(long)]
+        since: Option<String>,
+
+        /// Only index works published in this year or later (e.g. 2020)
+        #[arg(long)]
+        min_year: Option<u32>,
+    },
+}
+
+#[tokio::main]
+async fn main() -> anyhow::Result<()> {
+    dotenvy::dotenv().ok();
+    let cli = Cli::parse();
+
+    // Handle subcommands
+    if let Some(command) = cli.command {
+        return match command {
+            Command::UpdateDblp { path, from_file } => {
+                let db_path = path.unwrap_or_else(|| PathBuf::from("dblp.db"));
+                update_dblp(&db_path, from_file.as_deref()).await
+            }
+            Command::UpdateAcl { path } => {
+                let db_path = path.unwrap_or_else(|| PathBuf::from("acl.db"));
+                update_acl(&db_path).await
+            }
+            Command::UpdateOpenalex {
+                path,
+                since,
+                min_year,
+            } => {
+                let db_path = path.unwrap_or_else(|| PathBuf::from("openalex.idx"));
+                update_openalex(&db_path, since.as_deref(), min_year).await
+            }
+        };
+    }
+
+    // --- TUI mode (default, no subcommand) ---
+
+    // Validate any file paths provided on the command line
+    for path in &cli.file_paths {
+        if !path.exists() {
+            anyhow::bail!("File not found: {}", path.display());
+        }
+    }
+
+    // Load config file (CWD .hallucinator.toml > platform config dir)
+    let file_config = config_file::load_config();
+
+    // Start with defaults, apply file config
+    let mut config_state = model::config::ConfigState::default();
+    config_file::apply_to_config_state(&file_config, &mut config_state);
+
+    // Apply env vars (override file config)
+    if let Ok(key) = std::env::var("OPENALEX_KEY")
+        && !key.is_empty()
+    {
+        config_state.openalex_key = key;
+    }
+    if let Ok(key) = std::env::var("S2_API_KEY")
+        && !key.is_empty()
+    {
+        config_state.s2_api_key = key;
+    }
+    if let Ok(key) = std::env::var("GOVINFO_KEY")
+        && !key.is_empty()
+    {
+        config_state.govinfo_key = key;
+    }
+    if let Ok(key) = std::env::var("PATENTSVIEW_KEY")
+        && !key.is_empty()
+    {
+        config_state.patentsview_key = key;
+    }
+    if let Ok(path) = std::env::var("DBLP_OFFLINE_PATH")
+        && !path.is_empty()
+    {
+        config_state.dblp_offline_path = path;
+    }
+    if let Ok(path) = std::env::var("ACL_OFFLINE_PATH")
+        && !path.is_empty()
+    {
+        config_state.acl_offline_path = path;
+    }
+    if let Ok(path) = std::env::var("IACR_EPRINT_OFFLINE_PATH")
+        && !path.is_empty()
+    {
+        config_state.iacr_eprint_offline_path = path;
+    }
+    if let Ok(path) = std::env::var("OPENALEX_OFFLINE_PATH")
+        && !path.is_empty()
+    {
+        config_state.openalex_offline_path = path;
+    }
+    if let Ok(path) = std::env::var("LOCAL_CORPUS_PATH")
+        && !path.is_empty()
+    {
+        config_state.local_corpus_path = path;
+    }
+    if let Ok(v) = std::env::var("DB_TIMEOUT")
+        && let Ok(secs) = v.parse::<u64>()
+    {
+        config_state.db_timeout_secs = secs;
+    }
+    if let Ok(v) = std::env::var("DB_TIMEOUT_SHORT")
+        && let Ok(secs) = v.parse::<u64>()
+    {
+        config_state.db_timeout_short_secs = secs;
+    }
+
+    // Apply CLI args (highest priority)
+    if let Some(key) = cli.openalex_key {
+        config_state.openalex_key = key;
+    }
+    if let Some(key) = cli.s2_api_key {
+        config_state.s2_api_key = key;
+    }
+    if let Some(key) = cli.govinfo_key {
+        config_state.govinfo_key = key;
+    }
+    if let Some(ref path) = cli.dblp_offline {
+        config_state.dblp_offline_path = path.display().to_string();
+    }
+    if let Some(ref path) = cli.acl_offline {
+        config_state.acl_offline_path = path.display().to_string();
+    }
+    if let Some(ref path) = cli.arxiv_offline {
+        config_state.arxiv_offline_path = path.display().to_string();
+    }
+    if let Some(ref path) = cli.iacr_eprint_offline {
+        config_state.iacr_eprint_offline_path = path.display().to_string();
+    }
+    if let Some(ref path) = cli.openalex_offline {
+        config_state.openalex_offline_path = path.display().to_string();
+    }
+    if let Some(ref path) = cli.local_corpus {
+        config_state.local_corpus_path = path.display().to_string();
+    }
+    if let Some(ref theme) = cli.theme {
+        config_state.theme_name = theme.clone();
+    }
+    if let Some(fps) = cli.fps {
+        config_state.fps = fps.clamp(1, 120);
+    }
+    if let Some(n) = cli.num_workers {
+        config_state.num_workers = n.max(1);
+    }
+    // Captured now (before `config_state` moves into `app.config_state`
+    // below) so the backend command loop can track it for pool resizing.
+    let startup_num_workers = config_state.num_workers;
+
+    // SearxNG URL: only enabled if --searxng flag is set
+    if cli.searxng {
+        config_state.searxng_url = Some(
+            std::env::var("SEARXNG_URL")
+                .ok()
+                .filter(|s| !s.is_empty())
+                .unwrap_or_else(|| "http://localhost:8080".to_string()),
+        );
+    }
+
+    // Mark disabled DBs from CLI args
+    for (name, enabled) in &mut config_state.disabled_dbs {
+        if cli.disable_dbs.iter().any(|d| d.eq_ignore_ascii_case(name)) {
+            *enabled = false;
+        }
+    }
+
+    // Auto-detect default DBLP DB if no explicit path configured
+    // Check CWD first (default update-dblp location), then platform data dir
+    if config_state.dblp_offline_path.is_empty() {
+        let candidates = [
+            PathBuf::from("dblp.db"),
+            dirs::data_dir()
+                .unwrap_or_else(|| PathBuf::from("."))
+                .join("hallucinator")
+                .join("dblp.db"),
+        ];
+        for candidate in &candidates {
+            if candidate.exists() {
+                config_state.dblp_offline_path = candidate.display().to_string();
+                break;
+            }
+        }
+    }
+    // Auto-detect default ACL DB if no explicit path configured
+    if config_state.acl_offline_path.is_empty() {
+        let candidates = [
+            PathBuf::from("acl.db"),
+            dirs::data_dir()
+                .unwrap_or_else(|| PathBuf::from("."))
+                .join("hallucinator")
+                .join("acl.db"),
+        ];
+        for candidate in &candidates {
+            if candidate.exists() {
+                config_state.acl_offline_path = candidate.display().to_string();
+                break;
+            }
+        }
+    }
+    // Auto-detect default arXiv DB if no explicit path configured
+    if config_state.arxiv_offline_path.is_empty() {
+        let candidates = [
+            PathBuf::from("arxiv.db"),
+            dirs::data_dir()
+                .unwrap_or_else(|| PathBuf::from("."))
+                .join("hallucinator")
+                .join("arxiv.db"),
+        ];
+        for candidate in &candidates {
+            if candidate.exists() {
+                config_state.arxiv_offline_path = candidate.display().to_string();
+                break;
+            }
+        }
+    }
+
+    // Auto-detect default IACR ePrint DB if no explicit path configured
+    if config_state.iacr_eprint_offline_path.is_empty() {
+        let candidates = [
+            PathBuf::from("iacr.db"),
+            dirs::data_dir()
+                .unwrap_or_else(|| PathBuf::from("."))
+                .join("hallucinator")
+                .join("iacr.db"),
+        ];
+        for candidate in &candidates {
+            if candidate.exists() {
+                config_state.iacr_eprint_offline_path = candidate.display().to_string();
+                break;
+            }
+        }
+    }
+
+    // Auto-detect default OpenAlex index if no explicit path configured
+    if config_state.openalex_offline_path.is_empty() {
+        let candidates = [
+            PathBuf::from("openalex.idx"),
+            dirs::data_dir()
+                .unwrap_or_else(|| PathBuf::from("."))
+                .join("hallucinator")
+                .join("openalex.idx"),
+        ];
+        for candidate in &candidates {
+            if candidate.exists() {
+                config_state.openalex_offline_path = candidate.display().to_string();
+                break;
+            }
+        }
+    }
+
+    // Auto-detect default local corpus DB if no explicit path configured
+    if config_state.local_corpus_path.is_empty() {
+        let candidates = [
+            PathBuf::from("local-corpus.db"),
+            dirs::data_dir()
+                .unwrap_or_else(|| PathBuf::from("."))
+                .join("hallucinator")
+                .join("local-corpus.db"),
+        ];
+        for candidate in &candidates {
+            if candidate.exists() {
+                config_state.local_corpus_path = candidate.display().to_string();
+                break;
+            }
+        }
+    }
+
+    // Resolve DBLP offline path from config state
+    let dblp_offline_path: Option<PathBuf> = if config_state.dblp_offline_path.is_empty() {
+        None
+    } else {
+        Some(PathBuf::from(&config_state.dblp_offline_path))
+    };
+
+    // Open DBLP database if configured (fall back to None if file missing or corrupt)
+    let mut startup_warnings: Vec<String> = Vec::new();
+    let mut startup_info: Vec<String> = Vec::new();
+    let dblp_offline_db: Option<Arc<hallucinator_dblp::DblpPool>> =
+        if let Some(ref path) = dblp_offline_path {
+            match backend::open_dblp_db(path, config_state.num_workers) {
+                Ok(db) => {
+                    startup_info.push(format!("DBLP offline DB loaded: {}", path.display()));
+                    Some(db)
+                }
+                Err(e) => {
+                    startup_warnings.push(format!("{e}"));
+                    None
+                }
+            }
+        } else {
+            None
+        };
+
+    // Resolve ACL offline path from config state
+    let acl_offline_path: Option<PathBuf> = if config_state.acl_offline_path.is_empty() {
+        None
+    } else {
+        Some(PathBuf::from(&config_state.acl_offline_path))
+    };
+
+    // Open ACL database if configured (fall back to None if file missing or corrupt)
+    let acl_offline_db: Option<Arc<hallucinator_acl::AclPool>> =
+        if let Some(ref path) = acl_offline_path {
+            match backend::open_acl_db(path, config_state.num_workers) {
+                Ok(db) => {
+                    startup_info.push(format!("ACL offline DB loaded: {}", path.display()));
+                    Some(db)
+                }
+                Err(e) => {
+                    startup_warnings.push(format!("{e}"));
+                    None
+                }
+            }
+        } else {
+            None
+        };
+
+    // Resolve arXiv offline path from config state
+    let arxiv_offline_path: Option<PathBuf> = if config_state.arxiv_offline_path.is_empty() {
+        None
+    } else {
+        Some(PathBuf::from(&config_state.arxiv_offline_path))
+    };
+
+    // Open arXiv database if configured (fall back to None if file missing or corrupt)
+    let arxiv_offline_db: Option<Arc<hallucinator_arxiv_offline::ArxivPool>> =
+        if let Some(ref path) = arxiv_offline_path {
+            match backend::open_arxiv_db(path, config_state.num_workers) {
+                Ok(db) => {
+                    startup_info.push(format!("arXiv offline DB loaded: {}", path.display()));
+                    Some(db)
+                }
+                Err(e) => {
+                    startup_warnings.push(format!("{e}"));
+                    None
+                }
+            }
+        } else {
+            None
+        };
+
+    // Resolve IACR ePrint offline path from config state
+    let iacr_eprint_offline_path: Option<PathBuf> =
+        if config_state.iacr_eprint_offline_path.is_empty() {
+            None
+        } else {
+            Some(PathBuf::from(&config_state.iacr_eprint_offline_path))
+        };
+
+    // Open IACR ePrint database if configured. The archive has no
+    // online search API, so without a local index this backend never
+    // registers — non-fatal if missing or corrupt.
+    let iacr_eprint_offline_db: Option<Arc<hallucinator_iacr_eprint::IacrPool>> =
+        if let Some(ref path) = iacr_eprint_offline_path {
+            match backend::open_iacr_eprint_db(path, config_state.num_workers) {
+                Ok(db) => {
+                    startup_info.push(format!("IACR ePrint offline DB loaded: {}", path.display()));
+                    Some(db)
+                }
+                Err(e) => {
+                    startup_warnings.push(format!("{e}"));
+                    None
+                }
+            }
+        } else {
+            None
+        };
+
+    // Resolve OpenAlex offline path from config state
+    let openalex_offline_path: Option<PathBuf> = if config_state.openalex_offline_path.is_empty() {
+        None
+    } else {
+        Some(PathBuf::from(&config_state.openalex_offline_path))
+    };
+
+    // Open OpenAlex index if configured (fall back to None if missing or corrupt)
+    let openalex_offline_db: Option<Arc<hallucinator_openalex::OpenAlexDatabase>> =
+        if let Some(ref path) = openalex_offline_path {
+            match backend::open_openalex_db(path) {
+                Ok(db) => {
+                    startup_info.push(format!("OpenAlex offline index loaded: {}", path.display()));
+                    Some(db)
+                }
+                Err(e) => {
+                    startup_warnings.push(format!("{e}"));
+                    None
+                }
+            }
+        } else {
+            None
+        };
+
+    // Resolve local corpus path from config state
+    let local_corpus_path: Option<PathBuf> = if config_state.local_corpus_path.is_empty() {
+        None
+    } else {
+        Some(PathBuf::from(&config_state.local_corpus_path))
+    };
+
+    // Open local corpus database if configured (fall back to None if
+    // missing or corrupt) — no online counterpart, so this is purely
+    // additive when present.
+    let local_corpus_db: Option<Arc<hallucinator_local_corpus::CorpusPool>> =
+        if let Some(ref path) = local_corpus_path {
+            match backend::open_local_corpus_db(path, config_state.num_workers) {
+                Ok(db) => {
+                    startup_info.push(format!("Local corpus loaded: {}", path.display()));
+                    Some(db)
+                }
+                Err(e) => {
+                    startup_warnings.push(format!("{e}"));
+                    None
+                }
+            }
+        } else {
+            None
+        };
+
+    // Check SearxNG connectivity if enabled
+    if let Some(ref url) = config_state.searxng_url {
+        let searxng = hallucinator_core::db::searxng::Searxng::new(url.clone());
+        if let Err(msg) = searxng.check_connectivity().await {
+            startup_warnings.push(msg);
+        } else {
+            startup_info.push(format!("SearxNG available at {}", url));
+        }
+    }
+
+    // Select theme
+    let theme = match config_state.theme_name.as_str() {
+        "modern" => theme::Theme::modern(),
+        "gnr" | "t800" => theme::Theme::t800(),
+        _ => theme::Theme::hacker(),
+    };
+
+    // Separate archives from regular files — archives need deferred extraction
+    let mut regular_paths: Vec<PathBuf> = Vec::new();
+    let mut archive_paths: Vec<PathBuf> = Vec::new();
+    for path in &cli.file_paths {
+        if hallucinator_ingest::is_archive_path(path) {
+            archive_paths.push(path.clone());
+        } else {
+            regular_paths.push(path.clone());
+        }
+    }
+
+    // Build filenames for display (regular files only; archives add theirs during extraction)
+    let filenames: Vec<String> = regular_paths
+        .iter()
+        .map(|p| {
+            p.file_name()
+                .map(|n| n.to_string_lossy().to_string())
+                .unwrap_or_else(|| p.display().to_string())
+        })
+        .collect();
+
+    let log_dir = dirs::cache_dir()
+        .unwrap_or_else(|| PathBuf::from("."))
+        .join("hallucinator")
+        .join("logs");
+    let file_appender = tracing_appender::rolling::daily(&log_dir, "hallucinator-tui.log");
+    tracing_subscriber::fmt()
+        .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
+        .with_writer(file_appender)
+        .with_ansi(false)
+        .init();
+    startup_info.push(format!("Logs: {}", log_dir.display()));
+
+    // Set Windows timer resolution to 1ms for accurate frame pacing.
+    // Without this, timers round up to the default 15.6ms granularity,
+    // causing ~22 FPS instead of the target 30.
+    #[cfg(windows)]
+    unsafe {
+        #[link(name = "winmm")]
+        unsafe extern "system" {
+            fn timeBeginPeriod(uPeriod: u32) -> u32;
+        }
+        timeBeginPeriod(1);
+    }
+
+    // Initialize terminal
+    let mouse_enabled = cli.mouse;
+    enable_raw_mode()?;
+    let mut stdout = io::stdout();
+    if mouse_enabled {
+        execute!(stdout, EnterAlternateScreen, EnableMouseCapture)?;
+    } else {
+        execute!(stdout, EnterAlternateScreen)?;
+    }
+
+    // Install panic hook that restores terminal before printing panic
+    let original_hook = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |panic_info| {
+        let _ = disable_raw_mode();
+        if mouse_enabled {
+            let _ = execute!(io::stdout(), LeaveAlternateScreen, DisableMouseCapture);
+        } else {
+            let _ = execute!(io::stdout(), LeaveAlternateScreen);
+        }
+        original_hook(panic_info);
+    }));
+
+    let backend_terminal = CrosstermBackend::new(stdout);
+    let mut terminal = Terminal::new(backend_terminal)?;
+
+    // Drain any stray input events (e.g. Enter keypress from launching the command)
+    while event::poll(Duration::from_millis(50)).unwrap_or(false) {
+        let _ = event::read();
+    }
+
+    let mut app = App::new(filenames, theme);
+
+    // Store regular file paths for deferred processing (archives are queued separately)
+    app.file_paths = regular_paths.clone();
+
+    // Apply the fully-resolved config state
+    app.config_state = config_state;
+
+    // Record banner start time for Instant-based auto-dismiss
+    app.banner_start = Some(std::time::Instant::now());
+
+    // Initialize T-800 seeking crosshair if theme is active
+    if app.theme.is_t800() {
+        // Use max container inner dims; positions get clamped each tick
+        app.t800_splash = Some(view::banner::T800Splash::new(66, 22));
+    }
+
+    // Show config file path if one was loaded
+    if let Some(path) = config_file::config_path()
+        && path.exists()
+    {
+        app.activity
+            .log(format!("Config loaded from {}", path.display()));
+    }
+
+    // Show any startup warnings from failed DB opens
+    for warn in &startup_warnings {
+        app.activity.log_warn(warn.clone());
+    }
+    // Show success messages for loaded offline DBs
+    for info in &startup_info {
+        app.activity.log(info.clone());
+    }
+
+    // Startup hints if no offline DBs configured (logged last so they show first)
+    if app.config_state.acl_offline_path.is_empty() {
+        app.activity.log_warn(
+            "No offline ACL DB. Build one from Config > Databases (b) or run 'hallucinator-tui update-acl'.".to_string(),
+        );
+    }
+    if app.config_state.dblp_offline_path.is_empty() {
+        app.activity.log_warn(
+            "No offline DBLP DB. Build one from Config > Databases (b) or run 'hallucinator-tui update-dblp'.".to_string(),
+        );
+    }
+    if app.config_state.crossref_mailto.is_empty() {
+        app.activity.log_warn(
+            "No CrossRef mailto set. Set your email in Config > API Keys for better rate limits."
+                .to_string(),
+        );
+    }
+
+    // Eagerly open the query cache so the user sees it in the activity log at startup
+    if !app.config_state.cache_path.is_empty() {
+        app.get_or_build_query_cache();
+    }
+
+    // Initialize results persistence directory
+    let run_dir = persistence::run_dir();
+
+    // Load previously saved results if --load is provided
+    if let Some(ref load_path) = cli.load {
+        match load::load_results_file(load_path) {
+            Ok(loaded) => {
+                let count = loaded.len();
+                let first_idx = app.papers.len();
+                for (paper, refs) in loaded {
+                    app.papers.push(paper);
+                    app.ref_states.push(refs);
+                    app.file_paths.push(PathBuf::new()); // placeholder
+                }
+                app.sync_loaded_fp_overrides(first_idx);
+                app.batch_complete = true;
+                app.processing_started = true;
+                app.recompute_sorted_indices();
+                app.activity.log(format!(
+                    "Loaded {} paper{} from {}",
+                    count,
+                    if count == 1 { "" } else { "s" },
+                    load_path.display()
+                ));
+                if count == 1 {
+                    app.single_paper_mode = true;
+                    app.screen = Screen::Paper(0);
+                }
+            }
+            Err(e) => {
+                app.activity
+                    .log_warn(format!("Failed to load results: {}", e));
+            }
+        }
+    }
+
+    // Queue any archives for deferred extraction (the tick handler will process them)
+    let has_archives = !archive_paths.is_empty();
+    if has_archives {
+        let first_name = archive_paths[0]
+            .file_name()
+            .map(|n| n.to_string_lossy().to_string())
+            .unwrap_or_default();
+        app.extracting_archive = Some(first_name);
+        app.pending_archive_extractions = archive_paths;
+    }
+
+    // Single-paper mode: if exactly one regular file and no archives, skip the queue
+    if regular_paths.len() == 1 && !has_archives && cli.load.is_none() {
+        app.screen = Screen::Paper(0);
+        app.single_paper_mode = true;
+    }
+
+    // Set up backend command channel for deferred processing
+    let (event_tx, mut event_rx) = mpsc::unbounded_channel();
+    let (cmd_tx, mut cmd_rx) = mpsc::unbounded_channel::<tui_event::BackendCommand>();
+    let cancel = CancellationToken::new();
+
+    app.backend_cmd_tx = Some(cmd_tx);
+
+    // Single-paper mode (`hallucinator-tui paper.pdf`) navigates straight to
+    // the Paper detail screen, skipping Screen::Queue entirely. Processing
+    // is otherwise manual-start (StartProcessing / 'r'), but that action is
+    // only handled when `screen == Screen::Queue` (see app/update.rs) — so
+    // without this, single-paper mode had no code path that ever called
+    // start_processing(), and the app just sat on an empty Paper screen
+    // forever (issue #305). Auto-start here instead: there's nothing to
+    // review in the queue when there's exactly one paper.
+    if app.single_paper_mode {
+        app.start_processing();
+    }
+
+    // Spawn backend command listener
+    let event_tx_for_backend = event_tx.clone();
+    let mut cached_dblp_path = dblp_offline_path.clone();
+    let mut cached_dblp_db = dblp_offline_db.clone();
+    let mut cached_acl_path = acl_offline_path.clone();
+    let mut cached_acl_db = acl_offline_db.clone();
+    let mut cached_arxiv_path = arxiv_offline_path.clone();
+    let mut cached_arxiv_db = arxiv_offline_db.clone();
+    let mut cached_iacr_eprint_path = iacr_eprint_offline_path.clone();
+    let mut cached_iacr_eprint_db = iacr_eprint_offline_db.clone();
+    let mut cached_openalex_path = openalex_offline_path.clone();
+    let mut cached_openalex_db = openalex_offline_db.clone();
+    let mut cached_local_corpus_path = local_corpus_path.clone();
+    let mut cached_local_corpus_db = local_corpus_db.clone();
+    // Tracks the worker count the offline DB pools were last sized for, so a
+    // num_workers change in the config screen (without a path change) still
+    // triggers a resize on the next batch — otherwise workers queue behind a
+    // stale, too-small pool and per-query averages in the activity panel
+    // balloon even though nothing individually got slower.
+    let mut cached_num_workers = startup_num_workers;
+    let check_openalex_authors = cli.check_openalex_authors;
+    tokio::spawn(async move {
+        // Per-batch cancel token — cancelled when user requests stop
+        let mut batch_cancel = CancellationToken::new();
+
+        while let Some(cmd) = cmd_rx.recv().await {
+            match cmd {
+                tui_event::BackendCommand::ProcessFiles {
+                    files,
+                    starting_index,
+                    mut config,
+                } => {
+                    // Fresh token for this batch
+                    batch_cancel = CancellationToken::new();
+
+                    // Re-open whenever the path changed OR the worker count changed —
+                    // a pool sized for the old worker count queues workers on the new
+                    // (higher) count, inflating the activity panel's per-query average.
+                    let num_workers_changed = config.num_workers != cached_num_workers;
+
+                    // If user changed the DBLP path or worker count, (re)open the DB
+                    if config.dblp_offline_path != cached_dblp_path || num_workers_changed {
+                        cached_dblp_path = config.dblp_offline_path.clone();
+                        cached_dblp_db = if let Some(ref path) = cached_dblp_path {
+                            backend::open_dblp_db(path, config.num_workers).ok()
+                        } else {
+                            None
+                        };
+                    }
+
+                    // If user changed the ACL path or worker count, (re)open the DB
+                    if config.acl_offline_path != cached_acl_path || num_workers_changed {
+                        cached_acl_path = config.acl_offline_path.clone();
+                        cached_acl_db = if let Some(ref path) = cached_acl_path {
+                            backend::open_acl_db(path, config.num_workers).ok()
+                        } else {
+                            None
+                        };
+                    }
+
+                    // If user changed the arXiv path or worker count, (re)open the DB
+                    if config.arxiv_offline_path != cached_arxiv_path || num_workers_changed {
+                        cached_arxiv_path = config.arxiv_offline_path.clone();
+                        cached_arxiv_db = if let Some(ref path) = cached_arxiv_path {
+                            backend::open_arxiv_db(path, config.num_workers).ok()
+                        } else {
+                            None
+                        };
+                    }
+
+                    // If user changed the IACR ePrint path or worker count, (re)open the DB
+                    if config.iacr_eprint_offline_path != cached_iacr_eprint_path
+                        || num_workers_changed
+                    {
+                        cached_iacr_eprint_path = config.iacr_eprint_offline_path.clone();
+                        cached_iacr_eprint_db = if let Some(ref path) = cached_iacr_eprint_path {
+                            backend::open_iacr_eprint_db(path, config.num_workers).ok()
+                        } else {
+                            None
+                        };
+                    }
+
+                    // If user changed the OpenAlex path in config, try to open the new index.
+                    // No pool_size here — OpenAlexDatabase shares one Tantivy Index/IndexReader
+                    // across workers (both Send + Sync), so worker count doesn't apply.
+                    if config.openalex_offline_path != cached_openalex_path {
+                        cached_openalex_path = config.openalex_offline_path.clone();
+                        cached_openalex_db = if let Some(ref path) = cached_openalex_path {
+                            backend::open_openalex_db(path).ok()
+                        } else {
+                            None
+                        };
+                    }
+
+                    // If user changed the local corpus path or worker count, (re)open it
+                    if config.local_corpus_path != cached_local_corpus_path || num_workers_changed {
+                        cached_local_corpus_path = config.local_corpus_path.clone();
+                        cached_local_corpus_db = if let Some(ref path) = cached_local_corpus_path {
+                            backend::open_local_corpus_db(path, config.num_workers).ok()
+                        } else {
+                            None
+                        };
+                    }
+
+                    cached_num_workers = config.num_workers;
+
+                    config.dblp_offline_path = cached_dblp_path.clone();
+                    config.dblp_offline_db = cached_dblp_db.clone();
+                    config.acl_offline_path = cached_acl_path.clone();
+                    config.acl_offline_db = cached_acl_db.clone();
+                    config.arxiv_offline_path = cached_arxiv_path.clone();
+                    config.arxiv_offline_db = cached_arxiv_db.clone();
+                    config.iacr_eprint_offline_path = cached_iacr_eprint_path.clone();
+                    config.iacr_eprint_offline_db = cached_iacr_eprint_db.clone();
+                    config.openalex_offline_path = cached_openalex_path.clone();
+                    config.openalex_offline_db = cached_openalex_db.clone();
+                    config.local_corpus_path = cached_local_corpus_path.clone();
+                    config.local_corpus_db = cached_local_corpus_db.clone();
+                    config.check_openalex_authors = check_openalex_authors;
+
+                    let tx = event_tx_for_backend.clone();
+                    let cancel = batch_cancel.clone();
+                    // Spawn batch as a separate task so we can still receive commands
+                    tokio::spawn(async move {
+                        backend::run_batch_with_offset(files, *config, tx, cancel, starting_index)
+                            .await;
+                    });
+                }
+                tui_event::BackendCommand::RetryReferences {
+                    paper_index,
+                    refs_to_retry,
+                    mut config,
+                } => {
+                    // Inject cached DB handles
+                    config.dblp_offline_path = cached_dblp_path.clone();
+                    config.dblp_offline_db = cached_dblp_db.clone();
+                    config.acl_offline_path = cached_acl_path.clone();
+                    config.acl_offline_db = cached_acl_db.clone();
+                    config.arxiv_offline_path = cached_arxiv_path.clone();
+                    config.arxiv_offline_db = cached_arxiv_db.clone();
+                    config.iacr_eprint_offline_path = cached_iacr_eprint_path.clone();
+                    config.iacr_eprint_offline_db = cached_iacr_eprint_db.clone();
+                    config.openalex_offline_path = cached_openalex_path.clone();
+                    config.openalex_offline_db = cached_openalex_db.clone();
+                    config.local_corpus_path = cached_local_corpus_path.clone();
+                    config.local_corpus_db = cached_local_corpus_db.clone();
+                    config.check_openalex_authors = check_openalex_authors;
+
+                    let tx = event_tx_for_backend.clone();
+                    tokio::spawn(async move {
+                        backend::retry_references(paper_index, refs_to_retry, *config, tx).await;
+                    });
+                }
+                tui_event::BackendCommand::CancelProcessing => {
+                    batch_cancel.cancel();
+                }
+                tui_event::BackendCommand::BuildDblp { db_path } => {
+                    // Invalidate cached handle so the next ProcessFiles re-opens
+                    // the DB even if the path hasn't changed (e.g. rebuilding
+                    // an existing dblp.db that previously failed to open).
+                    cached_dblp_db = None;
+                    cached_dblp_path = None;
+                    let tx = event_tx_for_backend.clone();
+                    tokio::spawn(async move {
+                        let result = hallucinator_dblp::build_database(&db_path, |evt| {
+                            let _ =
+                                tx.send(tui_event::BackendEvent::DblpBuildProgress { event: evt });
+                        })
+                        .await;
+                        match result {
+                            Ok(_) => {
+                                let _ = tx.send(tui_event::BackendEvent::DblpBuildComplete {
+                                    success: true,
+                                    error: None,
+                                    db_path,
+                                });
+                            }
+                            Err(e) => {
+                                let _ = tx.send(tui_event::BackendEvent::DblpBuildComplete {
+                                    success: false,
+                                    error: Some(e.to_string()),
+                                    db_path,
+                                });
+                            }
+                        }
+                    });
+                }
+                tui_event::BackendCommand::BuildAcl { db_path } => {
+                    // Invalidate cached handle (same reason as DBLP above).
+                    cached_acl_db = None;
+                    cached_acl_path = None;
+                    let tx = event_tx_for_backend.clone();
+                    tokio::spawn(async move {
+                        let result = hallucinator_acl::build_database(&db_path, |evt| {
+                            let _ =
+                                tx.send(tui_event::BackendEvent::AclBuildProgress { event: evt });
+                        })
+                        .await;
+                        match result {
+                            Ok(_) => {
+                                let _ = tx.send(tui_event::BackendEvent::AclBuildComplete {
+                                    success: true,
+                                    error: None,
+                                    db_path,
+                                });
+                            }
+                            Err(e) => {
+                                let _ = tx.send(tui_event::BackendEvent::AclBuildComplete {
+                                    success: false,
+                                    error: Some(e.to_string()),
+                                    db_path,
+                                });
+                            }
+                        }
+                    });
+                }
+                tui_event::BackendCommand::BuildOpenalex { db_path } => {
+                    cached_openalex_db = None;
+                    cached_openalex_path = None;
+                    let tx = event_tx_for_backend.clone();
+                    tokio::spawn(async move {
+                        let result = hallucinator_openalex::build_database(&db_path, |evt| {
+                            let _ = tx.send(tui_event::BackendEvent::OpenAlexBuildProgress {
+                                event: evt,
+                            });
+                        })
+                        .await;
+                        match result {
+                            Ok(_) => {
+                                let _ = tx.send(tui_event::BackendEvent::OpenAlexBuildComplete {
+                                    success: true,
+                                    error: None,
+                                    db_path,
+                                });
+                            }
+                            Err(e) => {
+                                let _ = tx.send(tui_event::BackendEvent::OpenAlexBuildComplete {
+                                    success: false,
+                                    error: Some(e.to_string()),
+                                    db_path,
+                                });
+                            }
+                        }
+                    });
+                }
+            }
+        }
+    });
+
+    // Also handle Ctrl+C at the OS level for clean shutdown
+    let cancel_for_signal = cancel.clone();
+    tokio::spawn(async move {
+        if tokio::signal::ctrl_c().await.is_ok() {
+            cancel_for_signal.cancel();
+        }
+    });
+
+    // Main event loop
+    let mut active_fps = app.config_state.fps;
+    let tick_rate = Duration::from_millis(1000 / active_fps.max(1) as u64);
+    let mut tick_timer = tokio::time::interval(tick_rate);
+    tick_timer.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+    tick_timer.tick().await; // consume first immediate tick
+    let mut tip_timer = tokio::time::interval(Duration::from_secs(8));
+    // Consume the first immediate tick so the initial tip stays for a full 8s.
+    tip_timer.tick().await;
+    let tip_count = view::banner::shuffled_tips().len().max(1);
+
+    // Initial draw so the screen isn't blank before the first tick fires.
+    terminal.draw(|f| app.view(f))?;
+
+    loop {
+        // 1. Process terminal input first (non-blocking) so user actions
+        // like cancel are never starved by backend event floods.
+        let mut input_happened = false;
+        while event::poll(Duration::ZERO).unwrap_or(false) {
+            if let Ok(evt) = event::read() {
+                let action = if app.screen == Screen::Config {
+                    match &evt {
+                        ratatui::crossterm::event::Event::Key(key)
+                            if key.kind == ratatui::crossterm::event::KeyEventKind::Press
+                                && key.code == ratatui::crossterm::event::KeyCode::Tab
+                                && !app.config_state.editing =>
+                        {
+                            action::Action::CycleConfigSection
+                        }
+                        _ => input::map_event(&evt, &app.input_mode),
+                    }
+                } else {
+                    input::map_event(&evt, &app.input_mode)
+                };
+                app.update(action);
+                input_happened = true;
+            }
+        }
+
+        // 2. Wait for backend events, tick, or tip rotation — whichever first.
+        let mut tick_fired = false;
+        tokio::select! {
+            maybe_event = event_rx.recv() => {
+                match maybe_event {
+                    Some(backend_event) => {
+                        // Persist paper results on completion
+                        if let tui_event::BackendEvent::PaperComplete { paper_index, .. } = &backend_event
+                            && let Some(ref dir) = run_dir {
+                                let pi = *paper_index;
+                                if let Some(paper) = app.papers.get(pi) {
+                                    let rs = app.ref_states.get(pi).map(|v| v.as_slice()).unwrap_or(&[]);
+                                    persistence::save_paper_results(dir, pi, paper, rs);
+                                }
+                            }
+                        app.handle_backend_event(backend_event);
+                        // Drain any additional queued backend events
+                        while let Ok(evt) = event_rx.try_recv() {
+                            app.handle_backend_event(evt);
+                        }
+                    }
+                    None => {
+                        // Backend channel closed
+                    }
+                }
+            }
+            _ = tick_timer.tick() => {
+                tick_fired = true;
+            }
+            _ = tip_timer.tick() => {
+                app.tip_index = (app.tip_index + 1) % tip_count;
+                app.tip_change_tick = app.tick;
+            }
+        }
+
+        // Detect FPS change from config and recreate the tick timer
+        if app.config_state.fps != active_fps {
+            active_fps = app.config_state.fps;
+            let new_rate = Duration::from_millis(1000 / active_fps.max(1) as u64);
+            tick_timer = tokio::time::interval(new_rate);
+            tick_timer.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+            tick_timer.tick().await; // consume first immediate tick
+        }
+
+        // 3. Process tick and draw.
+        // Tick fires via tokio::time::interval which handles drift correction,
+        // avoiding Windows timer resolution issues with manual sleep_dur.
+        if tick_fired {
+            app.update(action::Action::Tick);
+        }
+
+        // Draw on tick (animations/state) or immediately after user input.
+        // Backend events update state but render on the next tick (~33ms max).
+        if tick_fired || input_happened {
+            terminal.draw(|f| app.view(f))?;
+            app.record_frame();
+        }
+
+        if app.should_quit {
+            cancel.cancel();
+            break;
+        }
+    }
+
+    // Restore Windows timer resolution
+    #[cfg(windows)]
+    unsafe {
+        #[link(name = "winmm")]
+        unsafe extern "system" {
+            fn timeEndPeriod(uPeriod: u32) -> u32;
+        }
+        timeEndPeriod(1);
+    }
+
+    // Restore terminal
+    disable_raw_mode()?;
+    if mouse_enabled {
+        execute!(
+            terminal.backend_mut(),
+            LeaveAlternateScreen,
+            DisableMouseCapture
+        )?;
+    } else {
+        execute!(terminal.backend_mut(), LeaveAlternateScreen)?;
+    }
+
+    Ok(())
+}
+
+async fn update_dblp(db_path: &PathBuf, from_file: Option<&Path>) -> anyhow::Result<()> {
+    use indicatif::{HumanBytes, HumanCount, MultiProgress, ProgressBar, ProgressStyle};
+    use std::time::Instant;
+
+    // Ensure parent directory exists
+    if let Some(parent) = db_path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+
+    println!("Building offline DBLP database at: {}", db_path.display());
+
+    let multi = MultiProgress::new();
+
+    let dl_bar_style = ProgressStyle::with_template(
+        "{spinner:.cyan} {msg} [{bar:40.cyan/dim}] {bytes}/{total_bytes} ({bytes_per_sec}, eta {eta})",
+    )
+    .unwrap()
+    .progress_chars("=> ");
+
+    let dl_unknown_style =
+        ProgressStyle::with_template("{spinner:.cyan} {msg} {bytes} ({bytes_per_sec})").unwrap();
+
+    let parse_bar_style = ProgressStyle::with_template(
+        "{spinner:.green} [{elapsed_precise}] {msg} [{bar:40.green/dim}] {percent}% (eta {eta})",
+    )
+    .unwrap()
+    .progress_chars("=> ");
+
+    let parse_spinner_style =
+        ProgressStyle::with_template("{spinner:.green} [{elapsed_precise}] {msg}").unwrap();
+
+    let dl_bar = multi.add(ProgressBar::new(0));
+    dl_bar.set_style(dl_unknown_style.clone());
+    dl_bar.set_message("Connecting to dblp.org...");
+    if from_file.is_some() {
+        // build_database_from_file never emits a Downloading event — hide
+        // this bar entirely instead of leaving a stale "Connecting..."
+        // spinner on screen.
+        dl_bar.set_draw_target(indicatif::ProgressDrawTarget::hidden());
+    } else {
+        dl_bar.enable_steady_tick(Duration::from_millis(120));
+    }
+
+    let parse_bar = multi.add(ProgressBar::new(0));
+    parse_bar.set_style(parse_spinner_style.clone());
+    parse_bar.set_draw_target(indicatif::ProgressDrawTarget::hidden());
+
+    let finalize_bar = multi.add(ProgressBar::new_spinner());
+    finalize_bar.set_style(parse_spinner_style.clone());
+    finalize_bar.set_draw_target(indicatif::ProgressDrawTarget::hidden());
+
+    let build_start = Instant::now();
+    let parse_start = std::cell::Cell::new(None::<Instant>);
+
+    let mut progress_cb = |event| match event {
+        hallucinator_dblp::BuildProgress::Downloading {
+            bytes_downloaded,
+            total_bytes,
+            ..
+        } => {
+            if let Some(total) = total_bytes {
+                if dl_bar.length() == Some(0) {
+                    dl_bar.set_length(total);
+                    dl_bar.set_style(dl_bar_style.clone());
+                }
+                dl_bar.set_position(bytes_downloaded);
+                dl_bar.set_message("Downloading dblp.xml.gz");
+                if bytes_downloaded >= total && !dl_bar.is_finished() {
+                    dl_bar.finish_with_message(format!(
+                        "Downloaded {} in {:.0?}",
+                        HumanBytes(total),
+                        dl_bar.elapsed()
+                    ));
+                }
+            } else {
+                dl_bar.set_position(bytes_downloaded);
+                dl_bar.set_message("Downloading dblp.xml.gz");
+            }
+        }
+        hallucinator_dblp::BuildProgress::Parsing {
+            records_inserted,
+            bytes_read,
+            bytes_total,
+        } => {
+            if !dl_bar.is_finished() {
+                dl_bar.finish_with_message(format!(
+                    "Downloaded {} in {:.0?}",
+                    HumanBytes(dl_bar.position()),
+                    dl_bar.elapsed()
+                ));
+            }
+            if parse_start.get().is_none() {
+                parse_start.set(Some(Instant::now()));
+                parse_bar.reset_elapsed();
+                parse_bar.set_draw_target(indicatif::ProgressDrawTarget::stderr());
+                parse_bar.enable_steady_tick(Duration::from_millis(120));
+            }
+            if bytes_total > 0 && parse_bar.length() == Some(0) {
+                parse_bar.set_length(bytes_total);
+                parse_bar.set_style(parse_bar_style.clone());
+            }
+            parse_bar.set_position(bytes_read);
+            let elapsed = parse_start.get().unwrap().elapsed().as_secs_f64();
+            let per_sec = if elapsed > 0.0 {
+                records_inserted as f64 / elapsed
+            } else {
+                0.0
+            };
+            parse_bar.set_message(format!(
+                "{} publications ({}/s)",
+                HumanCount(records_inserted),
+                HumanCount(per_sec as u64),
+            ));
+        }
+        hallucinator_dblp::BuildProgress::RebuildingIndex => {
+            if !dl_bar.is_finished() {
+                dl_bar.finish_with_message(format!(
+                    "Downloaded {} in {:.0?}",
+                    HumanBytes(dl_bar.position()),
+                    dl_bar.elapsed()
+                ));
+            }
+            if !parse_bar.is_finished() {
+                let elapsed = parse_start.get().map(|s| s.elapsed());
+                parse_bar.finish_with_message(format!(
+                    "Inserted publications in {:.0?}",
+                    elapsed.unwrap_or_default()
+                ));
+            }
+            finalize_bar.reset_elapsed();
+            finalize_bar.set_draw_target(indicatif::ProgressDrawTarget::stderr());
+            finalize_bar.enable_steady_tick(Duration::from_millis(120));
+            finalize_bar.set_message("Rebuilding FTS search index...");
+        }
+        hallucinator_dblp::BuildProgress::Compacting => {
+            finalize_bar.set_message("Compacting database (VACUUM)...");
+        }
+        hallucinator_dblp::BuildProgress::Complete {
+            publications,
+            authors,
+            skipped,
+        } => {
+            if !parse_bar.is_finished() {
+                parse_bar.finish_and_clear();
+            }
+            if skipped {
+                finalize_bar
+                    .finish_with_message("Database is already up to date (304 Not Modified)");
+            } else {
+                finalize_bar.finish_with_message(format!(
+                    "Indexed {} publications, {} authors (total {:.0?})",
+                    HumanCount(publications),
+                    HumanCount(authors),
+                    build_start.elapsed()
+                ));
+            }
+        }
+    };
+
+    let updated = if let Some(xml_gz_path) = from_file {
+        hallucinator_dblp::build_database_from_file(db_path, xml_gz_path, &mut progress_cb)?;
+        true // no "already up to date" concept when building from a local file
+    } else {
+        hallucinator_dblp::build_database(db_path, &mut progress_cb).await?
+    };
+
+    let canonical = std::fs::canonicalize(db_path).unwrap_or_else(|_| db_path.clone());
+    if !updated {
+        println!("Database is already up to date: {}", canonical.display());
+    } else {
+        println!("DBLP database saved to: {}", canonical.display());
+    }
+
+    Ok(())
+}
+
+async fn update_acl(db_path: &PathBuf) -> anyhow::Result<()> {
+    use indicatif::{HumanCount, MultiProgress, ProgressBar, ProgressStyle};
+    use std::time::Instant;
+
+    // Ensure parent directory exists
+    if let Some(parent) = db_path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+
+    println!(
+        "Building offline ACL Anthology database at: {}",
+        db_path.display()
+    );
+
+    let multi = MultiProgress::new();
+
+    let dl_bar_style = ProgressStyle::with_template(
+        "{spinner:.cyan} {msg} [{bar:40.cyan/dim}] {bytes}/{total_bytes} ({bytes_per_sec}, eta {eta})",
+    )
+    .unwrap()
+    .progress_chars("=> ");
+
+    let dl_unknown_style =
+        ProgressStyle::with_template("{spinner:.cyan} {msg} {bytes} ({bytes_per_sec})").unwrap();
+
+    let parse_bar_style = ProgressStyle::with_template(
+        "{spinner:.green} [{elapsed_precise}] {msg} [{bar:40.green/dim}] {percent}% (eta {eta})",
+    )
+    .unwrap()
+    .progress_chars("=> ");
+
+    let parse_spinner_style =
+        ProgressStyle::with_template("{spinner:.green} [{elapsed_precise}] {msg}").unwrap();
+
+    let dl_bar = multi.add(ProgressBar::new(0));
+    dl_bar.set_style(dl_unknown_style.clone());
+    dl_bar.set_message("Connecting to GitHub...");
+    dl_bar.enable_steady_tick(Duration::from_millis(120));
+
+    let parse_bar = multi.add(ProgressBar::new(0));
+    parse_bar.set_style(parse_spinner_style.clone());
+    parse_bar.set_draw_target(indicatif::ProgressDrawTarget::hidden());
+
+    let finalize_bar = multi.add(ProgressBar::new_spinner());
+    finalize_bar.set_style(parse_spinner_style.clone());
+    finalize_bar.set_draw_target(indicatif::ProgressDrawTarget::hidden());
+
+    let build_start = Instant::now();
+    let parse_start = std::cell::Cell::new(None::<Instant>);
+
+    let updated = hallucinator_acl::build_database(db_path, |event| match event {
+        hallucinator_acl::BuildProgress::Downloading {
+            bytes_downloaded,
+            total_bytes,
+        } => {
+            if let Some(total) = total_bytes {
+                if dl_bar.length() == Some(0) {
+                    dl_bar.set_length(total);
+                    dl_bar.set_style(dl_bar_style.clone());
+                }
+                dl_bar.set_position(bytes_downloaded);
+                dl_bar.set_message("Downloading acl-anthology.tar.gz");
+            } else {
+                dl_bar.set_position(bytes_downloaded);
+                dl_bar.set_message("Downloading acl-anthology.tar.gz");
+            }
+        }
+        hallucinator_acl::BuildProgress::Extracting { files_extracted } => {
+            if !dl_bar.is_finished() {
+                dl_bar.finish_with_message(format!("Downloaded in {:.0?}", dl_bar.elapsed()));
+            }
+            if parse_bar.is_hidden() {
+                parse_bar.reset_elapsed();
+                parse_bar.set_draw_target(indicatif::ProgressDrawTarget::stderr());
+                parse_bar.enable_steady_tick(Duration::from_millis(120));
+            }
+            parse_bar.set_message(format!("Extracting XML files... ({})", files_extracted));
+        }
+        hallucinator_acl::BuildProgress::Parsing {
+            records_parsed,
+            records_inserted,
+            files_processed,
+            files_total,
+        } => {
+            if !dl_bar.is_finished() {
+                dl_bar.finish_with_message(format!("Downloaded in {:.0?}", dl_bar.elapsed()));
+            }
+            if parse_start.get().is_none() {
+                parse_start.set(Some(Instant::now()));
+                parse_bar.reset_elapsed();
+                parse_bar.set_draw_target(indicatif::ProgressDrawTarget::stderr());
+                parse_bar.enable_steady_tick(Duration::from_millis(120));
+            }
+            if files_total > 0 && parse_bar.length() == Some(0) {
+                parse_bar.set_length(files_total);
+                parse_bar.set_style(parse_bar_style.clone());
+            }
+            parse_bar.set_position(files_processed);
+            let elapsed = parse_start.get().unwrap().elapsed().as_secs_f64();
+            let per_sec = if elapsed > 0.0 {
+                records_inserted as f64 / elapsed
+            } else {
+                0.0
+            };
+            parse_bar.set_message(format!(
+                "{} parsed, {} inserted ({}/s)",
+                HumanCount(records_parsed),
+                HumanCount(records_inserted),
+                HumanCount(per_sec as u64),
+            ));
+        }
+        hallucinator_acl::BuildProgress::RebuildingIndex => {
+            if !dl_bar.is_finished() {
+                dl_bar.finish_with_message(format!("Downloaded in {:.0?}", dl_bar.elapsed()));
+            }
+            if !parse_bar.is_finished() {
+                let elapsed = parse_start.get().map(|s| s.elapsed());
+                parse_bar.finish_with_message(format!(
+                    "Inserted publications in {:.0?}",
+                    elapsed.unwrap_or_default()
+                ));
+            }
+            finalize_bar.reset_elapsed();
+            finalize_bar.set_draw_target(indicatif::ProgressDrawTarget::stderr());
+            finalize_bar.enable_steady_tick(Duration::from_millis(120));
+            finalize_bar.set_message("Rebuilding FTS search index...");
+        }
+        hallucinator_acl::BuildProgress::Complete {
+            publications,
+            authors,
+            skipped,
+        } => {
+            if !parse_bar.is_finished() {
+                parse_bar.finish_and_clear();
+            }
+            if skipped {
+                finalize_bar
+                    .finish_with_message("Database is already up to date (same commit SHA)");
+            } else {
+                finalize_bar.finish_with_message(format!(
+                    "Indexed {} publications, {} authors (total {:.0?})",
+                    HumanCount(publications),
+                    HumanCount(authors),
+                    build_start.elapsed()
+                ));
+            }
+        }
+    })
+    .await?;
+
+    let canonical = std::fs::canonicalize(db_path).unwrap_or_else(|_| db_path.clone());
+    if !updated {
+        println!("Database is already up to date: {}", canonical.display());
+    } else {
+        println!("ACL database saved to: {}", canonical.display());
+    }
+
+    Ok(())
+}
+
+async fn update_openalex(
+    db_path: &PathBuf,
+    since: Option<&str>,
+    min_year: Option<u32>,
+) -> anyhow::Result<()> {
+    use indicatif::{HumanCount, MultiProgress, ProgressBar, ProgressStyle};
+    use std::time::Instant;
+
+    // Ensure parent directory exists
+    if let Some(parent) = db_path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+
+    println!("Building offline OpenAlex index at: {}", db_path.display());
+    if since.is_none() && min_year.is_none() {
+        println!("Note: A full build may use ~15-30 GB of disk space.");
+    }
+    if let Some(since) = since {
+        println!("Only downloading S3 partitions newer than {since}");
+    }
+    if let Some(min_year) = min_year {
+        println!("Only indexing works published in {min_year} or later");
+    }
+
+    let multi = MultiProgress::new();
+
+    let dl_bar_style = ProgressStyle::with_template(
+        "{spinner:.cyan} {msg} [{bar:40.cyan/dim}] {pos}/{len} files ({bytes_per_sec}, eta {eta})",
+    )
+    .unwrap()
+    .progress_chars("=> ");
+
+    let dl_spinner_style = ProgressStyle::with_template("{spinner:.cyan} {msg}").unwrap();
+    let file_spinner_style = ProgressStyle::with_template("  {spinner:.dim} {msg:.dim}").unwrap();
+
+    let index_style =
+        ProgressStyle::with_template("{spinner:.green} [{elapsed_precise}] {msg}").unwrap();
+
+    let dl_bar = multi.add(ProgressBar::new(0));
+    dl_bar.set_style(dl_spinner_style.clone());
+    dl_bar.set_message("Listing S3 partitions...");
+    dl_bar.enable_steady_tick(Duration::from_millis(120));
+
+    let index_bar = multi.add(ProgressBar::new_spinner());
+    index_bar.set_style(index_style.clone());
+    index_bar.set_draw_target(indicatif::ProgressDrawTarget::hidden());
+
+    let finalize_bar = multi.add(ProgressBar::new_spinner());
+    finalize_bar.set_style(index_style.clone());
+    finalize_bar.set_draw_target(indicatif::ProgressDrawTarget::hidden());
+
+    let mut file_spinners: std::collections::HashMap<String, ProgressBar> =
+        std::collections::HashMap::new();
+
+    let build_start = Instant::now();
+
+    let updated = hallucinator_openalex::build_database_filtered(
+        db_path,
+        since,
+        min_year,
+        |event| match event {
+            hallucinator_openalex::BuildProgress::ListingPartitions { message } => {
+                dl_bar.set_message(message);
+            }
+            hallucinator_openalex::BuildProgress::FileStarted { filename } => {
+                let s = multi.add(ProgressBar::new_spinner());
+                s.set_style(file_spinner_style.clone());
+                s.set_message(filename.clone());
+                s.enable_steady_tick(Duration::from_millis(120));
+                file_spinners.insert(filename, s);
+            }
+            hallucinator_openalex::BuildProgress::FileComplete { filename } => {
+                if let Some(s) = file_spinners.remove(&filename) {
+                    s.finish_and_clear();
+                }
+            }
+            hallucinator_openalex::BuildProgress::FileProgress {
+                filename,
+                bytes_downloaded,
+            } => {
+                if let Some(s) = file_spinners.get(&filename) {
+                    s.set_message(format!(
+                        "{} ({})",
+                        filename,
+                        format_bytes_fn(bytes_downloaded as f64)
+                    ));
+                }
+            }
+            hallucinator_openalex::BuildProgress::Downloading {
+                files_done,
+                files_total,
+                bytes_downloaded,
+                records_indexed,
+            } => {
+                if dl_bar.length() == Some(0) && files_total > 0 {
+                    dl_bar.set_length(files_total);
+                    dl_bar.set_style(dl_bar_style.clone());
+                    index_bar.reset_elapsed();
+                    index_bar.set_draw_target(indicatif::ProgressDrawTarget::stderr());
+                    index_bar.enable_steady_tick(Duration::from_millis(120));
+                }
+                dl_bar.set_position(files_done);
+                let elapsed = build_start.elapsed().as_secs_f64();
+                let speed = if elapsed > 0.5 {
+                    format!(" {}/s", format_bytes_fn(bytes_downloaded as f64 / elapsed))
+                } else {
+                    String::new()
+                };
+                dl_bar.set_message(format!(
+                    "Downloading... {}{}",
+                    format_bytes_fn(bytes_downloaded as f64),
+                    speed
+                ));
+                let rate = if elapsed > 0.5 {
+                    format!(
+                        " ({}/s)",
+                        HumanCount((records_indexed as f64 / elapsed) as u64)
+                    )
+                } else {
+                    String::new()
+                };
+                index_bar.set_message(format!(
+                    "{} records indexed{}",
+                    HumanCount(records_indexed),
+                    rate
+                ));
+            }
+            hallucinator_openalex::BuildProgress::Committing { records_indexed } => {
+                if !dl_bar.is_finished() {
+                    dl_bar.finish_with_message(format!("Downloaded in {:.0?}", dl_bar.elapsed()));
+                }
+                index_bar.set_message(format!(
+                    "Committing... {} records",
+                    HumanCount(records_indexed)
+                ));
+            }
+            hallucinator_openalex::BuildProgress::FileSkipped { filename, error } => {
+                if let Some(s) = file_spinners.remove(&filename) {
+                    s.finish_and_clear();
+                }
+                dl_bar.suspend(|| {
+                    eprintln!("Warning: skipped {} ({error})", filename);
+                });
+            }
+            hallucinator_openalex::BuildProgress::Merging => {
+                for (_, s) in file_spinners.drain() {
+                    s.finish_and_clear();
+                }
+                if !dl_bar.is_finished() {
+                    dl_bar.finish_with_message(format!("Downloaded in {:.0?}", dl_bar.elapsed()));
+                }
+                if !index_bar.is_finished() {
+                    index_bar
+                        .finish_with_message(format!("Indexed in {:.0?}", index_bar.elapsed()));
+                }
+                finalize_bar.reset_elapsed();
+                finalize_bar.set_draw_target(indicatif::ProgressDrawTarget::stderr());
+                finalize_bar.enable_steady_tick(Duration::from_millis(120));
+                finalize_bar.set_message("Merging index segments...");
+            }
+            hallucinator_openalex::BuildProgress::Complete {
+                publications,
+                skipped,
+                ..
+            } => {
+                if !index_bar.is_finished() {
+                    index_bar.finish_and_clear();
+                }
+                if skipped {
+                    finalize_bar.finish_with_message("Index is already up to date");
+                } else {
+                    finalize_bar.finish_with_message(format!(
+                        "Indexed {} publications (total {:.0?})",
+                        HumanCount(publications),
+                        build_start.elapsed()
+                    ));
+                }
+            }
+        },
+    )
+    .await?;
+
+    let canonical = std::fs::canonicalize(db_path).unwrap_or_else(|_| db_path.clone());
+    if !updated {
+        println!("Index is already up to date: {}", canonical.display());
+    } else {
+        println!("OpenAlex index saved to: {}", canonical.display());
+    }
+
+    Ok(())
+}
+
+/// Helper to format bytes as human-readable sizes for the progress bars.
+fn format_bytes_fn(bytes: f64) -> String {
+    if bytes < 1024.0 {
+        format!("{:.0} B", bytes)
+    } else if bytes < 1024.0 * 1024.0 {
+        format!("{:.1} KB", bytes / 1024.0)
+    } else if bytes < 1024.0 * 1024.0 * 1024.0 {
+        format!("{:.1} MB", bytes / 1024.0 / 1024.0)
+    } else {
+        format!("{:.2} GB", bytes / 1024.0 / 1024.0 / 1024.0)
+    }
+}

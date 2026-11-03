@@ -1,0 +1,26 @@
+[package]
+name = "hallucinator-dblp"
+version.workspace = true
+edition.workspace = true
+license = "AGPL-3.0-or-later OR MIT"
+description = "Offline DBLP database builder and querier"
+
+[package.metadata.dist]
+dist = false
+
+[dependencies]
+rusqlite.workspace = true
+reqwest.workspace = true
+regex.workspace = true
+once_cell.workspace = true
+thiserror.workspace = true
+flate2.workspace = true
+rapidfuzz.workspace = true
+tokio.workspace = true
+futures-util.workspace = true
+quick-xml.workspace = true
+tempfile.workspace = true
+
+[dev-dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }

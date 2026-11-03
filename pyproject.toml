@@ -32,19 +32,23 @@ dev = ["pytest>=8", "ruff>=0.6", "pikepdf>=8"]
 [project.scripts]
 peercheck = "peercheck.cli:main"
 
-[tool.setuptools.packages.find]
-where = ["src"]
-include = ["peercheck*"]
+[tool.setuptools]
+# The package peercheck is the folder src/ itself. The tools and data of other authors stay in external/.
+package-dir = {"peercheck" = "src"}
+packages = ["peercheck", "peercheck.checks", "peercheck.reviews"]
 
 [tool.setuptools.package-data]
-peercheck = ["profiles/*.yaml", "data/*.txt", "vendor/**/*"]
+peercheck = ["profiles/*.yaml"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-pythonpath = ["src"]
 
 [tool.ruff]
 line-length = 120
 target-version = "py310"
 # The tools of other authors stay as their authors wrote them.
 extend-exclude = ["external"]
+
+[tool.ruff.lint.isort]
+# The package peercheck sits in src/, which isort cannot match by name.
+known-first-party = ["peercheck"]

@@ -1,7 +1,7 @@
 # Hallucinator in PeerCheck
 
 PeerCheck runs Hallucinator, the reference checker of Stringhini and Blackburn, for its reference check
-(`src/peercheck/checks/references.py`). ACSAC 2025 and ICWSM 2026 ran this tool. PeerCheck
+(`src/checks/references.py`). ACSAC 2025 and ICWSM 2026 ran this tool. PeerCheck
 calls the unchanged command-line binary and changes no file of the tool.
 
 ## Version and license
@@ -9,8 +9,9 @@ calls the unchanged command-line binary and changes no file of the tool.
 - The repository is <https://github.com/gianlucasb/hallucinator>.
 - PeerCheck uses `hallucinator-cli 0.2.4` of release v0.2.4, published on 2026-09-23.
 - The license is AGPL-3.0-or-later, as `Cargo.toml` of the release states. PeerCheck itself uses GPL-3.0.
-- PeerCheck holds no copy of the binary or the source. `install_tools()` downloads the CLI archive of the
-  user's platform from the release at install time.
+- `hallucinator-rs/` and `LICENSE` here are a copy of the Rust source of release v0.2.4, kept for reference. The
+  README of the release stays out. PeerCheck runs no file of this copy. `install_tools()` downloads the CLI
+  archive of the user's platform from the release at install time.
 
 ## Checksums
 
@@ -96,7 +97,7 @@ hallucinator-cli check --config <run>/references/hallucinator.toml --no-color --
   of standard error. A run that writes no JSON report extracted no references.
 - Hallucinator reads retractions from the answers of CrossRef, a source that offline mode disables.
   PeerCheck matches the DOIs of the references against the Retraction Watch CSV instead
-  (`src/peercheck/retraction_watch.py`).
+  (`src/retraction_watch.py`).
 
 ## Matching rules of the tool
 

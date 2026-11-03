@@ -1,0 +1,8 @@
+/target
+/mupdf-rs
+*.db
+*.db-shm
+*.db-wal
+.tmp*
+test-output.txt
+crates/hallucinator-python/Cargo.lock

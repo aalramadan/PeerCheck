@@ -1,0 +1,1685 @@
+//! Per-DB drainer pool for reference validation.
+//!
+//! Architecture: one dedicated drainer task per enabled remote DB (including DOI),
+//! plus coordinator tasks that handle local DBs inline before fanning out
+//! to per-DB drainer queues. Each drainer is the sole consumer of its DB's
+//! rate limiter, eliminating governor contention.
+
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::{Arc, Mutex};
+use std::time::Duration;
+
+use tokio::sync::oneshot;
+use tokio::task::JoinHandle;
+use tokio_util::sync::CancellationToken;
+
+use crate::authors::{
+    db_allows_empty_found_authors, db_has_complete_authors, has_real_authors,
+    validate_authors_with_source,
+};
+use crate::db::DatabaseBackend;
+use crate::db::searxng::Searxng;
+use crate::db::url_check::{UrlChecker, expand_url_variants};
+use crate::db::wayback;
+use crate::orchestrator::{build_database_list, query_local_databases};
+use crate::rate_limit::{self, ArxivIdContext, DbQueryError, DoiContext};
+use crate::{
+    ArxivInfo, Config, DbResult, DbStatus, DoiInfo, MismatchKind, ProgressEvent, Reference, Status,
+    ValidationResult,
+};
+
+// ── Public API (unchanged) ──────────────────────────────────────────────
+
+/// A reference validation job submitted to the pool.
+pub struct RefJob {
+    pub reference: Reference,
+    pub result_tx: oneshot::Sender<ValidationResult>,
+    pub ref_index: usize,
+    pub total: usize,
+    /// Progress callback for this job (emits Checking, Result, Warning, etc.).
+    pub progress: Arc<dyn Fn(ProgressEvent) + Send + Sync>,
+}
+
+/// A pool of coordinator + drainer tasks that process reference validation jobs.
+///
+/// Submit jobs via [`submit()`](ValidationPool::submit), receive results via
+/// the oneshot receiver returned with each job.
+pub struct ValidationPool {
+    job_tx: async_channel::Sender<RefJob>,
+    pool_handle: JoinHandle<()>,
+}
+
+impl ValidationPool {
+    /// Create a new pool with `num_workers` coordinator tasks.
+    ///
+    /// One drainer task is spawned per enabled remote DB. Coordinators handle
+    /// local DBs inline, then fan out to per-DB drainer queues (including DOI).
+    pub fn new(config: Arc<Config>, cancel: CancellationToken, num_workers: usize) -> Self {
+        // Bounded job queue so no single paper can monopolize the pool
+        // by dumping all its refs in a tight await-less loop before
+        // yielding. With an unbounded queue, paper A's submission loop
+        // enqueues all 50 of its refs instantly → the 4 coordinators
+        // drain FIFO → they work on paper A to completion before paper
+        // B ever sees a worker. Visible in the TUI as "only 1-2 paper
+        // progress bars fire at a time".
+        //
+        // Capacity = `num_workers × 4` keeps coordinators fed across a
+        // few scheduler hops without letting any one paper buffer more
+        // than ~16 refs ahead. When the buffer fills, the submitter's
+        // `send.await` suspends, tokio schedules another paper, and
+        // refs naturally interleave — every paper's progress bar
+        // shows activity as soon as its extraction is done.
+        let capacity = num_workers.max(1).saturating_mul(4);
+        let (job_tx, job_rx) = async_channel::bounded::<RefJob>(capacity);
+        // Identify ourselves. reqwest's default UA ("reqwest/X.Y.Z") is
+        // blacklisted by anti-bot filters on some servers (notably NXP's
+        // product pages: curl gets 200, reqwest gets 404), causing URL
+        // liveness checks to report live pages as dead. A polite,
+        // identifiable UA is also standard etiquette for academic API
+        // consumers. Per-request UAs (CrossRef, retraction checks) still
+        // override this client-level default.
+        let client = reqwest::Client::builder()
+            .user_agent(concat!(
+                "hallucinator/",
+                env!("CARGO_PKG_VERSION"),
+                " (+https://github.com/gianlucasb/hallucinator)"
+            ))
+            .pool_max_idle_per_host(2)
+            .pool_idle_timeout(Duration::from_secs(30))
+            .build()
+            .unwrap_or_else(|_| reqwest::Client::new());
+
+        // Build database list and partition into local/remote
+        let all_dbs: Vec<Arc<dyn DatabaseBackend>> = build_database_list(&config, None)
+            .into_iter()
+            .map(Arc::from)
+            .collect();
+        let (local_dbs, remote_dbs): (Vec<_>, Vec<_>) =
+            all_dbs.into_iter().partition(|db| db.is_local());
+
+        // Spawn one drainer per remote DB.
+        let mut drainer_txs: Vec<(String, bool, async_channel::Sender<DrainerJob>)> = Vec::new();
+        let mut drainer_handles: Vec<JoinHandle<()>> = Vec::new();
+
+        for db in remote_dbs {
+            let (tx, rx) = async_channel::unbounded::<DrainerJob>();
+            drainer_txs.push((db.name().to_string(), db.requires_doi(), tx));
+            drainer_handles.push(tokio::spawn(drainer_loop(
+                rx,
+                Arc::clone(&db),
+                config.clone(),
+                client.clone(),
+                cancel.clone(),
+            )));
+        }
+
+        let drainer_txs = Arc::new(drainer_txs);
+
+        // Spawn coordinator tasks
+        let pool_handle = tokio::spawn(async move {
+            let mut coord_handles = Vec::with_capacity(num_workers.max(1));
+
+            for _ in 0..num_workers.max(1) {
+                coord_handles.push(tokio::spawn(coordinator_loop(
+                    job_rx.clone(),
+                    config.clone(),
+                    client.clone(),
+                    cancel.clone(),
+                    local_dbs.clone(),
+                    drainer_txs.clone(),
+                )));
+            }
+
+            // Drop our clone so coordinators are the last holders
+            drop(job_rx);
+
+            // Wait for coordinators to finish (they exit when job_tx closes)
+            for h in coord_handles {
+                let _ = h.await;
+            }
+
+            // All coordinator Arc<drainer_txs> clones are dropped.
+            // Drop the last reference -> senders close -> drainers drain and exit.
+            drop(drainer_txs);
+
+            for h in drainer_handles {
+                let _ = h.await;
+            }
+        });
+
+        Self {
+            job_tx,
+            pool_handle,
+        }
+    }
+
+    /// Get a cloneable sender for submitting jobs from multiple tasks.
+    pub fn sender(&self) -> async_channel::Sender<RefJob> {
+        self.job_tx.clone()
+    }
+
+    /// Submit a job to the pool.
+    pub async fn submit(&self, job: RefJob) {
+        let _ = self.job_tx.send(job).await;
+    }
+
+    /// Close the pool and wait for all coordinators and drainers to finish.
+    pub async fn shutdown(self) {
+        self.job_tx.close();
+        let _ = self.pool_handle.await;
+    }
+}
+
+// ── Internal types ──────────────────────────────────────────────────────
+
+/// Per-ref aggregation hub. Created by a coordinator, shared by all drainers
+/// working on that ref. The last drainer to decrement `remaining` calls
+/// [`finalize_collector`].
+struct RefCollector {
+    reference: Reference,
+    ref_index: usize,
+    total: usize,
+    title: String,
+    progress: Arc<dyn Fn(ProgressEvent) + Send + Sync>,
+    config: Arc<Config>,
+    client: reqwest::Client,
+
+    /// Number of drainers still to report. Each drainer decrements once.
+    remaining: AtomicUsize,
+    /// Set to true when any drainer verifies. Other drainers check this to skip work.
+    verified: AtomicBool,
+
+    /// Aggregation state (single Mutex, held briefly).
+    state: Mutex<AggState>,
+
+    /// Oneshot sender, taken exactly once by [`finalize_collector`].
+    result_tx: Mutex<Option<oneshot::Sender<ValidationResult>>>,
+
+    /// DB results from the local phase (carried forward for merging).
+    local_result: crate::orchestrator::DbSearchResult,
+}
+
+/// Mutable aggregation state protected by a Mutex.
+struct AggState {
+    verified_info: Option<VerifiedInfo>,
+    first_mismatch: Option<MismatchInfo>,
+    failed_dbs: Vec<String>,
+    db_results: Vec<DbResult>,
+    /// Retraction info extracted inline from CrossRef response (if any).
+    retraction: Option<crate::retraction::RetractionResult>,
+}
+
+/// Scan finished DB results for a *phantom* author mismatch: a complete-author
+/// database (arXiv, CrossRef, OpenAlex, …) that matched the title but whose
+/// full author list is a strict subset of the citation's authors (the citation
+/// padded on an extra/fake co-author).
+///
+/// This is authoritative — it overrides a lenient verify from a truncating
+/// index (DBLP) that indexes the same paper, because the complete source's full
+/// roster contradicts the citation. The strict-subset shape rules out a
+/// same-title-different-paper collision (that shows disjoint, not extra,
+/// authors), so it stays quiet on real citations.
+pub(crate) fn find_phantom_mismatch(
+    db_results: &[DbResult],
+    ref_authors: &[String],
+) -> Option<PhantomMismatch> {
+    // A citation that carries an "et al." (or "and others") marker is an
+    // explicitly *truncated* author list, so extra names in the record — or a
+    // shorter record — are expected, not phantoms. Skip the check entirely
+    // rather than count the marker itself as an added author.
+    let is_truncation_marker = |a: &str| {
+        let t = a.trim().to_lowercase();
+        let t = t.trim_end_matches('.').trim();
+        t == "et al" || t == "et.al" || t == "others" || t == "and others" || t.ends_with(" et al")
+    };
+    if ref_authors.iter().any(|a| is_truncation_marker(a)) {
+        return None;
+    }
+
+    let ref_fps: std::collections::HashSet<String> = ref_authors
+        .iter()
+        .filter_map(|a| crate::cache::author_fingerprint(a))
+        .collect();
+    if ref_fps.is_empty() {
+        return None;
+    }
+
+    // Every author corroborated by *any* database that returned a roster. Used
+    // to tell a fabricated author (appears in no source) apart from a real one
+    // that a complete index merely omitted for this paper — e.g. an arXiv
+    // record whose version predates a co-author that DBLP/CrossRef still list.
+    let corroborated_fps: std::collections::HashSet<String> = db_results
+        .iter()
+        .flat_map(|r| r.found_authors.iter())
+        .filter_map(|a| crate::cache::author_fingerprint(a))
+        .collect();
+
+    db_results.iter().find_map(|r| {
+        if r.status != DbStatus::AuthorMismatch || !db_has_complete_authors(&r.db_name) {
+            return None;
+        }
+        let found_fps: std::collections::HashSet<String> = r
+            .found_authors
+            .iter()
+            .filter_map(|a| crate::cache::author_fingerprint(a))
+            .collect();
+        if found_fps.is_empty() || !found_fps.is_subset(&ref_fps) {
+            return None;
+        }
+        // The citation's extra authors (present in the citation, absent from
+        // this complete source). Flag only when *every* extra is corroborated
+        // by no other database — a genuine phantom rather than a co-author this
+        // source happened to miss.
+        let phantoms: Vec<&String> = ref_fps.difference(&found_fps).collect();
+        if !phantoms.is_empty() && phantoms.iter().all(|fp| !corroborated_fps.contains(*fp)) {
+            Some(PhantomMismatch {
+                source: r.db_name.clone(),
+                found_authors: r.found_authors.clone(),
+                paper_url: r.paper_url.clone(),
+            })
+        } else {
+            None
+        }
+    })
+}
+
+/// An authoritative phantom author mismatch surfaced by [`find_phantom_mismatch`].
+pub(crate) struct PhantomMismatch {
+    pub source: String,
+    pub found_authors: Vec<String>,
+    pub paper_url: Option<String>,
+}
+
+struct VerifiedInfo {
+    source: String,
+    found_authors: Vec<String>,
+    paper_url: Option<String>,
+}
+
+struct MismatchInfo {
+    source: String,
+    found_authors: Vec<String>,
+    paper_url: Option<String>,
+}
+
+/// A job submitted to a drainer's queue.
+struct DrainerJob {
+    collector: Arc<RefCollector>,
+}
+
+// ── Drainer ─────────────────────────────────────────────────────────────
+
+/// Drainer task for a remote DB. Processes refs sequentially at the DB's natural
+/// rate. Multiple drainers may share a channel for the same DB to pipeline
+/// requests when response time exceeds the governor interval.
+async fn drainer_loop(
+    rx: async_channel::Receiver<DrainerJob>,
+    db: Arc<dyn DatabaseBackend>,
+    config: Arc<Config>,
+    client: reqwest::Client,
+    cancel: CancellationToken,
+) {
+    let timeout = Duration::from_secs(config.db_timeout_secs);
+    let rate_limiters = config.rate_limiters.clone();
+    let cache = config.query_cache.clone();
+    let requires_doi = db.requires_doi();
+
+    while let Ok(job) = rx.recv().await {
+        let collector = &job.collector;
+
+        // Skip remaining jobs after cancellation
+        if cancel.is_cancelled() {
+            tracing::debug!(db = db.name(), title = %collector.title, "skipping: cancelled");
+            skip_and_decrement(collector, db.name()).await;
+            continue;
+        }
+
+        // Skip if already verified by another drainer
+        if collector.verified.load(Ordering::Acquire) {
+            tracing::debug!(db = db.name(), title = %collector.title, "skipping: already verified");
+            skip_and_decrement(collector, db.name()).await;
+            continue;
+        }
+
+        // DOI-requiring backends skip refs without a DOI
+        if requires_doi && collector.reference.doi.is_none() {
+            tracing::debug!(db = db.name(), title = %collector.title, "skipping: no DOI");
+            skip_and_decrement(collector, db.name()).await;
+            continue;
+        }
+
+        // Build DOI context if this ref has a DOI (used by DOI backend)
+        let doi_ctx = collector.reference.doi.as_deref().map(|doi| DoiContext {
+            doi,
+            authors: &collector.reference.authors,
+        });
+
+        // Build arXiv ID context if this ref has an arXiv ID (used by arXiv backend)
+        let arxiv_id_ctx = collector
+            .reference
+            .arxiv_id
+            .as_deref()
+            .map(|arxiv_id| ArxivIdContext {
+                arxiv_id,
+                authors: &collector.reference.authors,
+            });
+
+        // Query (includes cache check + governor acquire + HTTP call).
+        // `collector.reference.authors` is forwarded for the title-based
+        // fallback so DBLP (and other backends that override
+        // `query_with_authors`) can break ties among records that share
+        // a title.
+        let rl_result = rate_limit::query_with_rate_limit(
+            db.as_ref(),
+            &collector.title,
+            &collector.reference.authors,
+            &client,
+            timeout,
+            &rate_limiters,
+            cache.as_deref(),
+            doi_ctx.as_ref(),
+            arxiv_id_ctx.as_ref(),
+        )
+        .await;
+
+        // Process result and decrement remaining
+        report_result(collector, db.name(), rl_result).await;
+    }
+}
+
+/// Emit a Skipped event and decrement the collector's remaining counter.
+async fn skip_and_decrement(collector: &RefCollector, db_name: &str) {
+    (collector.progress)(ProgressEvent::DatabaseQueryComplete {
+        paper_index: 0,
+        ref_index: collector.ref_index,
+        db_name: db_name.to_string(),
+        status: DbStatus::Skipped,
+        elapsed: Duration::ZERO,
+    });
+
+    {
+        let mut state = collector.state.lock().unwrap_or_else(|e| e.into_inner());
+        state.db_results.push(DbResult {
+            db_name: db_name.to_string(),
+            status: DbStatus::Skipped,
+            elapsed: None,
+            found_authors: vec![],
+            paper_url: None,
+            error_message: None,
+        });
+    }
+
+    if collector.remaining.fetch_sub(1, Ordering::AcqRel) == 1 {
+        finalize_collector(collector).await;
+    }
+}
+
+/// Process a DB query result, update the collector's aggregation state,
+/// and decrement the remaining counter (finalizing if last).
+async fn report_result(
+    collector: &RefCollector,
+    db_name: &str,
+    rl_result: rate_limit::RateLimitedResult,
+) {
+    let elapsed = rl_result.elapsed;
+    let check_openalex_authors = collector.config.check_openalex_authors;
+
+    match rl_result.result {
+        Ok(ref qr) if qr.is_found() => {
+            let found_authors = &qr.authors;
+            let paper_url = &qr.paper_url;
+            let ref_authors = &collector.reference.authors;
+            // Same leniency as the single-reference path in orchestrator.rs:
+            // a placeholder-only ref author list ("Anonymous", "___") has
+            // nothing to compare, and some sources (Web Search, DBLP,
+            // Standards) legitimately return no authors at all — see
+            // `has_real_authors` / `db_allows_empty_found_authors`.
+            let skip_author_check =
+                db_allows_empty_found_authors(db_name) && found_authors.is_empty();
+            if !has_real_authors(ref_authors)
+                || skip_author_check
+                || validate_authors_with_source(
+                    ref_authors,
+                    found_authors,
+                    db_has_complete_authors(db_name),
+                )
+            {
+                // Verified — set flag so other drainers can skip
+                collector.verified.store(true, Ordering::Release);
+
+                (collector.progress)(ProgressEvent::DatabaseQueryComplete {
+                    paper_index: 0,
+                    ref_index: collector.ref_index,
+                    db_name: db_name.to_string(),
+                    status: DbStatus::Match,
+                    elapsed,
+                });
+
+                let mut state = collector.state.lock().unwrap_or_else(|e| e.into_inner());
+                state.db_results.push(DbResult {
+                    db_name: db_name.to_string(),
+                    status: DbStatus::Match,
+                    elapsed: Some(elapsed),
+                    found_authors: found_authors.clone(),
+                    paper_url: paper_url.clone(),
+                    error_message: None,
+                });
+                if state.verified_info.is_none() {
+                    state.verified_info = Some(VerifiedInfo {
+                        source: qr
+                            .source_label
+                            .clone()
+                            .unwrap_or_else(|| db_name.to_string()),
+                        found_authors: found_authors.clone(),
+                        paper_url: paper_url.clone(),
+                    });
+                }
+                // Capture inline retraction info (populated by CrossRef)
+                if let Some(ref retraction) = qr.retraction
+                    && retraction.retracted
+                    && state.retraction.is_none()
+                {
+                    state.retraction = Some(retraction.clone());
+                }
+            } else {
+                // Author mismatch
+                (collector.progress)(ProgressEvent::DatabaseQueryComplete {
+                    paper_index: 0,
+                    ref_index: collector.ref_index,
+                    db_name: db_name.to_string(),
+                    status: DbStatus::AuthorMismatch,
+                    elapsed,
+                });
+
+                let mut state = collector.state.lock().unwrap_or_else(|e| e.into_inner());
+                state.db_results.push(DbResult {
+                    db_name: db_name.to_string(),
+                    status: DbStatus::AuthorMismatch,
+                    elapsed: Some(elapsed),
+                    found_authors: found_authors.clone(),
+                    paper_url: paper_url.clone(),
+                    error_message: None,
+                });
+                // For short/ambiguous titles, suppress mismatch
+                let title = collector.reference.title.as_deref().unwrap_or("");
+                let is_short_title = title.split_whitespace().count() < 6;
+
+                // Suppress mismatch when zero surname overlap from fuzzy DBs
+                let zero_overlap = if !ref_authors.is_empty() && !found_authors.is_empty() {
+                    let ref_surnames: std::collections::HashSet<String> = ref_authors
+                        .iter()
+                        .filter_map(|a| {
+                            let s = crate::authors::get_last_name_public(a);
+                            if s.is_empty() { None } else { Some(s) }
+                        })
+                        .collect();
+                    let found_surnames: std::collections::HashSet<String> = found_authors
+                        .iter()
+                        .filter_map(|a| {
+                            let s = crate::authors::get_last_name_public(a);
+                            if s.is_empty() { None } else { Some(s) }
+                        })
+                        .collect();
+                    ref_surnames.is_disjoint(&found_surnames)
+                } else {
+                    false
+                };
+                let is_fuzzy_db = matches!(
+                    db_name,
+                    "CrossRef" | "Semantic Scholar" | "Europe PMC" | "PubMed"
+                );
+                let suppress_zero_overlap = zero_overlap && is_fuzzy_db;
+
+                if state.first_mismatch.is_none()
+                    && (db_name != "OpenAlex" || check_openalex_authors)
+                    && !is_short_title
+                    && !suppress_zero_overlap
+                {
+                    state.first_mismatch = Some(MismatchInfo {
+                        source: qr
+                            .source_label
+                            .clone()
+                            .unwrap_or_else(|| db_name.to_string()),
+                        found_authors: found_authors.clone(),
+                        paper_url: paper_url.clone(),
+                    });
+                }
+            }
+        }
+        Ok(_) => {
+            (collector.progress)(ProgressEvent::DatabaseQueryComplete {
+                paper_index: 0,
+                ref_index: collector.ref_index,
+                db_name: db_name.to_string(),
+                status: DbStatus::NoMatch,
+                elapsed,
+            });
+
+            let mut state = collector.state.lock().unwrap_or_else(|e| e.into_inner());
+            state.db_results.push(DbResult {
+                db_name: db_name.to_string(),
+                status: DbStatus::NoMatch,
+                elapsed: Some(elapsed),
+                found_authors: vec![],
+                paper_url: None,
+                error_message: None,
+            });
+        }
+        Err(ref err) => {
+            let status = if matches!(err, DbQueryError::RateLimited { .. }) {
+                DbStatus::RateLimited
+            } else {
+                DbStatus::Error
+            };
+            (collector.progress)(ProgressEvent::DatabaseQueryComplete {
+                paper_index: 0,
+                ref_index: collector.ref_index,
+                db_name: db_name.to_string(),
+                status: status.clone(),
+                elapsed,
+            });
+
+            let mut state = collector.state.lock().unwrap_or_else(|e| e.into_inner());
+            state.db_results.push(DbResult {
+                db_name: db_name.to_string(),
+                status,
+                elapsed: Some(elapsed),
+                found_authors: vec![],
+                paper_url: None,
+                error_message: Some(err.to_string()),
+            });
+            tracing::debug!(db = db_name, error = %err, "query error");
+            state.failed_dbs.push(db_name.to_string());
+        }
+    }
+
+    if collector.remaining.fetch_sub(1, Ordering::AcqRel) == 1 {
+        finalize_collector(collector).await;
+    }
+}
+
+/// Run the URL-liveness and SearxNG web-search fallbacks when the primary
+/// DB aggregation came back `NotFound`. Returns the possibly-updated
+/// `(status, source, found_authors, paper_url, db_results)` tuple.
+///
+/// Shared by three call sites in `pool.rs`:
+///
+///   * `finalize_collector` — after concurrent drainers finish.
+///   * `coordinator_loop`'s no-remote-DBs branch — when the user has
+///     disabled every remote backend.
+///   * `coordinator_loop`'s all-cache-hit-none-verified branch — where
+///     this used to be missing. Regression symptom: on a fresh run the
+///     URL-check fallback correctly verified refs that only lived on
+///     GitHub / blog posts, but on any subsequent run against the same
+///     cache every remote DB was a NotFound cache hit, the branch skipped
+///     straight to building a `Status::NotFound` result, and URL Check
+///     never ran — so previously-URL-verified refs came back as
+///     hallucinations. Folding all three sites through this helper makes
+///     it harder for one to drift again.
+///
+/// The retraction field is *not* touched here (it's threaded through
+/// separately from the cached CrossRef response).
+#[allow(clippy::too_many_arguments)] // fallback surface area is what it is
+async fn apply_fallbacks(
+    status: Status,
+    source: Option<String>,
+    found_authors: Vec<String>,
+    paper_url: Option<String>,
+    mut db_results: Vec<DbResult>,
+    urls: &[String],
+    title: &str,
+    config: &Config,
+    client: &reqwest::Client,
+    progress: &(dyn Fn(ProgressEvent) + Send + Sync),
+    ref_index: usize,
+    // The trailing `bool` is `url_check_skipped`: true iff the ref finishes
+    // NotFound with a non-academic URL that would have been checked
+    // (URL Check / Wayback) if `config.url_match` were enabled. Propagated
+    // onto `ValidationResult.url_check_skipped` so reporting can render
+    // these as "skipped" instead of "not_found".
+) -> (
+    Status,
+    Option<String>,
+    Vec<String>,
+    Option<String>,
+    Vec<DbResult>,
+    bool,
+) {
+    // Expand URL separator variants (see `expand_url_variants` docs).
+    // URL Check and Wayback both operate on this expanded list so that
+    // URLs whose `_`/`-`/<none> separator got guessed wrong during
+    // extraction still have a chance to resolve.
+    let candidate_urls: Vec<String> = if urls.is_empty() {
+        Vec::new()
+    } else {
+        expand_url_variants(urls)
+    };
+
+    // ── URL liveness check ─────────────────────────────────────────────
+    // Gated on `config.url_match`: when off, the ref will finish with
+    // `url_check_skipped = true` (computed below) and reporting will
+    // treat it as skipped rather than as a potential hallucination.
+    if config.url_match && status == Status::NotFound && !candidate_urls.is_empty() {
+        let timeout = Duration::from_secs(config.db_timeout_secs);
+        let start = std::time::Instant::now();
+        let url_result = UrlChecker::check_first_live(&candidate_urls, client, timeout).await;
+        let elapsed = start.elapsed();
+
+        if let Some(url_result) = url_result {
+            let url = url_result.final_url.unwrap_or(url_result.url);
+            progress(ProgressEvent::DatabaseQueryComplete {
+                paper_index: 0,
+                ref_index,
+                db_name: "URL Check".to_string(),
+                status: DbStatus::Match,
+                elapsed,
+            });
+            db_results.push(DbResult {
+                db_name: "URL Check".into(),
+                status: DbStatus::Match,
+                elapsed: Some(elapsed),
+                found_authors: vec![],
+                paper_url: Some(url.clone()),
+                error_message: None,
+            });
+            return (
+                Status::Verified,
+                Some("URL Check".into()),
+                vec![],
+                Some(url),
+                db_results,
+                false,
+            );
+        }
+        progress(ProgressEvent::DatabaseQueryComplete {
+            paper_index: 0,
+            ref_index,
+            db_name: "URL Check".to_string(),
+            status: DbStatus::NoMatch,
+            elapsed,
+        });
+        // Surface the no_match in `db_results` too. The match branch
+        // above pushes a DbResult entry before early-return, so the
+        // no_match branch was the only place the URL Check row was
+        // silently missing from the reported per-reference breakdown.
+        // JSON consumers and the TUI drilldown previously could not
+        // distinguish "URL Check wasn't tried" from "URL Check tried
+        // and didn't verify" for the same ref shape — both showed no
+        // URL Check row.
+        db_results.push(DbResult {
+            db_name: "URL Check".into(),
+            status: DbStatus::NoMatch,
+            elapsed: Some(elapsed),
+            found_authors: vec![],
+            paper_url: None,
+            error_message: None,
+        });
+    }
+
+    // ── Wayback Machine fallback ───────────────────────────────────────
+    //
+    // URL Check didn't find anything live at any of the cited URLs — but
+    // the URLs may have been live when the citation was written and
+    // since 404'd (link rot). If the Internet Archive has a valid
+    // snapshot, that's strong evidence the citation was real; report the
+    // archived URL so the user can read the captured content.
+    //
+    // Gated on `config.url_match` alongside URL Check — the user's
+    // "URL checking (including wayback machine)" covers both.
+    if config.url_match && status == Status::NotFound && !candidate_urls.is_empty() {
+        let timeout = Duration::from_secs(config.db_timeout_secs);
+        let start = std::time::Instant::now();
+        let wayback_result = wayback::check_first_snapshot(&candidate_urls, client, timeout).await;
+        let elapsed = start.elapsed();
+
+        if let Some(result) = wayback_result {
+            progress(ProgressEvent::DatabaseQueryComplete {
+                paper_index: 0,
+                ref_index,
+                db_name: "Wayback Machine".to_string(),
+                status: DbStatus::Match,
+                elapsed,
+            });
+            db_results.push(DbResult {
+                db_name: "Wayback Machine".into(),
+                status: DbStatus::Match,
+                elapsed: Some(elapsed),
+                found_authors: vec![],
+                paper_url: Some(result.snapshot_url.clone()),
+                error_message: None,
+            });
+            return (
+                Status::Verified,
+                Some("Wayback Machine".into()),
+                vec![],
+                Some(result.snapshot_url),
+                db_results,
+                false,
+            );
+        }
+        progress(ProgressEvent::DatabaseQueryComplete {
+            paper_index: 0,
+            ref_index,
+            db_name: "Wayback Machine".to_string(),
+            status: DbStatus::NoMatch,
+            elapsed,
+        });
+        // Mirror the URL Check fix: surface the attempt in db_results
+        // so JSON consumers can tell a failed lookup apart from one
+        // that was never tried.
+        db_results.push(DbResult {
+            db_name: "Wayback Machine".into(),
+            status: DbStatus::NoMatch,
+            elapsed: Some(elapsed),
+            found_authors: vec![],
+            paper_url: None,
+            error_message: None,
+        });
+    }
+
+    // ── SearxNG web-search fallback ────────────────────────────────────
+    if status == Status::NotFound
+        && let Some(ref searxng_url) = config.searxng_url
+    {
+        let searxng = Searxng::new(searxng_url.clone());
+        let timeout = Duration::from_secs(config.db_timeout_secs);
+        let start = std::time::Instant::now();
+        let searxng_result = searxng.query(title, client, timeout).await;
+        let elapsed = start.elapsed();
+
+        if let Ok(ref qr) = searxng_result
+            && qr.is_found()
+        {
+            let url = qr.paper_url.clone();
+            progress(ProgressEvent::DatabaseQueryComplete {
+                paper_index: 0,
+                ref_index,
+                db_name: "Web Search".to_string(),
+                status: DbStatus::Match,
+                elapsed,
+            });
+            db_results.push(DbResult {
+                db_name: "Web Search".into(),
+                status: DbStatus::Match,
+                elapsed: Some(elapsed),
+                found_authors: vec![],
+                paper_url: url.clone(),
+                error_message: None,
+            });
+            return (
+                Status::Verified,
+                Some("Web Search".into()),
+                vec![],
+                url,
+                db_results,
+                false,
+            );
+        }
+        progress(ProgressEvent::DatabaseQueryComplete {
+            paper_index: 0,
+            ref_index,
+            db_name: "Web Search".to_string(),
+            status: DbStatus::NoMatch,
+            elapsed,
+        });
+        db_results.push(DbResult {
+            db_name: "Web Search".into(),
+            status: DbStatus::NoMatch,
+            elapsed: Some(elapsed),
+            found_authors: vec![],
+            paper_url: None,
+            error_message: None,
+        });
+    }
+
+    // Compute the url_check_skipped marker for the return path. True
+    // iff the ref would have been URL-checked / Wayback-checked had
+    // `config.url_match` been on — that is: NotFound with non-academic
+    // URLs still on hand. Academic URLs (arxiv.org, doi.org, …) never
+    // reach `candidate_urls` because `text_utils::extract_urls` filters
+    // them at parse time, so fake-arXiv-ID / fake-DOI refs stay
+    // NotFound here regardless of the flag.
+    let url_check_skipped =
+        !config.url_match && status == Status::NotFound && !candidate_urls.is_empty();
+
+    (
+        status,
+        source,
+        found_authors,
+        paper_url,
+        db_results,
+        url_check_skipped,
+    )
+}
+
+/// Build the final result and send it on the oneshot channel.
+///
+/// Called exactly once, by whichever drainer decrements `remaining` to 0.
+async fn finalize_collector(collector: &RefCollector) {
+    let (
+        status,
+        source,
+        found_authors,
+        paper_url,
+        remote_failed_dbs,
+        remote_db_results,
+        inline_retraction,
+    ) = {
+        let state = collector.state.lock().unwrap_or_else(|e| e.into_inner());
+
+        if let Some(ref v) = state.verified_info {
+            (
+                Status::Verified,
+                Some(v.source.clone()),
+                v.found_authors.clone(),
+                v.paper_url.clone(),
+                state.failed_dbs.clone(),
+                state.db_results.clone(),
+                state.retraction.clone(),
+            )
+        } else if let Some(ref m) = state.first_mismatch {
+            (
+                Status::Mismatch(MismatchKind::AUTHOR),
+                Some(m.source.clone()),
+                m.found_authors.clone(),
+                m.paper_url.clone(),
+                state.failed_dbs.clone(),
+                state.db_results.clone(),
+                None,
+            )
+        } else {
+            (
+                Status::NotFound,
+                None,
+                vec![],
+                None,
+                state.failed_dbs.clone(),
+                state.db_results.clone(),
+                None,
+            )
+        }
+    };
+
+    // URL liveness + SearxNG fallbacks (shared helper)
+    let (status, source, found_authors, paper_url, remote_db_results, url_check_skipped) =
+        apply_fallbacks(
+            status,
+            source,
+            found_authors,
+            paper_url,
+            remote_db_results,
+            &collector.reference.urls,
+            &collector.title,
+            &collector.config,
+            &collector.client,
+            collector.progress.as_ref(),
+            collector.ref_index,
+        )
+        .await;
+
+    // Merge local + remote results
+    let mut all_db_results = collector.local_result.db_results.clone();
+    all_db_results.extend(remote_db_results);
+
+    let mut all_failed_dbs = collector.local_result.failed_dbs.clone();
+    all_failed_dbs.extend(remote_failed_dbs);
+
+    // Build doi_info from reference DOI + DOI drainer result
+    // Only mark as invalid if we got a definitive NoMatch - not for timeouts/errors
+    let doi_info = collector.reference.doi.as_ref().map(|doi| {
+        let doi_result = all_db_results.iter().find(|r| r.db_name == "DOI");
+        let valid = match doi_result {
+            Some(r) => !matches!(r.status, DbStatus::NoMatch),
+            None => true, // No result yet, assume valid
+        };
+        DoiInfo {
+            doi: doi.clone(),
+            valid,
+            title: None,
+        }
+    });
+
+    // Build arxiv_info from reference arXiv ID + arXiv drainer result
+    // Only mark as invalid if we got a definitive NoMatch - not for timeouts/errors
+    let arxiv_info = collector.reference.arxiv_id.as_ref().map(|arxiv_id| {
+        let arxiv_result = all_db_results.iter().find(|r| r.db_name == "arXiv");
+        let valid = match arxiv_result {
+            Some(r) => !matches!(r.status, DbStatus::NoMatch),
+            None => true, // No result yet, assume valid
+        };
+        ArxivInfo {
+            arxiv_id: arxiv_id.clone(),
+            valid,
+            title: None,
+        }
+    });
+
+    // Add DOI/arXiv mismatch flags if paper is verified but identifiers are invalid
+    let status = if status == Status::Verified {
+        let mut mismatch_kind = MismatchKind::empty();
+        if let Some(ref di) = doi_info
+            && !di.valid
+        {
+            mismatch_kind |= MismatchKind::DOI;
+        }
+        if let Some(ref ai) = arxiv_info
+            && !ai.valid
+        {
+            mismatch_kind |= MismatchKind::ARXIV_ID;
+        }
+        if mismatch_kind.is_empty() {
+            Status::Verified
+        } else {
+            Status::Mismatch(mismatch_kind)
+        }
+    } else {
+        status
+    };
+
+    // Retraction info: use inline data from CrossRef response (no extra API call)
+    let retraction_info = if status == Status::Verified {
+        inline_retraction.and_then(|r| {
+            if r.retracted {
+                Some(crate::RetractionInfo {
+                    is_retracted: true,
+                    retraction_doi: r.retraction_doi,
+                    retraction_source: r.retraction_type,
+                })
+            } else {
+                None
+            }
+        })
+    } else {
+        None
+    };
+
+    let result = ValidationResult {
+        title: collector.title.clone(),
+        raw_citation: collector.reference.raw_citation.clone(),
+        ref_authors: collector.reference.authors.clone(),
+        status,
+        source,
+        found_authors,
+        paper_url,
+        failed_dbs: all_failed_dbs,
+        db_results: all_db_results,
+        doi_info,
+        arxiv_info,
+        retraction_info,
+        url_check_skipped,
+    };
+
+    emit_final_events(
+        collector.progress.as_ref(),
+        &result,
+        collector.ref_index,
+        collector.total,
+        &collector.title,
+    );
+
+    let tx = collector
+        .result_tx
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .take();
+    if let Some(tx) = tx {
+        let _ = tx.send(result);
+    }
+}
+
+// ── Cache pre-check ─────────────────────────────────────────────────────
+
+/// Pre-check result from scanning the cache for all remote DBs.
+struct CachePreCheck {
+    /// DB results from cache hits.
+    db_results: Vec<DbResult>,
+    /// Verified match info, if any cache hit resolved to Verified.
+    verified_info: Option<VerifiedInfo>,
+    /// First author mismatch from cache, if any.
+    first_mismatch: Option<MismatchInfo>,
+    /// Indices into drainer_txs for DBs that had cache misses.
+    miss_indices: Vec<usize>,
+    /// Retraction info from cached CrossRef response (if any).
+    retraction: Option<crate::retraction::RetractionResult>,
+}
+
+/// Check cache for all remote DBs before dispatching to drainers.
+///
+/// This eliminates a race condition where a fast cache hit in one drainer
+/// sets `verified`, causing other drainers to skip before checking their
+/// own cache entries — preventing those entries from ever being populated.
+///
+/// Does NOT emit progress events — the caller is responsible for emitting
+/// Skipped events for cache-hit DBs to decrement in-flight counters.
+fn pre_check_remote_cache(
+    cache: Option<&crate::cache::QueryCache>,
+    title: &str,
+    ref_authors: &[String],
+    drainer_txs: &[(String, bool, async_channel::Sender<DrainerJob>)],
+    check_openalex_authors: bool,
+    has_doi: bool,
+) -> CachePreCheck {
+    let cache = match cache {
+        Some(c) => c,
+        None => {
+            return CachePreCheck {
+                db_results: vec![],
+                verified_info: None,
+                first_mismatch: None,
+                miss_indices: (0..drainer_txs.len())
+                    .filter(|&i| has_doi || !drainer_txs[i].1)
+                    .collect(),
+                retraction: None,
+            };
+        }
+    };
+
+    let mut db_results = Vec::new();
+    let mut verified_info: Option<VerifiedInfo> = None;
+    let mut first_mismatch: Option<MismatchInfo> = None;
+    let mut miss_indices = Vec::new();
+    let mut retraction: Option<crate::retraction::RetractionResult> = None;
+
+    for (i, (db_name, requires_doi, _)) in drainer_txs.iter().enumerate() {
+        // Skip DOI-requiring backends for refs without a DOI
+        if *requires_doi && !has_doi {
+            continue;
+        }
+        match cache.get(title, db_name) {
+            Some(qr) if qr.is_found() => {
+                // Capture retraction info from cached CrossRef result
+                if let Some(ref r) = qr.retraction
+                    && r.retracted
+                    && retraction.is_none()
+                {
+                    retraction = Some(r.clone());
+                }
+
+                let skip_author_check =
+                    db_allows_empty_found_authors(db_name) && qr.authors.is_empty();
+                if !has_real_authors(ref_authors)
+                    || skip_author_check
+                    || validate_authors_with_source(
+                        ref_authors,
+                        &qr.authors,
+                        db_has_complete_authors(db_name),
+                    )
+                {
+                    db_results.push(DbResult {
+                        db_name: db_name.clone(),
+                        status: DbStatus::Match,
+                        elapsed: Some(Duration::ZERO),
+                        found_authors: qr.authors.clone(),
+                        paper_url: qr.paper_url.clone(),
+                        error_message: None,
+                    });
+                    if verified_info.is_none() {
+                        verified_info = Some(VerifiedInfo {
+                            source: qr.source_label.clone().unwrap_or_else(|| db_name.clone()),
+                            found_authors: qr.authors,
+                            paper_url: qr.paper_url,
+                        });
+                    }
+                } else {
+                    db_results.push(DbResult {
+                        db_name: db_name.clone(),
+                        status: DbStatus::AuthorMismatch,
+                        elapsed: Some(Duration::ZERO),
+                        found_authors: qr.authors.clone(),
+                        paper_url: qr.paper_url.clone(),
+                        error_message: None,
+                    });
+                    // Apply short-title and zero-overlap suppression
+                    let is_short_title = title.split_whitespace().count() < 6;
+                    let zero_overlap_cache = if !ref_authors.is_empty() && !qr.authors.is_empty() {
+                        let ref_surnames: std::collections::HashSet<String> = ref_authors
+                            .iter()
+                            .filter_map(|a| {
+                                let s = crate::authors::get_last_name_public(a);
+                                if s.is_empty() { None } else { Some(s) }
+                            })
+                            .collect();
+                        let found_surnames: std::collections::HashSet<String> = qr
+                            .authors
+                            .iter()
+                            .filter_map(|a| {
+                                let s = crate::authors::get_last_name_public(a);
+                                if s.is_empty() { None } else { Some(s) }
+                            })
+                            .collect();
+                        ref_surnames.is_disjoint(&found_surnames)
+                    } else {
+                        false
+                    };
+                    let is_fuzzy_db_cache = matches!(
+                        db_name.as_str(),
+                        "CrossRef" | "Semantic Scholar" | "Europe PMC" | "PubMed"
+                    );
+                    let suppress = zero_overlap_cache && is_fuzzy_db_cache;
+
+                    if first_mismatch.is_none()
+                        && (db_name != "OpenAlex" || check_openalex_authors)
+                        && !is_short_title
+                        && !suppress
+                    {
+                        first_mismatch = Some(MismatchInfo {
+                            source: qr.source_label.clone().unwrap_or_else(|| db_name.clone()),
+                            found_authors: qr.authors,
+                            paper_url: qr.paper_url,
+                        });
+                    }
+                }
+            }
+            Some(_) => {
+                db_results.push(DbResult {
+                    db_name: db_name.clone(),
+                    status: DbStatus::NoMatch,
+                    elapsed: Some(Duration::ZERO),
+                    found_authors: vec![],
+                    paper_url: None,
+                    error_message: None,
+                });
+            }
+            None => {
+                miss_indices.push(i);
+            }
+        }
+    }
+
+    let hits = db_results.len();
+    let misses = miss_indices.len();
+    let verified = verified_info.is_some();
+    tracing::debug!(title, hits, misses, verified, "cache pre-check complete");
+
+    CachePreCheck {
+        db_results,
+        verified_info,
+        first_mismatch,
+        miss_indices,
+        retraction,
+    }
+}
+
+// ── Coordinator ─────────────────────────────────────────────────────────
+
+/// Coordinator loop: pick a ref, run local DBs inline, fan out to drainers.
+async fn coordinator_loop(
+    job_rx: async_channel::Receiver<RefJob>,
+    config: Arc<Config>,
+    client: reqwest::Client,
+    cancel: CancellationToken,
+    _local_dbs: Vec<Arc<dyn DatabaseBackend>>,
+    drainer_txs: Arc<Vec<(String, bool, async_channel::Sender<DrainerJob>)>>,
+) {
+    while let Ok(job) = job_rx.recv().await {
+        if cancel.is_cancelled() {
+            break;
+        }
+
+        let RefJob {
+            reference,
+            result_tx,
+            ref_index,
+            total,
+            progress,
+        } = job;
+
+        let title = reference.title.clone().unwrap_or_default();
+
+        // Emit Checking event
+        progress(ProgressEvent::Checking {
+            index: ref_index,
+            total,
+            title: title.clone(),
+        });
+
+        // --- Local DB phase (inline, <1ms) ---
+        let db_complete_cb = make_db_callback(progress.clone(), ref_index);
+        let local_result = query_local_databases(
+            &title,
+            &reference.authors,
+            &config,
+            &client,
+            false,
+            None,
+            Some(&db_complete_cb),
+            reference.doi.as_deref(),
+            reference.arxiv_id.as_deref(),
+        )
+        .await;
+
+        if local_result.status == Status::Verified {
+            // query_local_databases already emitted Skipped for remaining DBs
+            // (including remote) via the on_db_complete callback
+            let result = build_validation_result(&reference, &title, local_result, None);
+            emit_final_events(progress.as_ref(), &result, ref_index, total, &title);
+            let _ = result_tx.send(result);
+            continue;
+        }
+
+        // --- Fan out to drainer queues ---
+        if drainer_txs.is_empty() {
+            // No remote DBs enabled — URL-check + SearxNG fallbacks only
+            // (on NotFound). The helper is a no-op when status is already
+            // Verified or Mismatch, so we always pass through it.
+            let (status, source, found_authors, paper_url, db_results, url_check_skipped) =
+                apply_fallbacks(
+                    local_result.status.clone(),
+                    local_result.source.clone(),
+                    local_result.found_authors.clone(),
+                    local_result.paper_url.clone(),
+                    local_result.db_results.clone(),
+                    &reference.urls,
+                    &title,
+                    &config,
+                    &client,
+                    progress.as_ref(),
+                    ref_index,
+                )
+                .await;
+            let result = ValidationResult {
+                title: title.clone(),
+                raw_citation: reference.raw_citation.clone(),
+                ref_authors: reference.authors.clone(),
+                status,
+                source,
+                found_authors,
+                paper_url,
+                failed_dbs: local_result.failed_dbs.clone(),
+                db_results,
+                doi_info: None,
+                arxiv_info: None,
+                retraction_info: None,
+                url_check_skipped,
+            };
+            emit_final_events(progress.as_ref(), &result, ref_index, total, &title);
+            let _ = result_tx.send(result);
+            continue;
+        }
+
+        // --- Cache pre-check for all remote DBs ---
+        // Check cache for ALL remote DBs synchronously before dispatching
+        // to drainers. This prevents the race where a fast drainer sets
+        // `verified`, causing other drainers to skip without ever caching
+        // their results.
+        let pre = pre_check_remote_cache(
+            config.query_cache.as_deref(),
+            &title,
+            &reference.authors,
+            &drainer_txs,
+            config.check_openalex_authors,
+            reference.doi.is_some(),
+        );
+
+        // Emit Skipped for cache-hit DBs to decrement in-flight counters
+        // without inflating per-DB query stats.
+        for (i, (db_name, _, _)) in drainer_txs.iter().enumerate() {
+            if !pre.miss_indices.contains(&i) {
+                db_complete_cb(DbResult {
+                    db_name: db_name.clone(),
+                    status: DbStatus::Skipped,
+                    elapsed: None,
+                    found_authors: vec![],
+                    paper_url: None,
+                    error_message: None,
+                });
+            }
+        }
+
+        // If verified from cache, skip all drainers
+        if let Some(verified) = pre.verified_info {
+            // Emit Skipped for cache-miss DBs (they won't be queried either)
+            for &i in &pre.miss_indices {
+                db_complete_cb(DbResult {
+                    db_name: drainer_txs[i].0.clone(),
+                    status: DbStatus::Skipped,
+                    elapsed: None,
+                    found_authors: vec![],
+                    paper_url: None,
+                    error_message: None,
+                });
+            }
+
+            let mut all_db_results = local_result.db_results;
+            all_db_results.extend(pre.db_results);
+            for &i in &pre.miss_indices {
+                all_db_results.push(DbResult {
+                    db_name: drainer_txs[i].0.clone(),
+                    status: DbStatus::Skipped,
+                    elapsed: None,
+                    found_authors: vec![],
+                    paper_url: None,
+                    error_message: None,
+                });
+            }
+
+            // Use inline retraction from cached CrossRef response (no extra API call)
+            let retraction_info = pre.retraction.and_then(|r| {
+                if r.retracted {
+                    Some(crate::RetractionInfo {
+                        is_retracted: true,
+                        retraction_doi: r.retraction_doi,
+                        retraction_source: r.retraction_type,
+                    })
+                } else {
+                    None
+                }
+            });
+
+            let doi_info = reference.doi.as_ref().map(|doi| {
+                let doi_result = all_db_results.iter().find(|r| r.db_name == "DOI");
+                let valid = match doi_result {
+                    Some(r) => !matches!(r.status, DbStatus::NoMatch),
+                    None => true,
+                };
+                DoiInfo {
+                    doi: doi.clone(),
+                    valid,
+                    title: None,
+                }
+            });
+
+            let result = ValidationResult {
+                title: title.clone(),
+                raw_citation: reference.raw_citation.clone(),
+                ref_authors: reference.authors.clone(),
+                status: Status::Verified,
+                source: Some(verified.source),
+                found_authors: verified.found_authors,
+                paper_url: verified.paper_url,
+                failed_dbs: local_result.failed_dbs,
+                db_results: all_db_results,
+                doi_info,
+                arxiv_info: None, // TODO(#124): implement arXiv ID validation
+                retraction_info,
+                // Verified from cache → never reaches apply_fallbacks,
+                // so the URL-check-skipped marker is vacuously false.
+                url_check_skipped: false,
+            };
+
+            emit_final_events(progress.as_ref(), &result, ref_index, total, &title);
+            let _ = result_tx.send(result);
+            continue;
+        }
+
+        // If all remote DBs were in cache (no misses) but none verified
+        if pre.miss_indices.is_empty() {
+            let mut all_db_results = local_result.db_results;
+            all_db_results.extend(pre.db_results);
+
+            let first_mismatch = pre.first_mismatch.or_else(|| {
+                if local_result.status == Status::Mismatch(MismatchKind::AUTHOR) {
+                    Some(MismatchInfo {
+                        source: local_result.source.clone().unwrap_or_default(),
+                        found_authors: local_result.found_authors.clone(),
+                        paper_url: local_result.paper_url.clone(),
+                    })
+                } else {
+                    None
+                }
+            });
+
+            let (status, source, found_authors, paper_url) = if let Some(m) = first_mismatch {
+                (
+                    Status::Mismatch(MismatchKind::AUTHOR),
+                    Some(m.source),
+                    m.found_authors,
+                    m.paper_url,
+                )
+            } else {
+                (Status::NotFound, None, vec![], None)
+            };
+
+            // Run URL Check + SearxNG fallbacks on NotFound even though
+            // every DB was a cache hit — this is the path where a
+            // reference that was previously URL-verified would otherwise
+            // regress to NotFound on the second run.
+            let (status, source, found_authors, paper_url, all_db_results, url_check_skipped) =
+                apply_fallbacks(
+                    status,
+                    source,
+                    found_authors,
+                    paper_url,
+                    all_db_results,
+                    &reference.urls,
+                    &title,
+                    &config,
+                    &client,
+                    progress.as_ref(),
+                    ref_index,
+                )
+                .await;
+
+            let result = ValidationResult {
+                title: title.clone(),
+                raw_citation: reference.raw_citation.clone(),
+                ref_authors: reference.authors.clone(),
+                status,
+                source,
+                found_authors,
+                paper_url,
+                failed_dbs: local_result.failed_dbs,
+                db_results: all_db_results,
+                doi_info: reference.doi.as_ref().map(|doi| DoiInfo {
+                    doi: doi.clone(),
+                    valid: false,
+                    title: None,
+                }),
+                arxiv_info: None, // TODO(#124): implement arXiv ID validation
+                retraction_info: None,
+                url_check_skipped,
+            };
+
+            emit_final_events(progress.as_ref(), &result, ref_index, total, &title);
+            let _ = result_tx.send(result);
+            continue;
+        }
+
+        // --- Fan out only cache-miss DBs to drainers ---
+        let first_mismatch = pre.first_mismatch.or_else(|| {
+            if local_result.status == Status::Mismatch(MismatchKind::AUTHOR) {
+                Some(MismatchInfo {
+                    source: local_result.source.clone().unwrap_or_default(),
+                    found_authors: local_result.found_authors.clone(),
+                    paper_url: local_result.paper_url.clone(),
+                })
+            } else {
+                None
+            }
+        });
+
+        let collector = Arc::new(RefCollector {
+            reference,
+            ref_index,
+            total,
+            title,
+            progress,
+            config: config.clone(),
+            client: client.clone(),
+            remaining: AtomicUsize::new(pre.miss_indices.len()),
+            verified: AtomicBool::new(false),
+            state: Mutex::new(AggState {
+                verified_info: None,
+                first_mismatch,
+                failed_dbs: vec![],
+                db_results: pre.db_results,
+                retraction: pre.retraction,
+            }),
+            result_tx: Mutex::new(Some(result_tx)),
+            local_result,
+        });
+
+        for &i in &pre.miss_indices {
+            let _ = drainer_txs[i].2.try_send(DrainerJob {
+                collector: collector.clone(),
+            });
+        }
+    }
+}
+
+// ── Helpers ─────────────────────────────────────────────────────────────
+
+/// Build per-ref DB completion callback.
+fn make_db_callback(
+    progress: Arc<dyn Fn(ProgressEvent) + Send + Sync>,
+    ref_index: usize,
+) -> impl Fn(DbResult) + Send + Sync {
+    move |db_result: DbResult| {
+        progress(ProgressEvent::DatabaseQueryComplete {
+            paper_index: 0,
+            ref_index,
+            db_name: db_result.db_name.clone(),
+            status: db_result.status.clone(),
+            elapsed: db_result.elapsed.unwrap_or_default(),
+        });
+    }
+}
+
+/// Emit Warning + Result progress events and log the final outcome.
+fn emit_final_events(
+    progress: &(dyn Fn(ProgressEvent) + Send + Sync),
+    result: &ValidationResult,
+    ref_index: usize,
+    total: usize,
+    title: &str,
+) {
+    let status_str = match &result.status {
+        Status::Verified => "Verified".to_string(),
+        Status::NotFound => "NotFound".to_string(),
+        Status::Mismatch(kind) => format!("Mismatch({})", kind.description()),
+    };
+    tracing::info!(
+        ref_index,
+        title,
+        status = status_str,
+        source = result.source.as_deref().unwrap_or("-"),
+        "reference result"
+    );
+
+    if !result.failed_dbs.is_empty() {
+        let context = match &result.status {
+            Status::NotFound => "not found in other DBs".to_string(),
+            Status::Verified => format!(
+                "verified via {}",
+                result.source.as_deref().unwrap_or("unknown")
+            ),
+            Status::Mismatch(kind) => format!(
+                "{} mismatch via {}",
+                kind.description(),
+                result.source.as_deref().unwrap_or("unknown")
+            ),
+        };
+        progress(ProgressEvent::Warning {
+            index: ref_index,
+            total,
+            title: title.to_string(),
+            failed_dbs: result.failed_dbs.clone(),
+            message: format!("{} timed out; {}", result.failed_dbs.join(", "), context),
+        });
+    }
+
+    progress(ProgressEvent::Result {
+        index: ref_index,
+        total,
+        result: Box::new(result.clone()),
+    });
+}
+
+/// Build ValidationResult from a DbSearchResult.
+fn build_validation_result(
+    reference: &Reference,
+    title: &str,
+    db_result: crate::orchestrator::DbSearchResult,
+    retraction_info: Option<crate::RetractionInfo>,
+) -> ValidationResult {
+    ValidationResult {
+        title: title.to_string(),
+        raw_citation: reference.raw_citation.clone(),
+        ref_authors: reference.authors.clone(),
+        status: db_result.status,
+        source: db_result.source,
+        found_authors: db_result.found_authors,
+        paper_url: db_result.paper_url,
+        failed_dbs: db_result.failed_dbs,
+        db_results: db_result.db_results,
+        doi_info: None,
+        arxiv_info: None, // TODO(#124): implement arXiv ID validation
+        retraction_info,
+        // Callers that reach this helper feed pre-fallback status,
+        // so they haven't made a URL-check decision yet.
+        url_check_skipped: false,
+    }
+}
+
+#[cfg(test)]
+mod phantom_tests {
+    use super::*;
+
+    fn s(v: &[&str]) -> Vec<String> {
+        v.iter().map(|x| x.to_string()).collect()
+    }
+
+    fn amismatch(db: &str, authors: &[&str]) -> DbResult {
+        DbResult {
+            db_name: db.to_string(),
+            status: DbStatus::AuthorMismatch,
+            elapsed: None,
+            found_authors: s(authors),
+            paper_url: None,
+            error_message: None,
+        }
+    }
+
+    fn matched(db: &str, authors: &[&str]) -> DbResult {
+        DbResult {
+            db_name: db.to_string(),
+            status: DbStatus::Match,
+            elapsed: None,
+            found_authors: s(authors),
+            paper_url: None,
+            error_message: None,
+        }
+    }
+
+    #[test]
+    fn flags_uncorroborated_added_author() {
+        // arXiv (complete) rejects: citation has an extra "Zhiyuan Chen" that
+        // appears in no roster → fabricated → flag.
+        let cited = s(&["Weihao Ye", "Qiong Wu", "Zhiyuan Chen", "Wenhao Lin"]);
+        let dbr = vec![
+            amismatch("arXiv", &["Weihao Ye", "Qiong Wu", "Wenhao Lin"]),
+            matched("DBLP", &["Weihao Ye", "Qiong Wu", "Wenhao Lin"]),
+        ];
+        assert!(find_phantom_mismatch(&dbr, &cited).is_some());
+    }
+
+    #[test]
+    fn ignores_author_corroborated_by_another_db() {
+        // arXiv is missing "Nanning Zheng", but DBLP lists it → real author the
+        // arXiv version omitted, not a phantom → no flag.
+        let cited = s(&["Weitao Du", "Wei Chen", "Nanning Zheng", "Bin Shao"]);
+        let dbr = vec![
+            amismatch("arXiv", &["Weitao Du", "Wei Chen", "Bin Shao"]),
+            matched(
+                "DBLP",
+                &["Weitao Du", "Wei Chen", "Nanning Zheng", "Bin Shao"],
+            ),
+        ];
+        assert!(find_phantom_mismatch(&dbr, &cited).is_none());
+    }
+
+    #[test]
+    fn ignores_et_al_truncation() {
+        let cited = s(&["Burak Uzkent", "Stefano Ermon", "et al."]);
+        let dbr = vec![amismatch("arXiv", &["Burak Uzkent", "Stefano Ermon"])];
+        assert!(find_phantom_mismatch(&dbr, &cited).is_none());
+    }
+
+    #[test]
+    fn ignores_incomplete_source_dblp() {
+        // A DBLP mismatch is never authoritative (it truncates authors).
+        let cited = s(&["A. One", "B. Two", "C. Three"]);
+        let dbr = vec![amismatch("DBLP", &["A. One", "B. Two"])];
+        assert!(find_phantom_mismatch(&dbr, &cited).is_none());
+    }
+}

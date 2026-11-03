@@ -1,0 +1,10 @@
+[package]
+name = "hallucinator-reporting"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Export formats (JSON, CSV, Markdown, HTML, plain text) for hallucinator results"
+repository.workspace = true
+
+[dependencies]
+hallucinator-core.workspace = true
