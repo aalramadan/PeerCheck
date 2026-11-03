@@ -8,7 +8,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-from peercheck import __version__, conflicts, dblp, inputs, pipeline, report, tools
+from peercheck import __version__, canary, conflicts, dblp, inputs, pipeline, report, tools
 from peercheck import profile as profiles
 from peercheck.checks import references
 from peercheck.findings import needs_review
@@ -72,8 +72,16 @@ def parser() -> argparse.ArgumentParser:
     found.add_argument("--out", type=Path, default=Path("conflicts.xlsx"), help="Excel report (default conflicts.xlsx)")
     found.set_defaults(handler=run_conflicts)
 
+    marking = commands.add_parser("canary", help="hide a made-up citation in each submission PDF for the canary "
+                                                 "check of the reviews")
+    marking.add_argument("pdfs", type=Path, help="folder with the submission PDFs")
+    marking.add_argument("--out", type=Path, required=True, help="folder for the marked PDFs")
+    marking.add_argument("--key", type=Path, required=True, help="CSV key file of the citations, kept private; "
+                                                                 "an existing key keeps its citations")
+    marking.set_defaults(handler=run_canary)
+
     setup = commands.add_parser("setup", help="download the tools and models that some checks need")
-    setup.add_argument("what", choices=("references", "cocodet", "binoculars"), help="what to download")
+    setup.add_argument("what", choices=("references", "cocodet", "binoculars", "editlens"), help="what to download")
     setup.add_argument("--dblp-dump", type=Path, help="references: build from this dblp.xml.gz, no download")
     setup.add_argument("--retraction-csv", type=Path, help="references: use this Retraction Watch CSV, no download")
     setup.add_argument("--refresh", action="store_true", help="references: download and build again")
@@ -141,6 +149,15 @@ def run_conflicts(args: argparse.Namespace) -> int:
     report.write_sheets(args.out, sheets, [], [("Profile", venue.name),
                                                ("DBLP", "used" if index is not None else "not used")], key="Paper")
     print(f"{len(found)} possible conflicts. Report: {args.out}")
+    return 0
+
+
+def run_canary(args: argparse.Namespace) -> int:
+    """Write a copy of each submission PDF with its hidden citation and update the key file."""
+    count, skipped = canary.mark_folder(args.pdfs, args.out, args.key, profiles.load(args.profile))
+    print(f"{count} PDFs marked in {args.out}. Key: {args.key}")
+    for name in skipped:
+        print(f"skipped {name}", file=sys.stderr)
     return 0
 
 

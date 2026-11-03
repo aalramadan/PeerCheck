@@ -23,7 +23,11 @@ peercheck doctor                          # lists missing programs
 peercheck setup references                # Hallucinator, the DBLP database, and the Retraction Watch list
 peercheck setup cocodet                   # CoCoDet weights, about 600 MB
 peercheck setup binoculars                # Falcon-7B and Falcon-7B-Instruct, about 29 GB
+peercheck setup editlens                  # EditLens (Open Pangram) weights, about 1.4 GB, optional
 ```
+
+The EditLens weights are gated. Before `peercheck setup editlens`, accept their terms at
+`huggingface.co/pangram/editlens_roberta-large` and run `hf auth login`. The terms allow non-commercial use only.
 
 PeerCheck requires Python 3.10 or newer, Perl, poppler, and Java 11 or newer. On Debian or Ubuntu,
 `sudo apt install perl poppler-utils default-jre` installs the three programs. On macOS,
@@ -34,6 +38,8 @@ PeerCheck requires Python 3.10 or newer, Perl, poppler, and Java 11 or newer. On
 ```bash
 peercheck papers submissions/ --submissions submissions.xlsx --authors authors.csv --out report.xlsx
 peercheck reviews reviews/ --out reviews.xlsx
+peercheck canary submissions/ --out marked/ --key canaries.csv
+peercheck reviews reviews/ --canaries canaries.csv --detectors cocodet,binoculars,editlens --out reviews.xlsx
 peercheck conflicts --authors authors.csv --pc pc.csv --dblp-dump dblp.xml.gz --out conflicts.xlsx
 peercheck --profile fse-2027 papers pdfs/
 python run.py                             # interactive menu
@@ -61,12 +67,24 @@ references only. The page where the references begin counts as main text.
 
 | Check | Tool | Reports |
 |---|---|---|
-| detectors | CoCoDet and Binoculars | the CoCoDet label (Human, Mix, or AI) and the Binoculars score |
+| detectors | CoCoDet, Binoculars, and EditLens (Open Pangram) on request | the CoCoDet label (Human, Mix, or AI), the Binoculars score, and the EditLens label (Human, AI-Edited, or AI) with its score |
+| canary | made-up citations of Rao et al. | reviews that contain the made-up citation hidden in their paper |
 | duplicates | datasketch | paragraphs that appear in two reviews, with a Jaccard similarity above 0.5 |
 | citations | DBLP | works that a review asks the authors to cite, and requests for works of the reviewers |
 
-A review counts as machine-written only when CoCoDet and Binoculars agree, the rule that ICLR 2026 applied.
-Detector results serve as leads for a manual check.
+A review counts as machine-written only when two detectors agree, the rule that ICLR 2026 applied. EditLens
+runs only with `--detectors cocodet,binoculars,editlens`. Detector results serve as leads for a manual check.
+
+The canary check follows Rao et al. and the canaries of ICML 2026. `peercheck canary` writes a copy of each
+submission PDF with a hidden instruction in white text at the foot of its last page. The instruction asks any LLM
+that reads the PDF to open its review with a made-up citation, such as Smith et al. (2019), drawn for each paper
+from 109,989 such citations. The key file holds the citation of each paper and stays private. Run
+`peercheck papers` on the original PDFs first, since the hidden-text check reports the instruction. The marked
+copies then replace the PDFs that reviewers download. `peercheck reviews --canaries` reports each review that
+contains the citation of its paper. The test keeps the chance of any wrong hit among all reviews at most 0.001,
+the profile option `fwer` of the canary check. A person checks each hit, since a review may only report the
+hidden instruction. Announce the canary to reviewers before the review period, since a reviewer who finds the
+hidden text may take it for misconduct by the authors.
 
 ### Conflicts of interest
 
@@ -121,9 +139,16 @@ A new venue needs a copy of a file in `src/peercheck/profiles/` with its own val
 1. `src/peercheck/inputs.py`, static. Reads the review XML files.
 2. `src/peercheck/reviews/cocodet.py`, call of a local model. Labels each review with CoCoDet.
 3. `src/peercheck/reviews/binoculars.py`, call of two local models. Scores each review with Binoculars.
-4. `src/peercheck/reviews/duplicates.py`, static. Finds paragraphs that appear in two reviews.
-5. `src/peercheck/reviews/citations.py`, static. Finds citation requests.
-6. `src/peercheck/report.py`, static. Writes the workbook.
+4. `src/peercheck/reviews/editlens.py`, call of a local model, on request. Labels each review with EditLens.
+5. `src/peercheck/canary.py`, static, with `--canaries`. Finds the hidden citation of each paper in its reviews.
+6. `src/peercheck/reviews/duplicates.py`, static. Finds paragraphs that appear in two reviews.
+7. `src/peercheck/reviews/citations.py`, static. Finds citation requests.
+8. `src/peercheck/report.py`, static. Writes the workbook.
+
+`peercheck canary`
+1. `src/peercheck/inputs.py`, static. Maps each PDF to a paper ID.
+2. `src/peercheck/canary.py`, static. Draws a citation for each paper, writes the key file, and marks a copy of
+   each PDF.
 
 `peercheck conflicts`
 1. `src/peercheck/dblp.py`, static. Builds a publication index of the authors and the committee from the DBLP dump.

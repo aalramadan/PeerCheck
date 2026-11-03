@@ -37,7 +37,7 @@ where = ["src"]
 include = ["peercheck*"]
 
 [tool.setuptools.package-data]
-peercheck = ["profiles/*.yaml", "vendor/**/*"]
+peercheck = ["profiles/*.yaml", "data/*.txt", "vendor/**/*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
