@@ -1,6 +1,6 @@
 <h1 align="center">PeerCheck</h1>
 
-<p align="center">PeerCheck checks the submissions and peer reviews of software engineering conferences on your own machine.</p>
+<p align="center">PeerCheck automatically checks submissions, reviews, and conflicts of interest for software engineering conferences.</p>
 
 <p align="center">
   <a href="https://github.com/aalramadan/PeerCheck/actions/workflows/tests.yml"><img alt="Tests" src="https://github.com/aalramadan/PeerCheck/actions/workflows/tests.yml/badge.svg"></a>
@@ -9,41 +9,44 @@
   <img alt="Runs locally" src="https://img.shields.io/badge/runs-locally-2ea44f">
 </p>
 
-It reports format violations, anonymity leaks, hidden text, unverifiable references, machine-written reviews,
-and conflicts of interest.
+It reports format violations, anonymity leaks, hidden text, unverifiable references, potentially AI-generated
+reviews, and conflicts of interest.
 
-## What it checks
+## Checks
 
 ### Submissions, with `peercheck papers`
 
-- **layout** (banal, from HotCRP) checks the page size, columns, margins, fonts, page limits, page numbers, and
-  missing sections.
-- **sigsoft** (the ACM SIGSOFT submission checker, revised) checks the template and finds anonymity leaks, such as
-  author names, emails, affiliations, and links that reveal the authors.
-- **hidden-text** (pdfguardrail and PyMuPDF, with the phrases of PhantomLint) finds white, invisible, or tiny text,
-  invisible Unicode characters, and hidden prompts aimed at AI reviewers.
-- **references** (Hallucinator with an offline DBLP database and the Retraction Watch list) finds references that no
-  database holds and references that were retracted.
+- **layout** checks the page size, columns, margins, fonts, page limits, page numbers, and missing sections. It
+  uses the format checker of HotCRP.
+- **sigsoft** verifies that the paper uses the template of the venue and identifies anonymity leaks, such as
+  author names, email addresses, affiliations, and revealing links. It uses the ACM SIGSOFT submission checker,
+  revised.
+- **hidden-text** finds white, invisible, or tiny text, invisible Unicode characters, and prompts or instructions
+  hidden in the PDF and intended for AI systems. It uses pdfguardrail and PyMuPDF with the phrases of PhantomLint.
+- **references** finds references that cannot be verified in bibliographic databases and references that were
+  retracted. It uses Hallucinator together with an offline DBLP database and the Retraction Watch list.
 
 ### Reviews, with `peercheck reviews`
 
-- **detectors** (CoCoDet and EditLens) are two detectors of AI-written text. CoCoDet labels a review as Human, Mix,
-  or AI. EditLens labels it as Human, AI-Edited, or AI. A review is flagged only when the two agree that AI wrote
-  the review, as ICLR 2026 required.
-- **canary** (the method of Rao et al., as ICML 2026 used it) finds reviews that repeat a made-up citation hidden
-  in the PDF of their paper.
-- **duplicates** (the MinHash search of datasketch) finds paragraphs copied between reviews, at a Jaccard similarity
-  of 0.5 or more.
-- **citations** (DBLP) finds works that a review asks the authors to cite, including works of the reviewers.
+- **detectors** label each review as human-written or AI-generated. A review is flagged only when the two
+  detectors label it as AI-generated. This mirrors the policy used by ICLR 2026. The two detectors are CoCoDet, whose
+  labels are Human, Mix, and AI, and EditLens, whose labels are Human, AI-Edited, and AI.
+- **canary** finds reviews that repeat a planted citation hidden in the corresponding submission. It follows the
+  method of Rao et al. that ICML 2026 used.
+- **duplicates** identifies highly similar paragraphs across reviews, at a Jaccard similarity of 0.5 or more. It
+  uses the MinHash search of datasketch.
+- **citations** identifies works that reviewers recommend citing, including their own publications. It uses DBLP.
 
 ### Conflicts of interest, with `peercheck conflicts`
 
-- **conflicts** (DBLP, the affiliation word lists of HotCRP, and the webmail list of OpenReview) finds
-  co-authorship in the past three years, the window of the ACM SIGSOFT Policy on Program Committees. It also finds
-  shared email domains, affiliations that match, and declared conflicts that no data supports.
+- **conflicts** finds co-authorship within the previous three years, consistent with the ACM SIGSOFT Policy on
+  Program Committees. It also finds shared email domains, affiliations that match, and declared conflicts
+  without supporting evidence. It uses DBLP, the affiliation word lists of HotCRP, and the webmail list
+  of OpenReview.
 
-Each finding is an error, a warning, or an info. An error breaks a stated rule of the venue. A warning marks a
-likely problem. An info gives context. A person checks every flagged paper or review.
+Each finding is classified as an error, warning, or informational note. An error breaks a stated rule of the
+venue. A warning marks a likely problem. An informational note gives context. PeerCheck assists human reviewers;
+every flagged paper or review should be checked by a person.
 
 ## Example reports
 
@@ -55,7 +58,7 @@ likely problem. An info gives context. A person checks every flagged paper or re
 
 - Python 3.10 or newer
 - Perl and poppler, for the layout check
-- Java 11 or newer, for the sigsoft check
+- Java 11 or newer, for the SIGSOFT check
 
 ```bash
 sudo apt install perl poppler-utils default-jre   # Debian or Ubuntu
@@ -67,11 +70,11 @@ brew install poppler openjdk                      # macOS, which already has Per
 ```bash
 git clone https://github.com/aalramadan/PeerCheck.git
 cd PeerCheck
-python -m pip install -e ".[reviews]"   # all checks, with PyTorch for the review detectors
+python -m pip install -e ".[reviews]"   # installs all checks, including the review-analysis models
 peercheck doctor                        # lists missing programs
 ```
 
-To check only submissions and conflicts, `python -m pip install -e .` installs PeerCheck without PyTorch.
+To check only submissions and conflicts, `python -m pip install -e .` installs PeerCheck without the review checks.
 
 Some checks need data or models, which these commands download once.
 
@@ -83,7 +86,7 @@ peercheck setup editlens     # the EditLens model, about 1.4 GB, after the steps
 
 ### EditLens access
 
-Pangram Labs, the authors of EditLens, share its model only with users who accept its license. The license allows
+The authors of EditLens distribute the model only to users who accept its license. The license allows
 non-commercial use only.
 
 1. Create a free account at huggingface.co.
