@@ -43,7 +43,7 @@ public class JsonOutputTest {
     @Test
     void resultHoldsEveryKeyWithItsType() throws IOException {
         File pdf = new TestPdf().page("A Study of Maintenance Effort", "Anonymous Author(s)",
-                "In our previous work [1], we built it.").save(folder, "ICSME_2026_paper_0031.pdf");
+                "In our previous work [1], we built it.").save(folder, "CONF_2026_paper_0031.pdf");
         JsonObject result = BatchRun.of("--json", "--id-pattern", "_paper_(\\d+)\\.pdf$", pdf.getPath()).json();
         assertThat(result.keySet()).containsExactly("file", "paper", "title", "pages", "issues", "error");
         assertThat(result.get("file").getAsString()).isEqualTo(pdf.getPath());
@@ -67,7 +67,7 @@ public class JsonOutputTest {
 
     @Test
     void damagedPdfGivesItsErrorAndNoIssues() throws IOException {
-        Path damaged = folder.resolve("ICSME_2026_paper_0003.pdf");
+        Path damaged = folder.resolve("CONF_2026_paper_0003.pdf");
         Files.writeString(damaged, "%PDF-1.4\nnot really a pdf\n");
         BatchRun run = BatchRun.of("--json", "--id-pattern", "_paper_(\\d+)\\.pdf$", damaged.toString());
         assertThat(run.status).isZero();

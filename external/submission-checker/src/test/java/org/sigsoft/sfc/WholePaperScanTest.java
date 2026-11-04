@@ -75,7 +75,7 @@ public class WholePaperScanTest {
                 .page("A Study of Maintenance Effort", "Anonymous Author(s)")
                 .page("Background")
                 .page("We thank Jörg Müller and the Technical University of Munich.")
-                .save(folder, "ICSME_2026_paper_7.pdf");
+                .save(folder, "CONF_2026_paper_7.pdf");
         assertThat(issues(pdf)).contains(
                 "possibly-identity-revealing-data|Jörg Müller|3",
                 "possibly-identity-revealing-data|Technical University of Munich|3");
@@ -86,7 +86,7 @@ public class WholePaperScanTest {
         File pdf = new TestPdf()
                 .page("A Study of Maintenance Effort", "Anonymous Author(s)", "Anna Lindqvist wrote this.")
                 .page("REFERENCES", "[1] A. Lindqvist, Mining effort data, 2020.")
-                .save(folder, "ICSME_2026_paper_7.pdf");
+                .save(folder, "CONF_2026_paper_7.pdf");
         assertThat(issues(pdf)).contains(
                 "possibly-identity-revealing-data|Anna Lindqvist|1",
                 "identity-data-in-references|A. Lindqvist|2");
@@ -98,7 +98,7 @@ public class WholePaperScanTest {
                 .page("A Study of Maintenance Effort", "Anonymous Author(s)")
                 .info("Subject", "Draft by Lindqvist, Anna")
                 .xmp(TestPdf.xmpPacket("Anonymous", "joerg.mueller@tum.de"))
-                .save(folder, "ICSME_2026_paper_7.pdf");
+                .save(folder, "CONF_2026_paper_7.pdf");
         assertThat(issues(pdf)).contains(
                 "possibly-identity-revealing-data|Lindqvist, Anna (document information Subject)|-",
                 "possibly-identity-revealing-data|joerg.mueller@tum.de (XMP metadata)|-");
@@ -111,7 +111,7 @@ public class WholePaperScanTest {
                 .page("Results", "Fig. 1 shows the effort.")
                 .figure(2, Map.of("Author", "Jörg Müller", "Title", "plot"),
                         "/home/anna_lindqvist/figs/effort.pdf")
-                .save(folder, "ICSME_2026_paper_7.pdf");
+                .save(folder, "CONF_2026_paper_7.pdf");
         assertThat(issues(pdf)).contains(
                 "possibly-author-revealing-meta-data|Jörg Müller (figure metadata (PTEX.InfoDict Author))|2",
                 "possibly-identity-revealing-data|Jörg Müller (figure metadata (PTEX.InfoDict Author))|2",
@@ -125,7 +125,7 @@ public class WholePaperScanTest {
                 .page("Data")
                 .link(2, "mailto:anna.lindqvist@kth.se")
                 .note(2, "Ask Anna Lindqvist about the data", "J. Müller")
-                .save(folder, "ICSME_2026_paper_7.pdf");
+                .save(folder, "CONF_2026_paper_7.pdf");
         assertThat(issues(pdf)).contains(
                 "possibly-identity-revealing-data|anna.lindqvist@kth.se (link target)|2",
                 "possibly-identity-revealing-data|Anna Lindqvist (annotation text)|2",
@@ -134,10 +134,10 @@ public class WholePaperScanTest {
 
     @Test
     void paperWithoutAuthorDataIsNotScannedAndSaysSo() throws IOException {
-        File pdf = new TestPdf().page("A Study", "Anna Lindqvist").save(folder, "ICSME_2026_paper_8.pdf");
+        File pdf = new TestPdf().page("A Study", "Anna Lindqvist").save(folder, "CONF_2026_paper_8.pdf");
         BatchRun run = BatchRun.of("--json", "--meta", csv.getPath(), "--id-pattern", "_paper_(\\d+)\\.pdf$",
                 pdf.getPath());
         assertThat(run.out).doesNotContain("identity");
-        assertThat(run.err).contains("No author data for ICSME_2026_paper_8.pdf");
+        assertThat(run.err).contains("No author data for CONF_2026_paper_8.pdf");
     }
 }

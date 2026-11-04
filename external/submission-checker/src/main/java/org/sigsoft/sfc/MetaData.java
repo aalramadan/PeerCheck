@@ -78,7 +78,7 @@ public class MetaData {
     /**
      * Find the paper ID in a file name.
      * @param idPattern Pattern with one group
-     * @param fileName File name such as ICSME_2026_paper_24.pdf
+     * @param fileName File name such as CONF_2026_paper_24.pdf
      * @return The ID as written in the name, or null if the pattern does not match
      */
     public static String paperId(Pattern idPattern, String fileName) {

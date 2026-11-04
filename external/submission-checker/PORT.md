@@ -32,7 +32,7 @@ The labels A5 to A27 and E9 to E16 below number the defects of a code audit and 
 
 - The new option `--id-pattern <regex>` takes a regular expression with exactly one group that holds the paper ID. The default is the upstream `-paper(\d+)`.
 - The pattern ignores case, like `Profile.paper_id` of PeerCheck. The first match counts.
-- A numeric ID is compared as a number. Thus `ICSME_2026_paper_0024.pdf` matches the CSV row of paper 24.
+- A numeric ID is compared as a number. Thus `CONF_2026_paper_0024.pdf` matches the CSV row of paper 24.
 - A pattern that does not compile or that has another number of groups is an argument error.
 - The code is in `MetaData` (`compileIdPattern`, `paperId`, `numericId`, `setIdPattern`, and `forFile`). Tests are in `PaperIdPatternTest`. With the upstream file name parsing put back, two of its six cases fail.
 

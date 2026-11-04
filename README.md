@@ -203,9 +203,11 @@ PeerCheck is tuned for software engineering venues and ships with these profiles
 |---|---|---|---|
 | icse-2027 (default) | ICSE 2027 Research Track | IEEE, two columns, US Letter | 10 plus 2 of references |
 | fse-2027 | FSE 2027 Research Track | ACM acmsmall, one column | 18 plus 4 of references |
+| example-easychair | an example venue on EasyChair | IEEE, two columns, US Letter | 10 plus 2 of references |
 
-However, you can check the papers of any other venue. Copy a file of `src/profiles/`, change its values, and pass
-the copy by path, such as `peercheck --profile myvenue.yaml papers submissions/`.
+However, you can check the papers of any other venue. Copy a file of `src/profiles/`, such as
+`example-easychair.yaml` for a venue on EasyChair, change its values, and pass the copy by path, such as
+`peercheck --profile myvenue.yaml papers submissions/`.
 
 ## 🧪 Tests
 

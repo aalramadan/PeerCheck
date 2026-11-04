@@ -16,7 +16,7 @@ needs_banal = pytest.mark.skipif(not (shutil.which("perl") and shutil.which("pdf
 
 
 def _inspect(name):
-    return layout.inspect(Paper(1, PAPERS / name), profile.load("icsme-2026"))
+    return layout.inspect(Paper(1, PAPERS / name), profile.load("example-easychair"))
 
 
 def _checks(result):
@@ -49,7 +49,7 @@ def test_a4_one_column_draft_breaks_the_format_rules():
 
 
 @needs_banal
-def test_page_numbers_are_a_warning_under_the_icsme_profile():
+def test_page_numbers_are_a_warning_under_the_example_profile():
     finding = next(f for f in _inspect("article-a4-12pt.pdf").findings if f.check == "layout.page-numbers")
     assert finding.severity is Severity.WARNING
 
@@ -64,13 +64,13 @@ def test_unreadable_pdf_gives_a_warning_and_no_layout():
 def test_ieee_headings_with_roman_numerals_satisfy_the_required_headings():
     report = {"pages": [{"headings": ["A Title", "I. INTRODUCTION"]}, {"headings": ["VI. CONCLUSION", "REFERENCES"]}],
               "w": 2000, "papersize": [792, 612], "columns": 2}
-    findings = layout.evaluate(layout.measure(report), profile.load("icsme-2026").format, "Abstract—We study")
+    findings = layout.evaluate(layout.measure(report), profile.load("example-easychair").format, "Abstract—We study")
     assert not [f for f in findings if f.check in ("layout.missing-heading", "layout.missing-abstract")]
 
 
 def test_missing_conclusion_and_abstract_are_warnings():
     report = {"pages": [{"headings": ["1 Introduction"]}, {"headings": ["2 Results"]}], "w": 2000}
-    findings = layout.evaluate(layout.measure(report), profile.load("icsme-2026").format, "Summary text")
+    findings = layout.evaluate(layout.measure(report), profile.load("example-easychair").format, "Summary text")
     assert {(f.check, f.severity) for f in findings} >= {
         ("layout.missing-heading", Severity.WARNING), ("layout.missing-abstract", Severity.WARNING)}
 
@@ -83,7 +83,7 @@ def test_reference_pages_count_only_bib_pages_from_the_references_heading_on():
 
 def test_landscape_pages_read_as_slides():
     findings = layout.evaluate(layout.measure({"pages": [{}], "papersize": [612, 792], "w": 900}),
-                               profile.load("icsme-2026").format, None)
+                               profile.load("example-easychair").format, None)
     assert any("landscape" in f.message for f in findings)
 
 

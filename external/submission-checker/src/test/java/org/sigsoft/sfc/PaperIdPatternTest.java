@@ -40,14 +40,14 @@ public class PaperIdPatternTest {
     void defaultPatternReadsHotCrpNames() {
         Pattern pattern = MetaData.compileIdPattern(MetaData.DEFAULT_ID_PATTERN);
         assertThat(MetaData.paperId(pattern, "icse2017-paper13.pdf")).isEqualTo("13");
-        assertThat(MetaData.paperId(pattern, "ICSME_2026_paper_24.pdf")).isNull();
+        assertThat(MetaData.paperId(pattern, "CONF_2026_paper_24.pdf")).isNull();
     }
 
     @Test
     void easyChairPatternReadsEasyChairNames() {
         Pattern pattern = MetaData.compileIdPattern("_paper_(\\d+)\\.pdf$");
-        assertThat(MetaData.paperId(pattern, "ICSME_2026_paper_24.pdf")).isEqualTo("24");
-        assertThat(MetaData.paperId(pattern, "ICSME_2026_paper_0024.PDF")).isEqualTo("0024");
+        assertThat(MetaData.paperId(pattern, "CONF_2026_paper_24.pdf")).isEqualTo("24");
+        assertThat(MetaData.paperId(pattern, "CONF_2026_paper_0024.PDF")).isEqualTo("0024");
     }
 
     @Test
@@ -55,7 +55,7 @@ public class PaperIdPatternTest {
         MetaData meta = new MetaData();
         meta.setIdPattern(MetaData.compileIdPattern("_paper_(\\d+)\\.pdf$"));
         meta.loadHotCRPauthors(new StringReader(CSV));
-        PaperMetaData paper = meta.forFile(new File("ICSME_2026_paper_0024.pdf"));
+        PaperMetaData paper = meta.forFile(new File("CONF_2026_paper_0024.pdf"));
         assertThat(paper).isNotNull();
         assertThat(paper.getAuthors().get(0).getName()).isEqualTo("Anna Lindqvist");
         assertThat(MetaData.numericId("0024")).isEqualTo(24);
@@ -65,8 +65,8 @@ public class PaperIdPatternTest {
     void easyChairNameMatchesNoRowWithTheDefaultPattern() throws IOException {
         MetaData meta = new MetaData();
         meta.loadHotCRPauthors(new StringReader(CSV));
-        assertThat(meta.forFile(new File("ICSME_2026_paper_24.pdf"))).isNull();
-        assertThat(meta.forFile(new File("ICSME-paper24.pdf"))).isNotNull();
+        assertThat(meta.forFile(new File("CONF_2026_paper_24.pdf"))).isNull();
+        assertThat(meta.forFile(new File("CONF-paper24.pdf"))).isNotNull();
     }
 
     @Test
@@ -81,7 +81,7 @@ public class PaperIdPatternTest {
         File csv = folder.resolve("authors.csv").toFile();
         Files.writeString(csv.toPath(), CSV);
         File pdf = new TestPdf().page("A Study of Maintenance Effort", "Anonymous Author(s)",
-                "Contact anna.lindqvist@kth.se for the data.").save(folder, "ICSME_2026_paper_24.pdf");
+                "Contact anna.lindqvist@kth.se for the data.").save(folder, "CONF_2026_paper_24.pdf");
         BatchRun run = BatchRun.of("--json", "--meta", csv.getPath(), "--id-pattern", "_paper_(\\d+)\\.pdf$",
                 pdf.getPath());
         assertThat(run.status).isZero();

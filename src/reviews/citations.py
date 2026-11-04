@@ -32,7 +32,7 @@ Options (profile key "citations"):
   check skips the self-citation part.
 - assignments: a mapping from paper ID to the reviewers (Person) assigned to the paper.
 - pages (10): the page count of the papers, one number for all or a mapping from paper ID to pages.
-  The default is the main page limit of the ICSE 2027 and ICSME 2026 research tracks.
+  The default is the main page limit of the ICSE 2027 research track.
 - title_min (90): the rapidfuzz partial ratio at or above which a publication title counts as
   present in an item. Titles shorter than 20 characters never match this way.
 """
