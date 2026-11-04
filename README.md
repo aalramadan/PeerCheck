@@ -12,11 +12,31 @@
 It reports format violations, anonymity leaks, hidden text, unverifiable references, potentially AI-generated
 reviews, and conflicts of interest.
 
-## Checks
+> [!IMPORTANT]
+> PeerCheck assists human reviewers. Every flagged paper or review should be checked by a person.
+
+## 🎬 Demo
+
+These two report pages come from the commands below.
+
+```bash
+peercheck papers submissions/ --authors authors.csv --html report.html
+peercheck reviews reviews/ --canaries canaries.csv --html reviews.html
+```
+
+### Papers
+
+![HTML report of peercheck papers on six example papers](docs/papers-report.png)
+
+### Reviews
+
+![HTML report of peercheck reviews on eight example reviews](docs/reviews-report.png)
+
+## 🔍 Checks
 
 Each check has a plain name and, in parentheses, the name that selects it on the command line.
 
-### Submissions, with `peercheck papers`
+### 📝 Submissions, with `peercheck papers`
 
 - **Format** (`layout`) checks the page size, columns, margins, fonts, page limits, page numbers, and missing
   sections. It uses the format checker of HotCRP, a conference management system.
@@ -30,7 +50,7 @@ Each check has a plain name and, in parentheses, the name that selects it on the
   references that were retracted. Hallucinator, a reference checker, looks each reference up in an offline copy
   of DBLP, the open bibliography of computer science. The Retraction Watch list marks retracted papers.
 
-### Reviews, with `peercheck reviews`
+### 💬 Reviews, with `peercheck reviews`
 
 - **AI detection** (`cocodet`, `editlens`) labels each review as human-written or AI-generated. A review is
   flagged only when the two detectors label it as AI-generated. This mirrors the policy used by ICLR 2026. The
@@ -46,7 +66,7 @@ Each check has a plain name and, in parentheses, the name that selects it on the
 - **Citation requests** (`citations`) identifies works that reviewers recommend citing, including their own
   publications. It matches the requested works against the publications of the reviewers in DBLP.
 
-### Conflicts of interest, with `peercheck conflicts`
+### 🤝 Conflicts of interest, with `peercheck conflicts`
 
 PeerCheck finds co-authorship in DBLP within the previous three years, consistent with the ACM SIGSOFT Policy on
 Program Committees. It also finds shared email domains, affiliations that match, and declared conflicts without
@@ -54,16 +74,9 @@ supporting evidence. Affiliations match through the word lists of HotCRP. Webmai
 shared. OpenReview, a review platform, provides the list of webmail domains.
 
 Each finding is classified as an error, warning, or informational note. An error breaks a stated rule of the
-venue. A warning marks a likely problem. An informational note gives context. PeerCheck assists human reviewers;
-every flagged paper or review should be checked by a person.
+venue. A warning marks a likely problem. An informational note gives context.
 
-## Example reports
-
-![HTML report of peercheck papers on six example papers](docs/papers-report.png)
-
-![HTML report of peercheck reviews on eight example reviews](docs/reviews-report.png)
-
-## Requirements
+## 🧰 Requirements
 
 - Python 3.10 or newer
 - Perl and poppler, for the format check
@@ -74,7 +87,7 @@ sudo apt install perl poppler-utils default-jre   # Debian or Ubuntu
 brew install poppler openjdk                      # macOS, which already has Perl
 ```
 
-## Install
+## 📦 Install
 
 ```bash
 git clone https://github.com/aalramadan/PeerCheck.git
@@ -83,7 +96,9 @@ python -m pip install -e ".[reviews]"   # installs all checks, including the lib
 peercheck doctor                        # lists missing programs
 ```
 
-To check only submissions and conflicts, `python -m pip install -e .` installs PeerCheck without the review checks.
+> [!TIP]
+> To check only submissions and conflicts, `python -m pip install -e .` installs PeerCheck without the review
+> checks.
 
 Some checks need data or models, which these commands download once.
 
@@ -93,10 +108,12 @@ peercheck setup cocodet      # the CoCoDet model, about 600 MB
 peercheck setup editlens     # the EditLens model, about 1.4 GB, after the steps below
 ```
 
-### EditLens access
+### 🔑 EditLens access
 
-The authors of EditLens distribute the model only to users who accept its license. The license allows
-non-commercial use only.
+The authors of EditLens distribute the model only to users who accept its license.
+
+> [!NOTE]
+> The license of EditLens allows non-commercial use only.
 
 1. Create a free account at huggingface.co.
 2. Accept the license at huggingface.co/pangram/editlens_roberta-large.
@@ -104,9 +121,10 @@ non-commercial use only.
    variable `HF_TOKEN` to the token.
 4. Run `peercheck setup editlens`.
 
-To skip EditLens, check the reviews with `--detectors cocodet`.
+> [!TIP]
+> To skip EditLens, check the reviews with `--detectors cocodet`.
 
-## Usage
+## 🚀 Usage
 
 ```bash
 peercheck papers submissions/ --authors authors.csv --html report.html   # checks the submission PDFs
@@ -121,6 +139,13 @@ python run.py                                                            # opens
 Each command writes an Excel workbook. A paper or a review needs a closer look when any of its findings is an
 error or a warning.
 
+> [!TIP]
+> Check the original PDFs with `peercheck papers` before `peercheck canary`, since the hidden-text check reports the
+> planted citation.
+
+> [!WARNING]
+> Keep the key file of `peercheck canary` private, since it reveals the planted citation of each paper.
+
 The commands read these inputs.
 
 - PDFs named with their paper ID, as the conference systems EasyChair and HotCRP name them, such as
@@ -129,7 +154,7 @@ The commands read these inputs.
 - The review XML files that EasyChair exports.
 - A committee list with first, last, email, and affiliation, or the EasyChair file `reviewer.csv`.
 
-## Options
+## ⚙️ Options
 
 | Option | Commands | What it does |
 |---|---|---|
@@ -150,7 +175,7 @@ The commands read these inputs.
 `peercheck setup <name>` downloads `references`, `cocodet`, or `editlens`. `peercheck doctor` lists missing
 programs. Run any command with `--help` for every option.
 
-## Venue profiles
+## 🏛️ Venue profiles
 
 PeerCheck is tuned for software engineering venues and ships with these profiles.
 
@@ -162,7 +187,7 @@ PeerCheck is tuned for software engineering venues and ships with these profiles
 However, you can check the papers of any other venue. Copy a file of `src/profiles/`, change its values, and pass
 the copy by path, such as `peercheck --profile myvenue.yaml papers submissions/`.
 
-## Tests
+## 🧪 Tests
 
 ```bash
 python -m pip install -e ".[dev,reviews]"
@@ -170,19 +195,19 @@ python -m pytest                                     # offline; GitHub Actions r
 mvn -f external/submission-checker/pom.xml package   # rebuilds the revised SIGSOFT jar
 ```
 
-## Privacy
+## 🔒 Privacy
 
 - Every check and every model runs locally.
 - The reference check stays offline by default. The profile option `online: true` sends DOIs and arXiv
   identifiers to doi.org and arxiv.org. The option `online_titles: true` also sends reference titles.
 - `.gitignore` keeps PDFs, review XML files, spreadsheets, and CSV files out of git, test fixtures excepted.
 
-## License
+## 📄 License
 
 PeerCheck is licensed under the GNU General Public License version 3. `NOTICE.md` lists the tools of other authors
 with their licenses.
 
-## References
+## 📚 References
 
 1. CoCoDet: Chen et al. 2026. *CoCoNUTS: Concentrating on Content while Neglecting Uninformative Textual Styles
    for AI-Generated Peer Review Detection.* ACL 2026.
