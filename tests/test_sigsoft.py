@@ -37,7 +37,7 @@ def test_a_pdf_the_checker_cannot_open_is_a_warning_not_a_pass():
 
 def test_command_passes_the_profile_and_the_author_list(tmp_path, monkeypatch):
     monkeypatch.setattr(tools, "program", lambda name: name)
-    command = sigsoft._command(_papers(), profile.load("conf-2026"), tmp_path)
+    command = sigsoft._command(_papers(), profile.load("example-easychair"), tmp_path)
     assert command[command.index("--id-pattern") + 1] == r"_paper_(\d+)\.pdf$"
     assert "--flag-acknowledgments" in command
     assert (tmp_path / "sigsoft-authors.csv").read_text().splitlines()[1].startswith("1,A,Maria,Lindqvist")
@@ -46,7 +46,7 @@ def test_command_passes_the_profile_and_the_author_list(tmp_path, monkeypatch):
 def test_papers_without_a_record_get_a_warning(tmp_path, monkeypatch):
     monkeypatch.setattr(tools, "program", lambda name: name)
     monkeypatch.setattr(sigsoft, "_run", lambda command, n: [{"file": "ieee-refs-start-p10.pdf", "issues": []}])
-    results = sigsoft.check_batch(_papers(), profile.load("conf-2026"), tmp_path)
+    results = sigsoft.check_batch(_papers(), profile.load("example-easychair"), tmp_path)
     assert results[1] == []
     assert [f.check for f in results[2]] == ["sigsoft.error"]
 
@@ -54,7 +54,7 @@ def test_papers_without_a_record_get_a_warning(tmp_path, monkeypatch):
 @pytest.mark.skipif(not shutil.which("java") or not tools.submission_checker().is_file(),
                     reason="needs Java and the bundled jar")
 def test_bundled_jar_reads_a_good_pdf_and_reports_a_corrupt_one(tmp_path):
-    results = sigsoft.check_batch(_papers(), profile.load("conf-2026"), tmp_path)
+    results = sigsoft.check_batch(_papers(), profile.load("example-easychair"), tmp_path)
     assert not [f for f in results[1] if f.check == "sigsoft.error"]
     assert [f.check for f in results[2]] == ["sigsoft.error"]
 

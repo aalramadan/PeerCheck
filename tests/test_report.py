@@ -39,7 +39,7 @@ def _sheet(path, title):
 
 def test_report_extends_the_submission_sheet_and_flags_missing_and_extra_pdfs(tmp_path):
     out = tmp_path / "report.xlsx"
-    report.write_papers(out, _run(), profile.load("conf-2026"), _submissions(tmp_path))
+    report.write_papers(out, _run(), profile.load("example-easychair"), _submissions(tmp_path))
     rows = {row[0]: row for row in _sheet(out, None).iter_rows(min_row=2, values_only=True)}
     header = [c.value for c in _sheet(out, None)[1]]
     findings = header.index("Findings")
@@ -60,7 +60,7 @@ def test_text_from_reviews_and_pdfs_that_looks_like_a_formula_stays_text(tmp_pat
 
 def test_unmatched_files_get_their_own_sheet(tmp_path):
     out = tmp_path / "report.xlsx"
-    report.write_papers(out, _run(), profile.load("conf-2026"))
+    report.write_papers(out, _run(), profile.load("example-easychair"))
     assert [row[0] for row in _sheet(out, "Files").iter_rows(min_row=2, values_only=True)] == ["odd name.pdf"]
 
 

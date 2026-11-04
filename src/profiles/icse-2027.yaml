@@ -16,7 +16,7 @@ format:
   # At most 10 pages including appendices, plus 2 pages of references only.
   main_pages: 10
   reference_pages: 2
-  # The same IEEEtran conference margins as the CONF 2026 profile.
+  # The same IEEEtran conference margins as the example profile.
   margins: [52, 48, 72, 48]
   margin_tolerance: 18
   # The call warns that altered spacing or font size may lead to desk rejection.

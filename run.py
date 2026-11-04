@@ -1,4 +1,4 @@
-"""Opens the PeerCheck menu, as `python run.py` did in CONF_Submission_Checker_Suite."""
+"""Opens the PeerCheck menu, the same as `peercheck menu`."""
 
 import sys
 

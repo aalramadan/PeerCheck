@@ -16,7 +16,7 @@ def test_pdfs_map_to_ids_and_odd_names_are_reported(tmp_path):
     for name in ("CONF_2026_paper_0041.pdf", "CONF_2026_paper_41.pdf", "CONF_2026_paper_0042 (1).pdf",
                  "conf_2026_paper_0043.PDF", "notes.txt"):
         shutil.copy(source, tmp_path / name)
-    found = inputs.find_pdfs(tmp_path, profile.load("conf-2026"))
+    found = inputs.find_pdfs(tmp_path, profile.load("example-easychair"))
     assert sorted(found.papers) == [41, 43]
     assert found.unmatched == ["CONF_2026_paper_0042 (1).pdf"]
     assert len(found.duplicates) == 1
@@ -24,11 +24,11 @@ def test_pdfs_map_to_ids_and_odd_names_are_reported(tmp_path):
 
 def test_missing_pdf_folder_is_an_input_error(tmp_path):
     with pytest.raises(inputs.InputError, match="not found"):
-        inputs.find_pdfs(tmp_path / "missing", profile.load("conf-2026"))
+        inputs.find_pdfs(tmp_path / "missing", profile.load("example-easychair"))
 
 
 def test_submission_sheet_gives_titles_by_id():
-    titles = inputs.read_submissions(EASYCHAIR / "submissions.csv", profile.load("conf-2026"))
+    titles = inputs.read_submissions(EASYCHAIR / "submissions.csv", profile.load("example-easychair"))
     assert set(titles) == {7, 8}
 
 
@@ -36,7 +36,7 @@ def test_submission_sheet_without_the_id_column_names_the_column(tmp_path):
     path = tmp_path / "s.csv"
     path.write_text("Number,Title\n1,A\n")
     with pytest.raises(inputs.InputError, match="'#'"):
-        inputs.read_submissions(path, profile.load("conf-2026"))
+        inputs.read_submissions(path, profile.load("example-easychair"))
 
 
 def test_easychair_author_headers_are_understood():
