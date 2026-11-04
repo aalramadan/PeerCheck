@@ -159,18 +159,25 @@ def _detector_columns(verdict, lens) -> dict[str, object]:
     return columns
 
 
+# What each detector reports when it counts a review as AI, for the notes of one detector alone.
+CALLS = {"CoCoDet": "labels the review as AI", "EditLens": "finds AI involvement in the review"}
+
+
 def _ai_calls(verdict, lens) -> dict[str, str]:
-    """Return the evidence of each detector that labels the review as AI, keyed by the name of the detector."""
+    """Return the evidence of each detector that counts the review as AI, keyed by the name of the detector.
+
+    CoCoDet counts with its label AI. EditLens counts from the score AGREE_FROM, which confirms CoCoDet on reviews.
+    """
     calls = {}
     if verdict is not None and verdict.label == "ai":
         calls["CoCoDet"] = f"CoCoDet P(AI) {verdict.probabilities.get('ai')}"
-    if lens is not None and lens.label == "ai":
-        calls["EditLens"] = f"EditLens score {lens.score:.4f} from {editlens.AI_FROM}"
+    if lens is not None and lens.score >= editlens.AGREE_FROM:
+        calls["EditLens"] = f"EditLens score {lens.score:.4f}, at least {editlens.AGREE_FROM}"
     return calls
 
 
 def _detector_findings(calls: dict[str, str], detectors: tuple[str, ...]) -> list[Finding]:
-    """Flag a review that both detectors label as AI; a label of one detector alone becomes a note."""
+    """Flag a review that the two detectors count as AI; a call of one detector alone becomes a note."""
     if len(calls) == 2:
         return [Finding("detectors.agree-ai", Severity.WARNING,
                         f"{' and '.join(calls)} agree that the review reads as machine-written",
@@ -180,7 +187,7 @@ def _detector_findings(calls: dict[str, str], detectors: tuple[str, ...]) -> lis
     ((name, evidence),) = calls.items()
     other = next((NAMES[d] for d in detectors if NAMES[d] != name), None)
     rest = f"{other} does not" if other else "no second detector ran"
-    return [Finding(f"detectors.{name.lower()}-ai", Severity.INFO, f"{name} labels the review as AI; {rest}",
+    return [Finding(f"detectors.{name.lower()}-ai", Severity.INFO, f"{name} {CALLS[name]}; {rest}",
                     evidence=evidence)]
 
 

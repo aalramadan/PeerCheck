@@ -9,6 +9,11 @@ as Human, a score of 0.997 or more as AI, and a score between them as AI-Edited.
 score on the released validation split (data/val.csv at commit 05a588f), the calibration of the release post.
 With these thresholds, none of the 6,309 human texts of the five released test sets reads as AI.
 
+On peer reviews the AI label alone is too strict. EditLens gives most reviews written or polished by AI a score
+between the two thresholds, therefore PeerCheck takes a score of 0.2743 or more (AGREE_FROM) as the confirmation of an
+AI label of CoCoDet. On 900 held-out reviews of the CoCoNUTS test split, the two detectors together flag 297 of 300
+reviews written by AI and 3 of 450 reviews written by people, all three of them polished by AI.
+
 The weights come from a pinned revision on Hugging Face into its cache. They are gated under CC BY-NC-SA 4.0, for
 non-commercial use only, and each user accepts the terms on Hugging Face and logs in once with hf auth login. The
 release post states that the models "should NOT be used to enforce any sort of AI usage policy in an educational
@@ -32,6 +37,10 @@ MAX_TOKENS = 512
 BATCH_SIZE = 8
 HUMAN_BELOW = 0.0971
 AI_FROM = 0.997
+# The score from which EditLens confirms the AI label of CoCoDet in the rule of the two detectors. It gives the rule
+# its best F1 score on 900 calibration reviews of the CoCoNUTS test split (150 of each label, seed 2026) while it
+# flags at most 1% of the human reviews.
+AGREE_FROM = 0.2743
 # The training data of EditLens keeps texts of 75 words or more (configs/roberta.yaml, min_words).
 MIN_WORDS = 75
 GATED = (f"EditLens is gated: accept its terms at https://huggingface.co/{MODEL_REPO} while logged in, then run "
