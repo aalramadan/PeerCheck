@@ -170,7 +170,7 @@ The commands read these inputs.
 | `--pc`, `--reviewer-csv` | conflicts | read the committee list |
 | `--dblp-dump` | conflicts | builds the co-author index from `dblp.xml.gz`, the full download of DBLP |
 | `--years` | conflicts | sets the co-authorship window, 3 years by default |
-| `--key` | canary | names the private file that records the planted citation of each paper |
+| `--key` | canary | names the private file that lists the planted citation of each paper |
 
 `peercheck setup <name>` downloads `references`, `cocodet`, or `editlens`. `peercheck doctor` lists missing
 programs. Run any command with `--help` for every option.
