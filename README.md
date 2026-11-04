@@ -13,14 +13,15 @@ It reports format violations, anonymity leaks, hidden text, unverifiable referen
 reviews, and conflicts of interest.
 
 > [!IMPORTANT]
-> PeerCheck assists human reviewers. Every flagged paper or review should be checked by a person.
+> PeerCheck assists the organizers of the review process. Every flagged paper or review should be checked by a
+> person.
 
 ## 🎬 Demo
 
 These two report pages come from the commands below.
 
 ```bash
-peercheck papers submissions/ --authors authors.csv --html report.html
+peercheck papers submissions/ --authors authors.csv --checks layout,sigsoft,hidden-text --html report.html
 peercheck reviews reviews/ --canaries canaries.csv --html reviews.html
 ```
 
@@ -32,6 +33,13 @@ peercheck reviews reviews/ --canaries canaries.csv --html reviews.html
 
 ![HTML report of peercheck reviews on eight example reviews](docs/reviews-report.png)
 
+Each finding is classified as an error, warning, or informational note. An error breaks a stated rule of the
+venue. A warning marks a likely problem. An informational note gives context. A red bar marks a paper or a review
+with an error or a warning.
+
+In the reviews report, CoCoDet P(AI) is the probability that CoCoDet gives to the label AI. EditLens Score runs
+from 0 for human writing to 1 for AI writing. EditLens reads a score of 0.997 or more as AI.
+
 ## 🔍 Checks
 
 Each check has a plain name and, in parentheses, the name that selects it on the command line.
@@ -41,8 +49,8 @@ Each check has a plain name and, in parentheses, the name that selects it on the
 - **Format** (`layout`) checks the page size, columns, margins, fonts, page limits, page numbers, and missing
   sections. It uses the format checker of HotCRP, a conference management system.
 - **Anonymity and template** (`sigsoft`) verifies that the paper uses the template of the venue and identifies
-  anonymity leaks, such as author names, email addresses, affiliations, and revealing links. It uses the
-  submission checker of ACM SIGSOFT, the software engineering group of the ACM, revised.
+  anonymity leaks, such as author names, email addresses, affiliations, and revealing links. It runs a
+  revised copy of the submission checker of ACM SIGSOFT, the software engineering group of the ACM.
 - **Hidden text** (`hidden-text`) finds white, invisible, or tiny text, invisible Unicode characters, and prompts
   or instructions hidden in the PDF and intended for AI systems. It uses the PDF libraries pdfguardrail and
   PyMuPDF and the warning phrases of PhantomLint, a scanner for hidden prompts.
@@ -52,29 +60,35 @@ Each check has a plain name and, in parentheses, the name that selects it on the
 
 ### 💬 Reviews, with `peercheck reviews`
 
+The review checks read the review XML files that EasyChair exports.
+
 - **AI detection** (`cocodet`, `editlens`) labels each review as human-written or AI-generated. A review is
   flagged only when the two detectors label it as AI-generated. This mirrors the policy used by ICLR 2026. The
   two detectors are CoCoDet, trained on peer reviews, with the labels Human, Mix, and AI, and EditLens, trained on
-  AI-edited text, with the labels Human, AI-Edited, and AI.
+  AI-edited text, with the labels Human, AI-Edited, and AI. Mix marks content that is partly human and partly AI.
+  AI-Edited marks human writing that AI edited. On its own test set, CoCoDet labeled 1.31% of human reviews as
+  Mix or AI. With its AI cutoff, EditLens labeled none of the 6,309 human texts of its released test sets as AI.
 - **Planted citation** (`--canaries`) finds reviews that an AI tool wrote from the paper. Before the review period,
   `peercheck canary` writes a copy of each PDF with an instruction hidden in white text. The instruction asks any
   AI tool to cite a made-up work, such as Smith et al. (2019). A review that cites the made-up work of its paper is
-  a hit. The check follows the method of Rao et al. that ICML 2026 used.
+  a hit. The test keeps the chance of any wrong hit among all reviews at 0.1% or less. The check follows the
+  method of Rao et al. that ICML 2026 used.
 - **Copied text** (`duplicates`) identifies highly similar paragraphs across reviews. Two paragraphs count as
   copies when at least half of their short character sequences match. It uses MinHash, a fast search for similar
   text, from the datasketch library.
 - **Citation requests** (`citations`) identifies works that reviewers recommend citing, including their own
-  publications. It matches the requested works against the publications of the reviewers in DBLP.
+  publications. A review that asks for more works than the paper has pages gets a warning. To match the requested
+  works against the publications of the reviewers in DBLP, the check needs the DBLP index that
+  `peercheck conflicts --save-index` writes, passed with `--dblp-index`.
 
 ### 🤝 Conflicts of interest, with `peercheck conflicts`
 
 PeerCheck finds co-authorship in DBLP within the previous three years, consistent with the ACM SIGSOFT Policy on
 Program Committees. It also finds shared email domains, affiliations that match, and declared conflicts without
-supporting evidence. Affiliations match through the word lists of HotCRP. Webmail domains such as gmail.com do not count as
-shared. OpenReview, a review platform, provides the list of webmail domains.
-
-Each finding is classified as an error, warning, or informational note. An error breaks a stated rule of the
-venue. A warning marks a likely problem. An informational note gives context.
+supporting evidence. A name that matches several DBLP authors goes to a person to confirm. A DBLP person ID in
+the committee list avoids the question. Declared conflicts come from the conflict export of EasyChair, passed
+with `--conflict-csv`. Affiliations match through the word lists of HotCRP. Webmail domains such as gmail.com do
+not count as shared. OpenReview, a review platform, provides the list of webmail domains.
 
 ## 🧰 Requirements
 
@@ -86,6 +100,10 @@ venue. A warning marks a likely problem. An informational note gives context.
 sudo apt install perl poppler-utils default-jre   # Debian or Ubuntu
 brew install poppler openjdk                      # macOS, which already has Perl
 ```
+
+PeerCheck is tested on Linux, including WSL on Windows. The models and the DBLP database take about 5 GB of
+disk. No graphics card is needed. On an Intel Core i5-13500 processor, the demo above took about 4 seconds for six
+papers and 21 seconds for eight reviews, the loading of the models included.
 
 ## 📦 Install
 
@@ -133,7 +151,7 @@ peercheck conflicts --authors authors.csv --pc pc.csv --dblp-dump dblp.xml.gz
 peercheck canary submissions/ --out marked/ --key canaries.csv           # plants a citation in each PDF
 peercheck reviews reviews/ --canaries canaries.csv                       # finds the planted citations
 peercheck --profile fse-2027 papers submissions/                         # uses the rules of FSE 2027
-python run.py                                                            # opens an interactive menu
+peercheck menu                                                           # opens an interactive menu
 ```
 
 Each command writes an Excel workbook. A paper or a review needs a closer look when any of its findings is an
@@ -141,7 +159,8 @@ error or a warning.
 
 > [!TIP]
 > Check the original PDFs with `peercheck papers` before `peercheck canary`, since the hidden-text check reports the
-> planted citation.
+> planted citation. Then upload the marked copies to the conference system in place of the originals, before the
+> reviewers download the papers.
 
 > [!WARNING]
 > Keep the key file of `peercheck canary` private, since it reveals the planted citation of each paper.
@@ -168,12 +187,13 @@ The commands read these inputs.
 | `--canaries` | reviews | runs the planted-citation check with the key file of `peercheck canary` |
 | `--device` | reviews | runs the detectors on the processor (`cpu`) or an NVIDIA graphics card (`cuda`) |
 | `--pc`, `--reviewer-csv` | conflicts | read the committee list |
-| `--dblp-dump` | conflicts | builds the co-author index from `dblp.xml.gz`, the full download of DBLP |
+| `--conflict-csv` | conflicts | reads the declared conflicts that EasyChair exports |
+| `--dblp-dump` | conflicts | builds the co-author index from `dblp.xml.gz`, the full download of DBLP at dblp.org/xml |
+| `--dblp-index` | reviews, conflicts | reads the index that `--save-index` of `peercheck conflicts` wrote |
 | `--years` | conflicts | sets the co-authorship window, 3 years by default |
 | `--key` | canary | names the private file that lists the planted citation of each paper |
 
-`peercheck setup <name>` downloads `references`, `cocodet`, or `editlens`. `peercheck doctor` lists missing
-programs. Run any command with `--help` for every option.
+Run any command with `--help` for every option.
 
 ## 🏛️ Venue profiles
 
@@ -205,7 +225,7 @@ mvn -f external/submission-checker/pom.xml package   # rebuilds the revised SIGS
 ## 📄 License
 
 PeerCheck is licensed under the GNU General Public License version 3. `NOTICE.md` lists the tools of other authors
-with their licenses.
+with their licenses. To cite PeerCheck, use *Cite this repository* on GitHub, which reads `CITATION.cff`.
 
 ## 📚 References
 

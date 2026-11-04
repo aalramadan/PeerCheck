@@ -117,12 +117,12 @@ def write_sheets(out: Path, sheets: dict[str, list[dict]], findings: list[tuple[
 
 def write_papers_html(out: Path, run: PapersRun) -> None:
     """Write a self-contained HTML page of a paper run for viewing in a browser."""
-    columns = ("Paper", "Main Pages", "Reference-only Pages", "Paper Size", "Errors", "Warnings")
+    columns = ("Paper", "Main Pages", "Reference-only Pages", "Paper Size (pt)", "Errors", "Warnings")
     records = []
     for result in run.results:
         metrics = result.layout.row() if result.layout else {}
         records.append(([result.paper.paper_id, metrics.get("Main Pages"),
-                         metrics.get("Reference-only Pages"), metrics.get("Paper Size (height x width)"),
+                         metrics.get("Reference-only Pages"), metrics.get("Paper Size (height x width, pt)"),
                          count(result.findings, Severity.ERROR), count(result.findings, Severity.WARNING)],
                         result.findings))
     notes = ([f"Paper {paper_id} has no PDF." for paper_id in run.missing_pdfs]

@@ -1,0 +1,12 @@
+cff-version: 1.2.0
+message: "If you use PeerCheck, please cite it as below."
+title: "PeerCheck"
+abstract: "Automatic checks of submissions, reviews, and conflicts of interest for software engineering conferences."
+type: software
+authors:
+  - family-names: "Al-Ramadan"
+    given-names: "Ali"
+version: "1.0.0"
+date-released: "2026-11-04"
+license: GPL-3.0-only
+repository-code: "https://github.com/aalramadan/PeerCheck"
