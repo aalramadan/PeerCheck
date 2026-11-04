@@ -115,3 +115,10 @@ def test_html_page_of_reviews_hides_file_names_titles_and_empty_columns(tmp_path
     page = out.read_text()
     assert "review_0007_1.xml" not in page and "A Secret Title" not in page and "Confidence" not in page
 
+
+def test_html_page_leaves_out_the_columns_it_is_given(tmp_path):
+    out = tmp_path / "reviews.html"
+    rows = [{"Review ID": "r1", "CoCoDet Verdict": "AI", "Content Sources": "gpt4o"}]
+    report.write_rows_html(out, "PeerCheck, Reviews", rows, {}, "Review ID", ("Content Sources",))
+    page = out.read_text()
+    assert "CoCoDet Verdict" in page and "Content Sources" not in page and "gpt4o" not in page

@@ -24,6 +24,8 @@ CAUTION = ("CoCoDet and EditLens give leads, not verdicts. The CoCoDet model car
            "used as the sole arbiter of academic misconduct\". The Open Pangram release states that EditLens "
            "\"should NOT be used to enforce any sort of AI usage policy in an educational or professional setting\".")
 CANARY_STATES = (("canary.hit", "hit"), ("canary.untested", "untested"), ("canary.no-key", "no key"))
+# The page of the reviews keeps the labels and scores of the detectors; their details stay in the workbook.
+DETAIL_COLUMNS = ("CoCoDet Detail", "Content Sources", "Style Sources", "CoCoDet Notes", "EditLens Notes")
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -111,7 +113,7 @@ def run(args: argparse.Namespace) -> int:
     if args.json:
         report.write_json(args.json, {"reviews": list(rows.values()), "findings": found})
     if args.html:
-        report.write_rows_html(args.html, "PeerCheck, Reviews", list(rows.values()), found, "Review ID")
+        report.write_rows_html(args.html, "PeerCheck, Reviews", list(rows.values()), found, "Review ID", DETAIL_COLUMNS)
     flagged = sum(1 for items in found.values() if needs_review(items))
     print(f"{len(reviews)} reviews checked, {flagged} need review. Report: {args.out}")
     return 0

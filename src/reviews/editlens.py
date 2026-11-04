@@ -80,7 +80,7 @@ class Detector:
             with torch.no_grad():
                 logits = self.model(**encoded).logits
             for row, (index, text) in enumerate(batch):
-                verdicts[index] = _verdict(logits[row], truncated=len(self.tokenizer(text)["input_ids"]) > MAX_TOKENS,
+                verdicts[index] = _verdict(logits[row], truncated=len(self.tokenizer(text, verbose=False)["input_ids"]) > MAX_TOKENS,
                                            words=len(text.split()))
         return verdicts
 
