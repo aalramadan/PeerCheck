@@ -33,7 +33,7 @@ MIN_PAGES_WITH_REFERENCES = 6
 REPORT_COLUMNS = (
     "Total Pages", "Main Pages", "Reference-only Pages", "References Start Page", "Blank Pages",
     "Appendix Pages", "Figure Pages", "Words", "Characters", "Body Font (pt)", "Reference Font (pt)",
-    "Line Spacing (pt)", "Margins (top, right, bottom, left)", "Columns", "Paper Size (height x width)",
+    "Line Spacing (pt)", "Margins (top, right, bottom, left)", "Columns", "Paper Size (height x width, pt)",
     "Page Number Margin",
 )
 
