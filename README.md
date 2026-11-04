@@ -38,7 +38,8 @@ venue. A warning marks a likely problem. An informational note gives context. A 
 with an error or a warning.
 
 In the reviews report, CoCoDet P(AI) is the probability that CoCoDet gives to the label AI. EditLens Score runs
-from 0 for human writing to 1 for AI writing. EditLens reads a score of 0.997 or more as AI.
+from 0 for human writing to 1 for AI writing. EditLens itself reads a score of 0.997 or more as AI, while PeerCheck
+takes a score of 0.2743 or more as the confirmation of an AI label of CoCoDet.
 
 ## 🔍 Checks
 
@@ -63,11 +64,14 @@ Each check has a plain name and, in parentheses, the name that selects it on the
 The review checks read the review XML files that EasyChair exports.
 
 - **AI detection** (`cocodet`, `editlens`) labels each review as human-written or AI-generated. A review is
-  flagged only when the two detectors label it as AI-generated. This mirrors the policy used by ICLR 2026. The
-  two detectors are CoCoDet, trained on peer reviews, with the labels Human, Mix, and AI, and EditLens, trained on
-  AI-edited text, with the labels Human, AI-Edited, and AI. Mix marks content that is partly human and partly AI.
-  AI-Edited marks human writing that AI edited. On its own test set, CoCoDet labeled 1.31% of human reviews as
-  Mix or AI. With its AI cutoff, EditLens labeled none of the 6,309 human texts of its released test sets as AI.
+  flagged only when the two detectors agree. This mirrors the policy used by ICLR 2026. CoCoDet must label the
+  review as AI. EditLens must then confirm AI involvement with a score of 0.2743 or more. The two detectors are
+  CoCoDet, trained on peer reviews, with the labels Human, Mix, and AI, and EditLens, trained on AI-edited text,
+  with the labels Human, AI-Edited, and AI. Mix marks content that is partly human and partly AI. AI-Edited marks
+  human writing that AI edited. On 900 held-out reviews of the public CoCoNUTS test set, the rule flagged 297 of
+  300 reviews written by AI (99.0%) and 3 of 450 reviews written by people (0.7%), all three polished by AI.
+  CoCoDet trained on other reviews of the same dataset, therefore the rates may be lower on the reviews of other
+  venues.
 - **Planted citation** (`--canaries`) finds reviews that an AI tool wrote from the paper. Before the review period,
   `peercheck canary` writes a copy of each PDF with an instruction hidden in white text. The instruction asks any
   AI tool to cite a made-up work, such as Smith et al. (2019). A review that cites the made-up work of its paper is

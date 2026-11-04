@@ -26,7 +26,7 @@ def test_two_detectors_that_agree_flag_the_review():
 def test_one_detector_alone_gives_a_note_that_names_the_other():
     found = cli._detector_findings({"EditLens": "EditLens score 0.9990"}, ALL)
     assert [(f.check, f.severity) for f in found] == [("detectors.editlens-ai", Severity.INFO)]
-    assert found[0].message == "EditLens labels the review as AI; CoCoDet does not"
+    assert found[0].message == "EditLens finds AI involvement in the review; CoCoDet does not"
 
 
 def test_a_detector_that_runs_alone_says_so():
@@ -34,10 +34,10 @@ def test_a_detector_that_runs_alone_says_so():
     assert found[0].message == "CoCoDet labels the review as AI; no second detector ran"
 
 
-def test_each_detector_counts_only_its_ai_label():
+def test_cocodet_counts_its_ai_label_and_editlens_its_score_from_the_agreement_threshold():
     verdict = SimpleNamespace(label="ai", probabilities={"ai": 0.97})
-    assert list(cli._ai_calls(verdict, editlens.Verdict("ai", 0.999))) == ["CoCoDet", "EditLens"]
-    assert cli._ai_calls(None, editlens.Verdict("ai-edited", 0.5)) == {}
+    assert list(cli._ai_calls(verdict, editlens.Verdict("ai-edited", editlens.AGREE_FROM))) == ["CoCoDet", "EditLens"]
+    assert cli._ai_calls(SimpleNamespace(label="mix", probabilities={}), editlens.Verdict("human", 0.05)) == {}
 
 
 def test_cocodet_and_editlens_run_by_default():
