@@ -7,7 +7,6 @@ port. `NOTICE.md` at the root of the repository lists every license.
 
 | Folder | Origin | Version | License | Use in PeerCheck |
 |---|---|---|---|---|
-| `binoculars/` | github.com/ahans30/Binoculars | commit `c8ae2f9` | BSD-3-Clause | original of the Binoculars port, `src/reviews/binoculars.py` |
 | `census-surnames/` | U.S. Census Bureau, Frequently Occurring Surnames from the 2010 Census | 2010 census | public domain | the 9,999 most common surnames, the pool of the canary check |
 | `coconuts/` | github.com/icip-cas/CoCoNUTS | commit `25df608` | no license file | `infer.py`, original of the CoCoDet port, `src/reviews/cocodet.py` |
 | `editlens/` | github.com/pangramlabs/EditLens | commit `05a588f` | CC BY-NC-SA 4.0 | code of Open Pangram without its data, original of `src/reviews/editlens.py` |
@@ -18,6 +17,6 @@ port. `NOTICE.md` at the root of the repository lists every license.
 | `submission-checker/` | github.com/acmsigsoft/submission-checker | release v0.4.3, commit `3ffa1eb` | Apache-2.0 | revised source and built jar of the anonymity and template check |
 
 Model weights and databases stay out, since setup downloads each of these files. These are CoCoDet with
-ModernBERT-base, the Falcon-7B pair of Binoculars, the EditLens weights, DBLP, and the Retraction Watch list. Python dependencies,
-such as pdfguardrail and PyMuPDF, install with pip. The canary check follows the paper of Rao et al.
-(arXiv 2503.15772), which comes without code.
+ModernBERT-base, the EditLens weights, DBLP, and the Retraction Watch list. Python dependencies, such as
+pdfguardrail and PyMuPDF, install with pip. The canary check follows the paper of Rao et al. (arXiv 2503.15772),
+which comes without code.
