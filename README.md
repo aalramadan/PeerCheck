@@ -51,10 +51,6 @@ likely problem. An info gives context. A person checks every flagged paper or re
 
 ![HTML report of peercheck reviews on eight example reviews](docs/reviews-report.png)
 
-The example papers are made up. The example reviews come from the public CoCoNUTS test set (MIT license), which
-holds peer reviews of ICLR and NeurIPS with labels for human and machine-written text. The canary hit in review
-example-6 is made up.
-
 ## Requirements
 
 - Python 3.10 or newer
@@ -204,51 +200,6 @@ The canary check follows Rao et al. and the canaries of ICML 2026.
 A new venue needs a copy of a file in `src/profiles/` with its own values, passed by path, such as
 `peercheck --profile myvenue.yaml papers submissions/`.
 
-## Privacy
-
-- Every check and every model runs locally.
-- The reference check stays offline by default. The profile option `online: true` sends DOIs and arXiv
-  identifiers to doi.org and arxiv.org. The option `online_titles: true` also sends reference titles.
-- `.gitignore` keeps PDFs, review XML files, spreadsheets, and CSV files out of git, test fixtures excepted.
-
-## How it works
-
-| Folder | Holds |
-|---|---|
-| `src/` | PeerCheck itself |
-| `external/` | the tools and data of other authors, as `external/README.md` lists |
-| `tests/` | the tests and their sample files |
-| `docs/` | the pictures of this README |
-
-`peercheck papers`
-1. `src/inputs.py`, static. Maps each PDF to a paper ID and reads the submission sheet and the author list.
-2. `src/checks/sigsoft.py`, static. Runs the revised SIGSOFT jar over all PDFs.
-3. `src/checks/layout.py`, static. Runs banal and checks the format rules of the profile.
-4. `src/checks/hidden_text.py`, static. Runs pdfguardrail and a clip test with PyMuPDF.
-5. `src/checks/references.py` and `src/retraction_watch.py`, static. Run Hallucinator offline and match DOIs
-   against Retraction Watch.
-6. `src/report.py`, static. Writes the workbook and the optional JSON and HTML files.
-
-`peercheck reviews`
-1. `src/inputs.py`, static. Reads the review XML files.
-2. `src/reviews/cocodet.py`, call of a local model. Labels each review with CoCoDet.
-3. `src/reviews/editlens.py`, call of a local model. Labels each review with EditLens.
-4. `src/canary.py`, static, with `--canaries`. Finds the hidden citation of each paper in its reviews.
-5. `src/reviews/duplicates.py`, static. Finds paragraphs that appear in two reviews.
-6. `src/reviews/citations.py`, static. Finds citation requests.
-7. `src/report.py`, static. Writes the workbook and the optional JSON and HTML files.
-
-`peercheck canary`
-1. `src/inputs.py`, static. Maps each PDF to a paper ID.
-2. `src/canary.py`, static. Draws a citation for each paper, writes the key file, and marks a copy of each PDF.
-
-`peercheck conflicts`
-1. `src/dblp.py`, static. Builds a publication index of the authors and the committee from the DBLP dump.
-2. `src/conflicts.py`, static. Applies the conflict rules.
-3. `src/report.py`, static. Writes the workbook.
-
-`src/cli.py` and `src/reviews/cli.py` hold the command line and the menu.
-
 ## Tests
 
 ```bash
@@ -257,7 +208,38 @@ python -m pytest                                     # offline; GitHub Actions r
 mvn -f external/submission-checker/pom.xml package   # rebuilds the revised SIGSOFT jar
 ```
 
+## Privacy
+
+- Every check and every model runs locally.
+- The reference check stays offline by default. The profile option `online: true` sends DOIs and arXiv
+  identifiers to doi.org and arxiv.org. The option `online_titles: true` also sends reference titles.
+- `.gitignore` keeps PDFs, review XML files, spreadsheets, and CSV files out of git, test fixtures excepted.
+
 ## License
 
 PeerCheck is licensed under the GNU General Public License version 3. `NOTICE.md` lists the tools of other authors
 with their licenses.
+
+## References
+
+1. CoCoDet: Chen et al. 2026. *CoCoNUTS: Concentrating on Content while Neglecting Uninformative Textual Styles
+   for AI-Generated Peer Review Detection.* ACL 2026.
+   [doi.org/10.18653/v1/2026.acl-long.1240](https://doi.org/10.18653/v1/2026.acl-long.1240)
+2. EditLens: Thai et al. 2026. *EditLens: Quantifying the Extent of AI Editing in Text.* ICLR 2026.
+   [arxiv.org/abs/2510.03154](https://arxiv.org/abs/2510.03154)
+3. Two detectors that agree: ICLR. 2026. *A Retrospective on the ICLR 2026 Review Process.* ICLR Blog.
+   [blog.iclr.cc](https://blog.iclr.cc/2026/03/31/a-retrospective-on-the-iclr-2026-review-process/)
+4. Canary check: Rao et al. 2025. *Detecting LLM-generated peer reviews.* PLOS ONE.
+   [doi.org/10.1371/journal.pone.0331871](https://doi.org/10.1371/journal.pone.0331871)
+5. Canary check: ICML. 2026. *On Violations of LLM Review Policies.* ICML Blog.
+   [blog.icml.cc](https://blog.icml.cc/2026/03/18/on-violations-of-llm-review-policies/)
+6. Hidden-text phrases: Murray. 2025. *PhantomLint: Principled Detection of Hidden LLM Prompts in Structured
+   Documents.* arXiv preprint. [arxiv.org/abs/2508.17884](https://arxiv.org/abs/2508.17884)
+7. Duplicates check: Day. 2022. *Exploratory analysis of text duplication in peer-review reveals peer-review fraud
+   and paper mills.* Scientometrics 127(10), 5965–5987.
+   [doi.org/10.1007/s11192-022-04504-5](https://doi.org/10.1007/s11192-022-04504-5)
+8. Limit on citation requests: Wren et al. 2019. *Reviewer-coerced citation: case report, update on journal policy
+   and suggestions for future prevention.* Bioinformatics 35(18), 3217–3218.
+   [doi.org/10.1093/bioinformatics/btz071](https://doi.org/10.1093/bioinformatics/btz071)
+9. Citations of works of the reviewers: Barnett. 2025. *Are peer reviewers influenced by their work being cited?*
+   eLife 14. [doi.org/10.7554/eLife.108748](https://doi.org/10.7554/eLife.108748)
