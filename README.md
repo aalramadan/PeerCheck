@@ -16,33 +16,33 @@ reviews, and conflicts of interest.
 
 ### Submissions, with `peercheck papers`
 
-- **layout** checks the page size, columns, margins, fonts, page limits, page numbers, and missing sections. It
-  uses the format checker of HotCRP.
-- **sigsoft** verifies that the paper uses the template of the venue and identifies anonymity leaks, such as
-  author names, email addresses, affiliations, and revealing links. It uses the ACM SIGSOFT submission checker,
-  revised.
-- **hidden-text** finds white, invisible, or tiny text, invisible Unicode characters, and prompts or instructions
+- **Format** checks the page size, columns, margins, fonts, page limits, page numbers, and missing sections. It uses
+  the format checker of HotCRP.
+- **Anonymity and template** verifies that the paper uses the template of the venue and identifies anonymity
+  leaks, such as author names, email addresses, affiliations, and revealing links. It uses the ACM SIGSOFT
+  submission checker, revised.
+- **Hidden text** finds white, invisible, or tiny text, invisible Unicode characters, and prompts or instructions
   hidden in the PDF and intended for AI systems. It uses pdfguardrail and PyMuPDF with the phrases of PhantomLint.
-- **references** finds references that cannot be verified in bibliographic databases and references that were
+- **References** finds references that cannot be verified in bibliographic databases and references that were
   retracted. It uses Hallucinator together with an offline DBLP database and the Retraction Watch list.
 
 ### Reviews, with `peercheck reviews`
 
-- **detectors** label each review as human-written or AI-generated. A review is flagged only when the two
-  detectors label it as AI-generated. This mirrors the policy used by ICLR 2026. The two detectors are CoCoDet, whose
-  labels are Human, Mix, and AI, and EditLens, whose labels are Human, AI-Edited, and AI.
-- **canary** finds reviews that repeat a planted citation hidden in the corresponding submission. It follows the
-  method of Rao et al. that ICML 2026 used.
-- **duplicates** identifies highly similar paragraphs across reviews, at a Jaccard similarity of 0.5 or more. It
+- **AI detection** labels each review as human-written or AI-generated. A review is flagged only when the two
+  detectors label it as AI-generated. This mirrors the policy used by ICLR 2026. The two detectors are CoCoDet,
+  whose labels are Human, Mix, and AI, and EditLens, whose labels are Human, AI-Edited, and AI.
+- **Planted citation** finds reviews that repeat a citation that `peercheck canary` hides in the corresponding
+  submission. It follows the method of Rao et al. that ICML 2026 used.
+- **Copied text** identifies highly similar paragraphs across reviews, at a Jaccard similarity of 0.5 or more. It
   uses the MinHash search of datasketch.
-- **citations** identifies works that reviewers recommend citing, including their own publications. It uses DBLP.
+- **Citation requests** identifies works that reviewers recommend citing, including their own publications. It
+  uses DBLP.
 
 ### Conflicts of interest, with `peercheck conflicts`
 
-- **conflicts** finds co-authorship within the previous three years, consistent with the ACM SIGSOFT Policy on
-  Program Committees. It also finds shared email domains, affiliations that match, and declared conflicts
-  without supporting evidence. It uses DBLP, the affiliation word lists of HotCRP, and the webmail list
-  of OpenReview.
+PeerCheck finds co-authorship within the previous three years, consistent with the ACM SIGSOFT Policy on Program
+Committees. It also finds shared email domains, affiliations that match, and declared conflicts without supporting
+evidence. It uses DBLP, the affiliation word lists of HotCRP, and the webmail list of OpenReview.
 
 Each finding is classified as an error, warning, or informational note. An error breaks a stated rule of the
 venue. A warning marks a likely problem. An informational note gives context. PeerCheck assists human reviewers;
@@ -126,7 +126,7 @@ The commands read these inputs.
 | `--json`, `--html` | papers, reviews | also write a JSON file or a page for the browser |
 | `--authors` | papers, conflicts | reads the author list |
 | `--submissions` | papers | reads the submission sheet of EasyChair or HotCRP |
-| `--checks` | papers, reviews | runs only the named checks |
+| `--checks` | papers, reviews | runs only some checks, such as `layout,references`; `--help` lists their names |
 | `--detectors` | reviews | picks the detectors, `cocodet,editlens` by default |
 | `--canaries` | reviews | reads the key file of `peercheck canary` and runs the canary check |
 | `--device` | reviews | runs the models on `cpu` or `cuda` |
