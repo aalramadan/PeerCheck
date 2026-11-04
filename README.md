@@ -54,7 +54,8 @@ its findings is an error or a warning.
 ![HTML report of peercheck reviews on eight example reviews](docs/reviews-report.png)
 
 The example papers are made up. The example reviews come from the public CoCoNUTS test set (MIT license), which
-holds peer reviews of ICLR and NeurIPS with labels for human and machine-written text.
+holds peer reviews of ICLR and NeurIPS with labels for human and machine-written text. The canary hit in review
+example-6 is made up.
 
 ## Checks
 

@@ -127,7 +127,7 @@ class Detector:
                 main, content, style, fine = self.model(encoded["input_ids"], encoded["attention_mask"])
             for row, (index, text) in enumerate(batch):
                 verdicts[index] = _verdict(main[row], content[row], style[row], fine[row],
-                                           truncated=len(self.tokenizer(text)["input_ids"]) > MAX_TOKENS)
+                                           truncated=len(self.tokenizer(text, verbose=False)["input_ids"]) > MAX_TOKENS)
         return verdicts
 
 
