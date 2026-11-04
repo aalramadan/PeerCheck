@@ -107,98 +107,45 @@ python run.py                           # interactive menu
 Each command writes an Excel workbook. A paper or a review needs a closer look when any of its findings is an
 error or a warning.
 
+The commands read these inputs.
+
+- PDFs named with their paper ID, as EasyChair and HotCRP name them, such as `conf2027-paper12.pdf`.
+- An author list, a CSV or Excel file with the columns paper, first, last, email, and affiliation.
+- The review XML files that EasyChair exports.
+- A committee list with first, last, email, and affiliation, or the EasyChair file `reviewer.csv`.
+
 ## Options
 
-Every command takes `--profile` before its name, such as `peercheck --profile fse-2027 papers submissions/`.
-The default profile is `icse-2027`.
+| Option | Commands | What it does |
+|---|---|---|
+| `--profile` | all, before the command | picks the venue profile, `icse-2027` by default |
+| `--out` | all | names the Excel workbook, or the folder of marked PDFs for `canary` |
+| `--json`, `--html` | papers, reviews | also write a JSON file or a page for the browser |
+| `--authors` | papers, conflicts | reads the author list |
+| `--submissions` | papers | reads the submission sheet of EasyChair or HotCRP |
+| `--checks` | papers, reviews | runs only the named checks |
+| `--detectors` | reviews | picks the detectors, `cocodet,editlens` by default |
+| `--canaries` | reviews | reads the key file of `peercheck canary` and runs the canary check |
+| `--device` | reviews | runs the models on `cpu` or `cuda` |
+| `--pc`, `--reviewer-csv` | conflicts | read the committee list |
+| `--dblp-dump` | conflicts | builds the co-author index from the DBLP dump |
+| `--years` | conflicts | sets the co-authorship window, 3 years by default |
+| `--key` | canary | names the private file of the hidden citations |
 
-### `peercheck papers <folder>`
-
-| Option | What it does |
-|---|---|
-| `--submissions` | reads the submission sheet, an EasyChair Excel file or a HotCRP CSV file |
-| `--authors` | reads the author list with the columns paper, first, last, email, and affiliation |
-| `--checks` | runs only the named checks, such as `layout,sigsoft` |
-| `--out` | names the Excel workbook, `report.xlsx` by default |
-| `--json` | also writes the results as JSON |
-| `--html` | also writes a page for the browser, with a light and a dark theme |
-
-### `peercheck reviews <folder>`
-
-| Option | What it does |
-|---|---|
-| `--detectors` | picks the detectors, `cocodet,editlens` by default |
-| `--checks` | picks the other checks, `duplicates,citations` by default |
-| `--canaries` | reads the key file of `peercheck canary` and runs the canary check |
-| `--device` | runs the models on `cpu` or `cuda` |
-| `--dblp-index` | matches requested citations against works of the reviewers |
-| `--reviewer-csv`, `--assignment-csv` | read the EasyChair files of the reviewers and their assignments |
-| `--out`, `--json`, `--html` | work as for `papers`, with `reviews.xlsx` by default |
-
-### `peercheck conflicts`
-
-| Option | What it does |
-|---|---|
-| `--authors` | reads the author list |
-| `--pc` | reads the committee list with first, last, email, affiliation, and an optional DBLP person ID |
-| `--reviewer-csv` | reads the EasyChair file `reviewer.csv` in place of `--pc` |
-| `--assignment-csv` | reads the EasyChair file `assignment.csv`, together with `--reviewer-csv` |
-| `--conflict-csv` | reads the EasyChair conflict export, together with `--reviewer-csv` |
-| `--dblp-dump` | builds the co-author index from `dblp.xml.gz` |
-| `--dblp-index`, `--save-index` | load or save that index |
-| `--years` | sets the co-authorship window, 3 years by default |
-| `--out` | names the Excel workbook, `conflicts.xlsx` by default |
-
-### `peercheck canary <folder>`
-
-| Option | What it does |
-|---|---|
-| `--out` | names the folder for the marked PDFs |
-| `--key` | names the CSV file of the hidden citations, which stays private |
-
-### Other commands
-
-| Command | What it does |
-|---|---|
-| `peercheck setup <name>` | downloads `references`, `cocodet`, or `editlens` |
-| `peercheck doctor` | lists missing programs and files |
-| `peercheck profiles` | lists the venue profiles |
-| `peercheck menu` | opens the interactive menu, as `python run.py` does |
-
-## Canary check
-
-The canary check follows Rao et al. and the canaries of ICML 2026.
-
-1. Check the original PDFs with `peercheck papers` first, since the hidden-text check reports the canary.
-2. Run `peercheck canary submissions/ --out marked/ --key canaries.csv`. Each copy in `marked/` holds a hidden
-   instruction in white text that asks any large language model to open its review with a made-up citation, such
-   as Smith et al. (2019). Each paper gets one of 109,989 such citations.
-3. Upload the marked copies in place of the originals and keep `canaries.csv` private. Tell the reviewers that the
-   PDFs hold a canary, since a reviewer who finds the hidden text may take it for misconduct by the authors.
-4. Run `peercheck reviews reviews/ --canaries canaries.csv`. A review that contains the citation of its paper is a
-   hit. The chance of any wrong hit among all reviews stays at most 0.001, the profile option `fwer`. A person
-   checks each hit, since a review may only report the hidden instruction.
-
-## Inputs
-
-- PDFs. The file pattern of the profile maps each file to a paper ID, such as `CONF_2027_paper_12.pdf` from
-  EasyChair or `conf2027-paper12.pdf` from HotCRP.
-- Submission sheet, optional. The EasyChair Excel export or a CSV file with the ID column of the profile.
-- Author list. A CSV or Excel file with the columns paper, first, last, email, and affiliation.
-- Reviews. The XML files that EasyChair exports. Confidential remarks for the program committee stay out of the
-  detector input.
-- Committee. A CSV or Excel file with first, last, email, affiliation, and an optional DBLP person ID, or the
-  EasyChair files `reviewer.csv` and `assignment.csv`.
+`peercheck setup <name>` downloads `references`, `cocodet`, or `editlens`. `peercheck doctor` lists missing
+programs. Run any command with `--help` for every option.
 
 ## Venue profiles
+
+PeerCheck is tuned for software engineering venues and ships with these profiles.
 
 | Profile | Venue | Format | Pages |
 |---|---|---|---|
 | icse-2027 (default) | ICSE 2027 Research Track | IEEE, two columns, US Letter | 10 plus 2 of references |
 | fse-2027 | FSE 2027 Research Track | ACM acmsmall, one column | 18 plus 4 of references |
 
-A new venue needs a copy of a file in `src/profiles/` with its own values, passed by path, such as
-`peercheck --profile myvenue.yaml papers submissions/`.
+However, you can check the papers of any other venue. Copy a file of `src/profiles/`, change its values, and pass
+the copy by path, such as `peercheck --profile myvenue.yaml papers submissions/`.
 
 ## Tests
 
