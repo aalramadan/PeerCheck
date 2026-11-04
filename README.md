@@ -10,42 +10,40 @@
 </p>
 
 It reports format violations, anonymity leaks, hidden text, unverifiable references, machine-written reviews,
-and conflicts of interest. Its venue profiles follow the rules of ICSE and FSE. Its anonymity and conflict checks
-follow the policies of ACM SIGSOFT.
+and conflicts of interest.
 
-## Install
+## What it checks
 
-```bash
-git clone https://github.com/aalramadan/PeerCheck.git
-cd PeerCheck
-python -m pip install -e ".[reviews]"    # without [reviews] for the submission and conflict checks only
-peercheck doctor                         # lists missing programs
-peercheck setup references               # Hallucinator, the DBLP database, and the Retraction Watch list
-peercheck setup cocodet                  # CoCoDet weights, about 600 MB
-peercheck setup editlens                 # EditLens weights, about 1.4 GB
-```
+### Submissions, with `peercheck papers`
 
-PeerCheck needs Python 3.10 or newer, Perl, poppler, and Java 11 or newer. On Debian or Ubuntu,
-`sudo apt install perl poppler-utils default-jre` installs the three programs. On macOS,
-`brew install poppler openjdk` installs the two that macOS lacks.
+- **layout** (banal, from HotCRP) checks the page size, columns, margins, fonts, page limits, page numbers, and
+  missing sections.
+- **sigsoft** (the ACM SIGSOFT submission checker, revised) checks the template and finds anonymity leaks, such as
+  author names, emails, affiliations, and links that reveal the authors.
+- **hidden-text** (pdfguardrail and PyMuPDF, with the phrases of PhantomLint) finds white, invisible, or tiny text,
+  invisible Unicode characters, and hidden prompts aimed at AI reviewers.
+- **references** (Hallucinator with an offline DBLP database and the Retraction Watch list) finds references that no
+  database holds and references that were retracted.
 
-EditLens is gated. Before `peercheck setup editlens`, accept its terms at
-`huggingface.co/pangram/editlens_roberta-large` and run `hf auth login` once. The terms allow non-commercial use
-only. Without EditLens, check the reviews with `--detectors cocodet`.
+### Reviews, with `peercheck reviews`
 
-## Run
+- **detectors** (CoCoDet and EditLens) are two detectors of AI-written text. CoCoDet labels a review as Human, Mix,
+  or AI. EditLens labels it as Human, AI-Edited, or AI. A review is flagged only when the two agree that AI wrote
+  the review, as ICLR 2026 required.
+- **canary** (the method of Rao et al., as ICML 2026 used it) finds reviews that repeat a made-up citation hidden
+  in the PDF of their paper.
+- **duplicates** (the MinHash search of datasketch) finds paragraphs copied between reviews, at a Jaccard similarity
+  of 0.5 or more.
+- **citations** (DBLP) finds works that a review asks the authors to cite, including works of the reviewers.
 
-```bash
-peercheck papers submissions/ --authors authors.csv --html report.html
-peercheck reviews reviews/ --html reviews.html
-peercheck conflicts --authors authors.csv --pc pc.csv --dblp-dump dblp.xml.gz
-peercheck --profile fse-2027 papers submissions/
-python run.py                            # interactive menu
-```
+### Conflicts of interest, with `peercheck conflicts`
 
-Each command writes an Excel workbook, named by `--out`. The option `--json` adds a JSON file. The option `--html`
-adds a page for the browser with a light and a dark theme. A paper or a review needs a closer look when any of
-its findings is an error or a warning.
+- **conflicts** (DBLP, the affiliation word lists of HotCRP, and the webmail list of OpenReview) finds
+  co-authorship in the past three years, the window of the ACM SIGSOFT Policy on Program Committees. It also finds
+  shared email domains, affiliations that match, and declared conflicts that no data supports.
+
+Each finding is an error, a warning, or an info. An error breaks a stated rule of the venue. A warning marks a
+likely problem. An info gives context. A person checks every flagged paper or review.
 
 ## Example reports
 
@@ -57,34 +55,121 @@ The example papers are made up. The example reviews come from the public CoCoNUT
 holds peer reviews of ICLR and NeurIPS with labels for human and machine-written text. The canary hit in review
 example-6 is made up.
 
-## Checks
+## Requirements
 
-### Submissions
+- Python 3.10 or newer
+- Perl and poppler, for the layout check
+- Java 11 or newer, for the sigsoft check
 
-| Check | Tool | Reports |
-|---|---|---|
-| layout | banal of HotCRP | paper size, columns, margins, fonts, main pages, reference-only pages, page numbers, and missing sections |
-| sigsoft | ACM SIGSOFT submission checker, revised | template, author names, emails, and affiliations in the text, metadata, or links, links that identify the authors, acknowledgments, and first-person self-citations |
-| hidden-text | pdfguardrail and PyMuPDF | white, invisible, transparent, covered, clipped, tiny, or off-page text, invisible Unicode characters, and text in metadata, annotations, or form fields |
-| references | Hallucinator and Retraction Watch | references missing from the local databases, references with other authors, and retracted references |
+```bash
+sudo apt install perl poppler-utils default-jre   # Debian or Ubuntu
+brew install poppler openjdk                      # macOS, which already has Perl
+```
 
-Under the default profile, the main text may hold at most 10 pages, figures and appendices included, followed by
-up to 2 pages of references only. The page where the references begin counts as main text.
+## Install
 
-### Reviews
+```bash
+git clone https://github.com/aalramadan/PeerCheck.git
+cd PeerCheck
+python -m pip install -e ".[reviews]"   # all checks, with PyTorch for the review detectors
+peercheck doctor                        # lists missing programs
+```
 
-| Check | Tool | Reports |
-|---|---|---|
-| detectors | CoCoDet and EditLens (Open Pangram) | the CoCoDet label (Human, Mix, or AI) and the EditLens label (Human, AI-Edited, or AI) with its score |
-| canary | made-up citations of Rao et al. | reviews that contain the made-up citation hidden in their paper |
-| duplicates | datasketch | paragraphs that appear in two reviews, with a Jaccard similarity above 0.5 |
-| citations | DBLP | works that a review asks the authors to cite, and requests for works of the reviewers |
+To check only submissions and conflicts, `python -m pip install -e .` installs PeerCheck without PyTorch.
 
-A review counts as machine-written only when CoCoDet and EditLens agree, since ICLR 2026 required two detectors to
-agree. The label of one detector alone appears as a note. Every detector result serves as a lead for a manual
-check.
+Some checks need data or models, which these commands download once.
 
-### Canary check
+```bash
+peercheck setup references   # Hallucinator, the DBLP database, and the Retraction Watch list
+peercheck setup cocodet      # the CoCoDet model, about 600 MB
+peercheck setup editlens     # the EditLens model, about 1.4 GB, after the steps below
+```
+
+### EditLens access
+
+Pangram Labs, the authors of EditLens, share its model only with users who accept its license. The license allows
+non-commercial use only.
+
+1. Create a free account at huggingface.co.
+2. Accept the license at huggingface.co/pangram/editlens_roberta-large.
+3. Create a token with read access at huggingface.co/settings/tokens. Then run `hf auth login` or set the
+   variable `HF_TOKEN` to the token.
+4. Run `peercheck setup editlens`.
+
+To skip EditLens, check the reviews with `--detectors cocodet`.
+
+## Usage
+
+```bash
+peercheck papers submissions/ --authors authors.csv --html report.html
+peercheck reviews reviews/ --html reviews.html
+peercheck conflicts --authors authors.csv --pc pc.csv --dblp-dump dblp.xml.gz
+peercheck --profile fse-2027 papers submissions/
+python run.py                           # interactive menu
+```
+
+Each command writes an Excel workbook. A paper or a review needs a closer look when any of its findings is an
+error or a warning.
+
+## Options
+
+Every command takes `--profile` before its name, such as `peercheck --profile fse-2027 papers submissions/`.
+The default profile is `icse-2027`.
+
+### `peercheck papers <folder>`
+
+| Option | What it does |
+|---|---|
+| `--submissions` | reads the submission sheet, an EasyChair Excel file or a HotCRP CSV file |
+| `--authors` | reads the author list with the columns paper, first, last, email, and affiliation |
+| `--checks` | runs only the named checks, such as `layout,sigsoft` |
+| `--out` | names the Excel workbook, `report.xlsx` by default |
+| `--json` | also writes the results as JSON |
+| `--html` | also writes a page for the browser, with a light and a dark theme |
+
+### `peercheck reviews <folder>`
+
+| Option | What it does |
+|---|---|
+| `--detectors` | picks the detectors, `cocodet,editlens` by default |
+| `--checks` | picks the other checks, `duplicates,citations` by default |
+| `--canaries` | reads the key file of `peercheck canary` and runs the canary check |
+| `--device` | runs the models on `cpu` or `cuda` |
+| `--dblp-index` | matches requested citations against works of the reviewers |
+| `--reviewer-csv`, `--assignment-csv` | read the EasyChair files of the reviewers and their assignments |
+| `--out`, `--json`, `--html` | work as for `papers`, with `reviews.xlsx` by default |
+
+### `peercheck conflicts`
+
+| Option | What it does |
+|---|---|
+| `--authors` | reads the author list |
+| `--pc` | reads the committee list with first, last, email, affiliation, and an optional DBLP person ID |
+| `--reviewer-csv` | reads the EasyChair file `reviewer.csv` in place of `--pc` |
+| `--assignment-csv` | reads the EasyChair file `assignment.csv`, together with `--reviewer-csv` |
+| `--conflict-csv` | reads the EasyChair conflict export, together with `--reviewer-csv` |
+| `--dblp-dump` | builds the co-author index from `dblp.xml.gz` |
+| `--dblp-index`, `--save-index` | load or save that index |
+| `--years` | sets the co-authorship window, 3 years by default |
+| `--out` | names the Excel workbook, `conflicts.xlsx` by default |
+
+### `peercheck canary <folder>`
+
+| Option | What it does |
+|---|---|
+| `--out` | names the folder for the marked PDFs |
+| `--key` | names the CSV file of the hidden citations, which stays private |
+
+### Other commands
+
+| Command | What it does |
+|---|---|
+| `peercheck setup <name>` | downloads `references`, `cocodet`, or `editlens` |
+| `peercheck doctor` | lists missing programs and files |
+| `peercheck profiles` | lists the venue profiles |
+| `peercheck menu` | opens the interactive menu, as `python run.py` does |
+
+## Canary check
 
 The canary check follows Rao et al. and the canaries of ICML 2026.
 
@@ -97,17 +182,6 @@ The canary check follows Rao et al. and the canaries of ICML 2026.
 4. Run `peercheck reviews reviews/ --canaries canaries.csv`. A review that contains the citation of its paper is a
    hit. The chance of any wrong hit among all reviews stays at most 0.001, the profile option `fwer`. A person
    checks each hit, since a review may only report the hidden instruction.
-
-### Conflicts of interest
-
-The conflict check reports co-authorship in DBLP within the past three years, the window of the ACM SIGSOFT
-Policy on Program Committees. It also reports email domains outside webmail that an author and a committee
-member hold in common, affiliations that match, and declared conflicts that no data supports.
-
-### Severity
-
-Each finding is an error, a warning, or an info. An error breaks a stated rule of the venue. A warning marks a
-likely problem. An info gives context.
 
 ## Inputs
 
