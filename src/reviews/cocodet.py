@@ -7,7 +7,7 @@ external/coconuts/infer.py, with the changes listed in external/coconuts/PORT.md
 from a pinned revision on Hugging Face into its cache (HF_HOME, by default ~/.cache/huggingface) and are
 checked against their SHA-256 before loading. The model card
 states that CoCoDet "should not be used as the sole arbiter of academic misconduct", therefore PeerCheck
-reports each verdict as a lead for the chairs.
+reports each verdict as a lead for a manual check.
 """
 
 from __future__ import annotations

@@ -81,13 +81,13 @@ def parser() -> argparse.ArgumentParser:
     marking.set_defaults(handler=run_canary)
 
     setup = commands.add_parser("setup", help="download the tools and models that some checks need")
-    setup.add_argument("what", choices=("references", "cocodet", "binoculars", "editlens"), help="what to download")
+    setup.add_argument("what", choices=("references", "cocodet", "editlens"), help="what to download")
     setup.add_argument("--dblp-dump", type=Path, help="references: build from this dblp.xml.gz, no download")
     setup.add_argument("--retraction-csv", type=Path, help="references: use this Retraction Watch CSV, no download")
     setup.add_argument("--refresh", action="store_true", help="references: download and build again")
     setup.set_defaults(handler=run_setup)
 
-    commands.add_parser("doctor", help="report missing programs and bundled files").set_defaults(handler=run_doctor)
+    commands.add_parser("doctor", help="report missing programs and files").set_defaults(handler=run_doctor)
     commands.add_parser("profiles", help="list the venue profiles").set_defaults(handler=run_profiles)
     commands.add_parser("menu", help="open the interactive menu").set_defaults(handler=lambda a: menu(a.profile))
     return top

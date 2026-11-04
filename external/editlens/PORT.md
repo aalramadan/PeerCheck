@@ -1,6 +1,6 @@
 # EditLens in PeerCheck
 
-PeerCheck runs EditLens, the detector that Pangram Labs released as Open Pangram, as an optional detector of
+PeerCheck runs EditLens, the detector that Pangram Labs released as Open Pangram, as its second detector of
 AI-written reviews in `src/reviews/editlens.py`. PeerCheck runs no file of this copy.
 
 ## Version and license

@@ -1,7 +1,7 @@
 """Reference check: Hallucinator looks up each cited work in local bibliographic databases, and the
 Retraction Watch data marks cited works that carry a retraction notice.
 
-Hallucinator 0.2.4 (github.com/gianlucasb/hallucinator, AGPL-3.0) is the checker that the program chairs of
+Hallucinator 0.2.4 (github.com/gianlucasb/hallucinator, AGPL-3.0) is the checker that the organizers of
 ACSAC 2025 and ICWSM 2026 ran. PeerCheck runs its unchanged command-line binary as a separate process and
 reads its JSON report. A reference matches a database record when the titles agree at a fuzzy ratio of at
 least 0.95 and the author lists overlap. ``install_tools`` downloads the binary, builds the offline DBLP
@@ -17,7 +17,7 @@ Options under ``checks.references`` of a profile:
   identifiers only. Without this option the check makes no network connection.
 - ``online_titles`` (default false): also send the titles of references to every online source of
   Hallucinator, such as CrossRef, arXiv, Semantic Scholar, Europe PMC, PubMed, and Open Library. The title
-  of a fabricated reference is text of the submission, therefore this option stays off unless the chairs
+  of a fabricated reference is text of the submission, therefore this option stays off unless the organizers
   accept that. It implies ``online`` and passes the keys CROSSREF_MAILTO, S2_API_KEY, and OPENALEX_KEY.
 - ``cache`` (default ``tools.cache_dir()``, which is ``$XDG_CACHE_HOME/peercheck`` or
   ``~/.cache/peercheck``): the folder of ``install_tools``.

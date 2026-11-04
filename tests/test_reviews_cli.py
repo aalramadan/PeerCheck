@@ -13,7 +13,7 @@ pytest.importorskip("torch")
 cli = pytest.importorskip("peercheck.reviews.cli")
 editlens = pytest.importorskip("peercheck.reviews.editlens")
 
-ALL = ("cocodet", "binoculars", "editlens")
+ALL = ("cocodet", "editlens")
 EASYCHAIR = Path(__file__).parent / "fixtures" / "easychair"
 
 
@@ -23,10 +23,10 @@ def test_two_detectors_that_agree_flag_the_review():
     assert found[0].message == "CoCoDet and EditLens agree that the review reads as machine-written"
 
 
-def test_one_detector_alone_gives_a_note_that_names_the_others():
-    found = cli._detector_findings({"Binoculars": "Binoculars score 0.8000 below threshold 0.8536"}, ALL)
-    assert [(f.check, f.severity) for f in found] == [("detectors.binoculars-ai", Severity.INFO)]
-    assert found[0].message == "Binoculars labels the review as AI; CoCoDet and EditLens do not"
+def test_one_detector_alone_gives_a_note_that_names_the_other():
+    found = cli._detector_findings({"EditLens": "EditLens score 0.9990"}, ALL)
+    assert [(f.check, f.severity) for f in found] == [("detectors.editlens-ai", Severity.INFO)]
+    assert found[0].message == "EditLens labels the review as AI; CoCoDet does not"
 
 
 def test_a_detector_that_runs_alone_says_so():
@@ -36,13 +36,12 @@ def test_a_detector_that_runs_alone_says_so():
 
 def test_each_detector_counts_only_its_ai_label():
     verdict = SimpleNamespace(label="ai", probabilities={"ai": 0.97})
-    second = SimpleNamespace(machine=False, score=0.9, threshold=0.8536)
-    assert list(cli._ai_calls(verdict, second, editlens.Verdict("ai", 0.999))) == ["CoCoDet", "EditLens"]
-    assert cli._ai_calls(None, None, editlens.Verdict("ai-edited", 0.5)) == {}
+    assert list(cli._ai_calls(verdict, editlens.Verdict("ai", 0.999))) == ["CoCoDet", "EditLens"]
+    assert cli._ai_calls(None, editlens.Verdict("ai-edited", 0.5)) == {}
 
 
-def test_editlens_runs_only_when_asked():
-    assert cli.parser().parse_args(["reviews"]).detectors == "cocodet,binoculars"
+def test_cocodet_and_editlens_run_by_default():
+    assert cli.parser().parse_args(["reviews"]).detectors == "cocodet,editlens"
 
 
 def test_canary_column_names_the_state_of_the_review():

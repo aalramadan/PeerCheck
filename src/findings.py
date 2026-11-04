@@ -1,4 +1,4 @@
-"""Findings that every check reports, each with a severity that a chair can sort by."""
+"""Findings that every check reports, each with a severity to sort by."""
 
 from __future__ import annotations
 
@@ -7,7 +7,7 @@ from dataclasses import dataclass
 
 
 class Severity(enum.Enum):
-    """How much a finding matters for the decision of the chair."""
+    """How much a finding matters for the decision on a paper or a review."""
 
     ERROR = "error"
     WARNING = "warning"

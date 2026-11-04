@@ -22,11 +22,8 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-# CoCoDet and Binoculars. Binoculars needs the dtype keyword of transformers 4.56 and accelerate to
-# stream layers from disk when a model does not fit on the GPU.
-reviews = ["torch>=2.6", "transformers>=4.56", "huggingface_hub>=0.23", "accelerate>=1.0", "numpy"]
-# 4-bit loading of the Binoculars models, which needs its own threshold.
-quantized = ["bitsandbytes>=0.45"]
+# The detectors CoCoDet and EditLens.
+reviews = ["torch>=2.6", "transformers>=4.56", "huggingface_hub>=0.23"]
 dev = ["pytest>=8", "ruff>=0.6", "pikepdf>=8"]
 
 [project.scripts]

@@ -3,7 +3,7 @@
 The check reuses the methods of the conflict tools of large conferences, applied to EasyChair exports.
 
 - HotCRP (github.com/kohler/hotcrp, Click license), the system of the ICSE 2027 research track, lists
-  potential missing conflicts on the chair page src/pages/p_conflictassign.php by fuzzy matching of
+  potential missing conflicts on its page src/pages/p_conflictassign.php by fuzzy matching of
   authors against the names and affiliations of PC members, and lists in a second view the declared
   conflicts that the matching does not support. This module does both. Two affiliations match the
   way HotCRP's AuthorMatcher matches them: one affiliation shares a strong word with the other, or,
