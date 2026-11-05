@@ -68,10 +68,7 @@ The review checks read the review XML files that EasyChair exports.
   review as AI. EditLens must then confirm AI involvement with a score of 0.2743 or more. The two detectors are
   CoCoDet, trained on peer reviews, with the labels Human, Mix, and AI, and EditLens, trained on AI-edited text,
   with the labels Human, AI-Edited, and AI. Mix marks content that is partly human and partly AI. AI-Edited marks
-  human writing that AI edited. On 900 held-out reviews of the public CoCoNUTS test set, the rule flagged 297 of
-  300 reviews written by AI (99.0%) and 3 of 450 reviews written by people (0.7%), all three polished by AI.
-  CoCoDet trained on other reviews of the same dataset, therefore the rates may be lower on the reviews of other
-  venues.
+  human writing that AI edited. `external/README.md` reports how the threshold was set and tested.
 - **Planted citation** (`--canaries`) finds reviews that an AI tool wrote from the paper. Before the review period,
   `peercheck canary` writes a copy of each PDF with an instruction hidden in white text. The instruction asks any
   AI tool to cite a made-up work, such as Smith et al. (2019). A review that cites the made-up work of its paper is

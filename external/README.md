@@ -16,6 +16,10 @@ port. `NOTICE.md` at the root of the repository lists every license.
 | `phantomlint/` | github.com/tobycmurray/phantom-lint | commit `7f62001` | BSD-3-Clause | the PhantomLint package, the source of the phrases of the hidden-text check |
 | `submission-checker/` | github.com/acmsigsoft/submission-checker | release v0.4.3, commit `3ffa1eb` | Apache-2.0 | revised source and built jar of the anonymity and template check |
 
+The EditLens score that confirms CoCoDet, 0.2743, was set on 900 reviews of the public CoCoNUTS test set
+(huggingface.co/datasets/khaaaaaan/CoCoNUTS, MIT license). On 900 other reviews of that set, the two detectors
+together flagged 297 of 300 reviews written by AI and 3 of 450 written by people.
+
 Model weights and databases stay out, since setup downloads each of these files. These are CoCoDet with
 ModernBERT-base, the EditLens weights, DBLP, and the Retraction Watch list. Python dependencies, such as
 pdfguardrail and PyMuPDF, install with pip. The canary check follows the paper of Rao et al. (arXiv 2503.15772),
