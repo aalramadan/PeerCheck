@@ -14,6 +14,11 @@ report*.json
 !tests/fixtures/**/review_*.xml
 !tests/fixtures/**/*.csv
 !tests/fixtures/**/*.xlsx
+# The made-up samples that the README and the live demo use.
+!samples/**/*.pdf
+!samples/**/*.csv
+!samples/**/review_*.xml
+!samples/*.csv
 # Test resources of the revised SIGSOFT checker, from its upstream repository.
 !external/submission-checker/src/test/resources/*
 

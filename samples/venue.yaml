@@ -1,0 +1,35 @@
+# A made-up venue for the samples, with the rules of the default profile.
+name: Example Conference 2027
+source: https://example.org/call-for-papers
+submission_system: hotcrp
+# HotCRP names the downloaded PDFs such as conf2027-paper1.pdf.
+file_pattern: '-paper(\d+)\.pdf$'
+id_column: 'ID'
+
+format:
+  style: IEEE
+  paper_size: [792, 612]
+  paper_size_tolerance: 5
+  columns: 2
+  main_pages: 10
+  reference_pages: 2
+  margins: [52, 48, 72, 48]
+  margin_tolerance: 18
+  body_font_max: 10.5
+  reference_font_min: 8.0
+  page_numbers: warning
+  required_headings: [introduction, conclusion]
+  require_abstract: true
+
+checks:
+  sigsoft:
+    enabled: true
+  anonymity:
+    allowed_hosts: [anonymous.4open.science, zenodo.org, figshare.com, osf.io, doi.org]
+    flag_acknowledgments: true
+  hidden_text:
+    enabled: true
+  references:
+    enabled: true
+    online: false
+    online_titles: false

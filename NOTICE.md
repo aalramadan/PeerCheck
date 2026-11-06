@@ -23,4 +23,5 @@ port keeps the original untouched beside it and lists its changes in a `PORT.md`
 | datasketch, rapidfuzz, openpyxl, PyYAML, lxml, defusedxml | their authors | near-duplicate search, fuzzy matching, spreadsheets, profiles, XML | MIT, MIT, MIT, MIT, BSD-3-Clause, PSF | Python dependencies |
 | DBLP data | Schloss Dagstuhl, University of Trier | conflict check and reference check | CC0 1.0 | downloaded from `dblp.org/xml/` |
 | Retraction Watch data | Crossref, Retraction Watch | retracted references | no license stated in its README | downloaded from `gitlab.com/crossref/retraction-watch-data` |
+| CoCoNUTS test reviews | Chen et al. (icip-cas) | texts of the sample reviews | MIT | `samples/reviews/` and `samples/hotcrp-reviews.csv` |
 | CrackedPDFs sample | Thienpreecha and Subramanian | test fixtures of the hidden-text check | MIT | `tests/fixtures/hidden/crackedpdfs/` |

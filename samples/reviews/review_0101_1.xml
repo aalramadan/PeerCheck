@@ -1,0 +1,31 @@
+<?xml version='1.0' encoding='utf-8'?>
+<review id="example-1" submission="101" title="Example paper 1" authors="(anonymous)">
+  <field id="f1" name="Overall evaluation"><score>2</score></field>
+  <field id="f2" name="Detailed Review Comments for Authors"><text required="required">The authors propose a system for training large language models on hardware connected over the public internet and distributed around the world. This is a difficult problem (EleutherAI writes that “doing volunteer-driven distributed compute well for this use case is an unsolved problem”) and the authors tackle it with a combination of pipelining and data parallelism.
+
+As this setting can’t assume homogeneous network performance, the parallelism assignment problem is much more difficult than it is in datacenters, and the authors apply a novel combination of algorithmic approaches to solve it, including treating pipelining and data parallelism independently and scheduling parallel units onto workers using an evolutionary algorithm.
+
+The authors report benchmark results on a series of increasingly heterogeneous network configurations, showing significant speedup relative to a grid-search-optimized Megatron setup with homogeneous data and pipeline parallelism.
+
+
+The authors do a good job of motivating the problem and pointing out weaknesses in existing systems (e.g. a focus on data parallelism or mixture-of-experts models).
+
+The paper uses the terminology “macro-batch” but it’s sometimes unclear whether this refers to the portion of the global batch that runs on one data-parallel replica, or to the portion that runs on one stage of one data-parallel replica (more often called a microbatch). I’d recommend being a little clearer here.
+
+The algorithm the authors introduce seems reasonable and well-motivated. If it’s fast enough, and if decomposing the assignment problem into separate data and pipeline levels isn’t a restrictive assumption (both of these appear to be true!) then it also seems like the only algorithm we need for this problem. (It might be possible to optimize in an even greedier way, but if the evolutionary approach is fast enough I’m not sure it matters).
+
+I’m somewhat disappointed that a system for heterogeneous distributed training (justified in part by a seemingly accurate claim that home electricity is 50-100x cheaper than spot GPU instances) was benchmarked only on cloud machines with cloud networking, not on machines with conventional home internet. But it looks like the bandwidth between distant datacenters in the authors’ experiments is low enough that it might be representative of home network connections.
+
+The authors present good benchmarks against grid-search-optimized Megatron configurations, and their ablations, although brief, are convincing about the value of their local search strategy.
+
+
+How much do you lose by decomposing the assignment problem into separate data and pipeline levels? I think the answer might be “nothing”, but it would be great to be more explicit about that.
+
+The intra-node bandwidth is quoted as 100 Gb/s in your experiments, but IIUC V100 NVlink is 150 GB/s (1200 Gb/s); is there a reason this isn’t the right number to use for intra-node bandwidth? And in general, are the bandwidths you’re assuming the result of benchmarks? If so, maybe include those benchmarks somewhere?
+
+Were the benchmarks run on cloud machines that were really physically located in different regions, or were the bandwidths between machines limited artificially to simulate inter-region connections?
+
+
+The authors are clear about most of the limitations of their system, including lack of online failure handling and dynamic replanning.</text></field>
+  <reviewer><first_name></first_name><last_name></last_name><email></email></reviewer>
+</review>

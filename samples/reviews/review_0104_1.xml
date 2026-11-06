@@ -1,0 +1,13 @@
+<?xml version='1.0' encoding='utf-8'?>
+<review id="example-4" submission="104" title="Example paper 4" authors="(anonymous)">
+  <field id="f1" name="Overall evaluation"><score>1</score></field>
+  <field id="f2" name="Detailed Review Comments for Authors"><text required="required">This paper presents an interesting result, demonstrating the impossibility of provably efficient batch reinforcement learning (RL) under only two assumptions: a) Realizability and b) Feature Coverage. The authors provide persuasive counter-examples where the state/action space is polynomially dependent on the horizon $H$, yet the sample complexity exhibits an exponential dependence on $H$ with high probability.
+
+However, I have some reservations regarding the Feature Coverage assumption. Unlike the Concentrability assumption [Chen &amp; Jiang (2019), Xie &amp; Jiang (2020a)], Feature Coverage merely postulates that the feature covariance matrix has a minimum eigenvalue of $1/d$. My specific concerns are as follows:
+1. Is the Concentrability assumption mathematically more stringent than the Feature Coverage assumption? If so, why is Feature Coverage a primary focus when Chen &amp; Jiang (2019) have already established the necessity of Concentrability for efficient batch RL?
+2. Does the Feature Coverage assumption truly capture the notion of exploration within a batch dataset? From an RL perspective, exploration is critical both empirically and theoretically. In the constructed hard instance, crucial states $s_h^*$ are not even within the support of the dataset (which might also violate the Concentrability assumption). While I understand this is necessary to derive the exponential lower bound, it raises questions about the practical representativeness of Feature Coverage for exploratory datasets.
+3. Theorem 5.1 is somewhat perplexing. While I grasp that its primary objective is to illustrate Error Amplification, why is an upper bound considered instead of a lower bound? Alternatively, is Section 5&#x27;s aim to demonstrate that Error Amplification is unavoidable under the Realizability and Feature Coverage assumptions?
+
+In conclusion, I find this paper to be well-written and it effectively addresses its central question under the specified assumptions. I have reviewed the proofs and found no significant errors. While I harbor some doubts about the practical reasonableness of certain assumptions in the context of RL, I maintain a positive outlook on this work. My concerns might be unfounded, and I eagerly anticipate further discussion.</text></field>
+  <reviewer><first_name></first_name><last_name></last_name><email></email></reviewer>
+</review>

@@ -1,0 +1,19 @@
+% A submission that reveals its made-up author in the text, a link, the acknowledgments, and the metadata.
+\documentclass[conference]{IEEEtran}
+\usepackage[hidelinks,pdfauthor={Lena Brandt}]{hyperref}
+\begin{document}
+\title{FlakeScope: Ranking Flaky Test Failures}
+\author{\IEEEauthorblockN{Lena Brandt}\IEEEauthorblockA{University of Nowhere\\lena.brandt@uni-nowhere.edu}}
+\maketitle
+\begin{abstract}
+Flaky tests pass and fail on the same code. FlakeScope ranks the failures of a build by the chance that each
+failure is flaky. In our previous work [1], we built the data set that this paper uses.
+\end{abstract}
+\input{body}
+FlakeScope is available at \url{https://github.com/flaky_lab/flaky-tool}.
+\section*{Acknowledgments}
+We thank the University of Nowhere for its support.
+\begin{thebibliography}{1}
+\bibitem{brandt} L. Brandt, ``A data set of flaky test failures,'' in \emph{Proc. MSR}, 2025.
+\end{thebibliography}
+\end{document}

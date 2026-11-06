@@ -1,0 +1,29 @@
+<?xml version='1.0' encoding='utf-8'?>
+<review id="example-6" submission="106" title="Example paper 6" authors="(anonymous)">
+  <field id="f1" name="Overall evaluation"><score>-2</score></field>
+  <field id="f2" name="Detailed Review Comments for Authors"><text required="required">Following Mancilla et al. (2017), this paper presents a theoretical investigation of stochastic gradient descent (SGD) in the stochastic convex optimization framework, focusing on the surprising failure of without-replacement SGD to achieve vanishing empirical risk and generalization gap, despite its classical convergence guarantees for population risk. The authors establish problem instances where one-pass without-replacement SGD attains Ω(1) empirical risk and generalization gap, challenging the stability and uniform convergence-based explanations for SGD’s generalization. They contrast this with with-replacement SGD, which achieves optimal population risk rates, and extend their analysis to multi-epoch regimes in finite-sum optimization. The work contributes to the understanding of algorithmic stability and generalization in non-ERM settings.
+
+## Strengths
+- **Originality**: The paper challenges conventional wisdom by demonstrating that without-replacement SGD can exhibit poor empirical risk minimization and generalization, even in convex settings. This contradicts the intuition that SGD implicitly regularizes solutions to achieve low generalization error, and it highlights limitations of existing generalization frameworks.
+- **Technical Depth**: The construction of problem instances where SGD without replacement fails to generalize is theoretically non-trivial and rigorously executed. The separation between with- and without-replacement SGD variants is novel and insightful.
+- **Significance**: The results have implications for the theoretical foundations of optimization and generalization, particularly in contexts where uniform convergence fails to explain algorithm behavior. The improved multi-epoch bounds for finite-sum problems are also practically relevant.
+
+## Weaknesses
+- **Practical Relevance**: While the constructed problem instances are valid theoretically, their prevalence in real-world scenarios (e.g., standard deep learning tasks) is unclear. The paper could better motivate whether such instances arise in practice or are primarily pathological.
+- **Interpretation Gaps**: The analysis focuses on convex settings, but modern machine learning often involves non-convex objectives. The paper does not discuss whether similar phenomena occur in non-convex settings or how its results relate to SGD’s empirical success in deep learning.
+- **Limited Discussion of Assumptions**: The reliance on one-pass SGD (without data reuse) and the specific problem construction (e.g., compact domain, convexity) could be further contextualized. For instance, how sensitive are the Ω(1) lower bounds to the choice of step size or domain diameter?
+
+## Questions
+1. The Ω(1) lower bounds rely on problem instances with specific loss structures. Are there natural conditions (e.g., strong convexity, Lipschitz gradients) under which without-replacement SGD avoids these pitfalls, even in one-pass settings?
+2. The paper attributes the failure of without-replacement SGD to its lack of algorithmic stability. Does this imply that stability is a necessary condition for generalization in SCO, and if so, how does this reconcile with classical results where population risk converges despite non-vanishing generalization gaps?
+3. How does the multi-epoch analysis for finite-sum problems reconcile with the single-epoch lower bounds? Does data permutation across epochs mitigate the issues observed in one-pass SGD?
+
+## Suggestions
+- Provide intuition or geometric illustrations for why without-replacement SGD fails in the constructed instances, to aid reader understanding.
+- Discuss whether the observed phenomena depend on the dimension \(d\) or problem scaling (e.g., domain diameter, gradient norms).
+- Explore connections to recent works on algorithmic stability in non-ERM settings, such as stochastic optimization with heavy-tailed noise or non-smooth objectives.
+- Clarify the practical implications for hyperparameter choices (e.g., step size schedules, batch size) in finite-sum optimization when using multi-epoch without-replacement SGD.
+
+Overall, this work makes a valuable theoretical contribution by exposing limitations of SGD’s generalization in specific convex settings, with implications for the analysis of optimization algorithms beyond uniform convergence. However, its relevance to non-convex optimization and real-world applications warrants further discussion.</text></field>
+  <reviewer><first_name></first_name><last_name></last_name><email></email></reviewer>
+</review>
