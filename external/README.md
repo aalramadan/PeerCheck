@@ -1,21 +1,23 @@
 # External tools and data
 
-- This folder holds the tools and data of other authors that PeerCheck runs, ports, or copies from, one folder
-  each.
-- PeerCheck runs the files in `hotcrp/`, `submission-checker/`, and `census-surnames/`.
-- The other folders keep the original for reference beside the port in `src/`. Each `PORT.md` lists the changes.
+- Each folder holds a copy of a tool or a data set from another project. The table gives the origin, version,
+  and license of each copy and what PeerCheck does with the copy.
+- PeerCheck's own code lives in `src/` at the root of the repository. Where PeerCheck runs its own version of a
+  tool, the table names that file, such as `src/reviews/cocodet.py`.
+- The four folders with a `PORT.md` are `coconuts/`, `editlens/`, `hallucinator/`, and `submission-checker/`. The
+  `PORT.md` says what PeerCheck changed or how it uses the tool.
 - `NOTICE.md` at the root of the repository lists every license.
 
-| Folder | Origin | Version | License | Use in PeerCheck |
+| Folder | Origin | Version | License | What PeerCheck does with it |
 |---|---|---|---|---|
-| `census-surnames/` | U.S. Census Bureau, Frequently Occurring Surnames from the 2010 Census | 2010 census | public domain | the 9,999 most common surnames, the pool of the canary check |
-| `coconuts/` | github.com/icip-cas/CoCoNUTS | commit `25df608` | no license file | `infer.py`, original of the CoCoDet port, `src/reviews/cocodet.py` |
-| `editlens/` | github.com/pangramlabs/EditLens | commit `05a588f` | CC BY-NC-SA 4.0 | code of Open Pangram without its data, original of `src/reviews/editlens.py` |
-| `hallucinator/` | github.com/gianlucasb/hallucinator | release v0.2.4 | AGPL-3.0-or-later | Rust source of the reference checker, whose binary `peercheck setup references` downloads |
-| `hotcrp/` | github.com/kohler/hotcrp | commit `4c1ef77` | GPL-2.0-or-later for `banal`, Click license for the rest | `banal`, which the layout check runs, and `affiliationmatchers.json`, the source of the word lists of the conflict check |
-| `openreview-py/` | github.com/openreview/openreview-py | commit `9e8ba8e` | MIT | `openreview/tools.py`, the source of the webmail list of the conflict check |
-| `phantomlint/` | github.com/tobycmurray/phantom-lint | commit `7f62001` | BSD-3-Clause | the PhantomLint package, the source of the phrases of the hidden-text check |
-| `submission-checker/` | github.com/acmsigsoft/submission-checker | release v0.4.3, commit `3ffa1eb` | Apache-2.0 | revised source and built jar of the anonymity and template check |
+| `census-surnames/` | U.S. Census Bureau, Frequently Occurring Surnames from the 2010 Census | 2010 census | public domain | reads the 9,999 most common surnames for the made-up citations of the canary check |
+| `coconuts/` | github.com/icip-cas/CoCoNUTS | commit `25df608` | no license file | keeps `infer.py`, the original of CoCoDet, and runs its own version in `src/reviews/cocodet.py` |
+| `editlens/` | github.com/pangramlabs/EditLens | commit `05a588f` | CC BY-NC-SA 4.0 | keeps the code of Open Pangram, the release of EditLens, without its data and runs its own version in `src/reviews/editlens.py` |
+| `hallucinator/` | github.com/gianlucasb/hallucinator | release v0.2.4 | AGPL-3.0-or-later | keeps the Rust source of the reference checker, whose built program `peercheck setup references` downloads |
+| `hotcrp/` | github.com/kohler/hotcrp | commit `4c1ef77` | GPL-2.0-or-later for `banal`, Click license for the rest | runs `banal` in the format check and copies the affiliation word lists of `affiliationmatchers.json` into `src/conflicts.py` |
+| `openreview-py/` | github.com/openreview/openreview-py | commit `9e8ba8e` | MIT | copies the webmail list of `openreview/tools.py` into `src/conflicts.py` |
+| `phantomlint/` | github.com/tobycmurray/phantom-lint | commit `7f62001` | BSD-3-Clause | copies the warning phrases of PhantomLint into `src/checks/hidden_text.py` |
+| `submission-checker/` | github.com/acmsigsoft/submission-checker | release v0.4.3, commit `3ffa1eb` | Apache-2.0 | runs the jar, built from the revised source in this folder, in the anonymity and template check |
 
 ## Not in this folder
 
