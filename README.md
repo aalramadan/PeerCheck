@@ -46,63 +46,35 @@ peercheck --profile samples/venue.yaml reviews samples/reviews --canaries sample
 - A **warning** marks a likely problem.
 - An **info** note gives context.
 - A **red bar** marks a paper or a review with an error or a warning.
+- **CoCoDet** labels a review as Human, Mix (partly human and partly AI), or AI. Its label AI marks the review for a
+  closer look.
 - **CoCoDet P(AI)** is the probability, from 0 to 1, that CoCoDet gives to the label AI.
-- **EditLens Score** runs from 0 for human writing to 1 for AI writing. EditLens reads a score below 0.0971 as
-  Human, a score of 0.997 or more as AI, and a score between them as AI-Edited.
+- **EditLens** labels a review as Human, AI-Edited (human writing that AI edited), or AI, as a second opinion.
+- **EditLens Score** runs from 0 for human writing to 1 for AI writing. A score below 0.0971 reads as Human, a
+  score of 0.997 or more as AI, and a score between them as AI-Edited.
 
 ## 🔍 Checks
 
-Each check has a plain name and, in parentheses, the name that selects it on the command line.
+| Command | Check (command-line name) | Finds | Built on |
+|---|---|---|---|
+| `papers` | Format (`layout`) | page size, columns, margins, fonts, page limits, page numbers, and sections that break the rules of the venue | the format checker of HotCRP, a conference system |
+| `papers` | Anonymity and template (`sigsoft`) | author names, email addresses, affiliations, links that reveal the authors, and a template other than that of the venue | a revised copy of the submission checker of ACM SIGSOFT, the software engineering group of the ACM |
+| `papers` | Hidden text (`hidden-text`) | white, invisible, or tiny text, invisible Unicode characters, and prompts hidden for AI tools | the PDF libraries pdfguardrail and PyMuPDF and the phrases of PhantomLint, a scanner for hidden prompts |
+| `papers` | References (`references`) | references that no bibliographic database confirms and retracted references | Hallucinator, a reference checker, with an offline copy of DBLP, the open bibliography of computer science, and the Retraction Watch list |
+| `reviews` | AI detection (`cocodet`, `editlens`) | potentially AI-generated reviews, with the label of each detector on its own | CoCoDet, trained on peer reviews, and EditLens, trained on AI-edited text |
+| `reviews` | Planted citation (`--canaries`) | reviews that cite the made-up work hidden in their paper | the method of Rao et al. that ICML 2026 used |
+| `reviews` | Copied text (`duplicates`) | paragraphs that reviews share, with at least half of their short character sequences alike | MinHash, a fast search for similar text, from the datasketch library |
+| `reviews` | Citation requests (`citations`) | works that reviewers ask the authors to cite, their own included, and requests for more works than the paper has pages | DBLP, for the works of the reviewers, through `--dblp-index` |
+| `conflicts` | Conflicts of interest | co-authorship within three years (the window of the ACM SIGSOFT Policy on Program Committees), shared email domains other than webmail, affiliations that match, and declared conflicts without evidence | DBLP, the affiliation word lists of HotCRP, and the webmail list of OpenReview |
 
-### 📝 Submissions, with `peercheck papers`
-
-- **Format** (`layout`) checks the page size, columns, margins, fonts, page limits, page numbers, and missing
-  sections. It uses the format checker of HotCRP, a conference management system.
-- **Anonymity and template** (`sigsoft`) verifies that the paper uses the template of the venue and identifies
-  anonymity leaks, such as author names, email addresses, affiliations, and revealing links. It runs a
-  revised copy of the submission checker of ACM SIGSOFT, the software engineering group of the ACM.
-- **Hidden text** (`hidden-text`) finds white, invisible, or tiny text, invisible Unicode characters, and prompts
-  or instructions hidden in the PDF and intended for AI systems. It uses the PDF libraries pdfguardrail and
-  PyMuPDF and the warning phrases of PhantomLint, a scanner for hidden prompts.
-- **References** (`references`) finds references that cannot be verified in bibliographic databases and
-  references that were retracted. Hallucinator, a reference checker, looks each reference up in an offline copy
-  of DBLP, the open bibliography of computer science. The Retraction Watch list marks retracted papers.
-
-### 💬 Reviews, with `peercheck reviews`
-
-The review checks read the reviews that EasyChair exports as XML files and that HotCRP exports as a CSV file.
-
-- **AI detection** (`cocodet`, `editlens`) labels each review with two detectors, and the report gives the
-  result of each one on its own. CoCoDet, trained on peer reviews, labels a review as Human, Mix, or AI, and its
-  label AI marks the review for a closer look. Mix marks content that is partly human and partly AI. EditLens,
-  trained on AI-edited text, labels a review as Human, AI-Edited, or AI, and its label appears beside the CoCoDet
-  label as a second opinion. AI-Edited marks human writing that AI edited. `external/README.md` reports how the two detectors
-  labeled a test set of reviews.
-- **Planted citation** (`--canaries`) finds reviews that an AI tool wrote from the paper. Before the review period,
-  `peercheck canary` writes a copy of each PDF with an instruction hidden in white text. The instruction asks any
-  AI tool to cite a made-up work, such as Smith et al. (2019). A review that cites the made-up work of its paper is
-  a hit. The test keeps the chance of any wrong hit among all reviews at 0.1% or less. The check follows the
-  method of Rao et al. that ICML 2026 used.
-- **Copied text** (`duplicates`) identifies highly similar paragraphs across reviews. Two paragraphs count as
-  copies when at least half of their short character sequences match. It uses MinHash, a fast search for similar
-  text, from the datasketch library.
-- **Citation requests** (`citations`) identifies works that reviewers recommend citing, including their own
-  publications. A review that asks for more works than the paper has pages gets a warning. To match the requested
-  works against the publications of the reviewers in DBLP, the check needs the DBLP index that
-  `peercheck conflicts --save-index` writes, passed with `--dblp-index`.
-
-### 🤝 Conflicts of interest, with `peercheck conflicts`
-
-PeerCheck finds co-authorship in DBLP within the previous three years, consistent with the ACM SIGSOFT Policy on
-Program Committees. It also finds shared email domains, affiliations that match, and declared conflicts without
-supporting evidence. A name that matches several DBLP authors goes to a person to confirm. A DBLP person ID in
-the committee list avoids the question. Declared conflicts come from the conflict export of EasyChair, passed
-with `--conflict-csv`. Affiliations match through the word lists of HotCRP. Webmail domains such as gmail.com do
-not count as shared. OpenReview, a review platform, provides the list of webmail domains.
+- Before the review period, `peercheck canary` hides a request to cite a made-up work, such as Smith et al. (2019),
+  in white text in a copy of each PDF. A wrong hit among all reviews has a chance of 0.1% or less.
+- `external/README.md` reports how each AI detector labeled a test set of reviews.
 
 ## 🧰 Requirements
 
-The Docker image holds every program that PeerCheck needs. Without Docker, PeerCheck needs these programs.
+> [!TIP]
+> With the Docker image of the install steps, Docker is the only program to install.
 
 - Python 3.10 or newer
 - Perl and poppler, for the format check
@@ -113,51 +85,47 @@ sudo apt install perl poppler-utils default-jre   # Debian or Ubuntu
 brew install poppler openjdk                      # macOS, which already has Perl
 ```
 
-PeerCheck is tested on Linux, including WSL on Windows. The models and the DBLP database take about 5 GB of
-disk. No graphics card is needed. On an Intel Core Ultra 9 275HX processor, the demo above took about 2 seconds for
-five papers and 23 to 28 seconds for eight reviews, the loading of the models included. An NVIDIA GeForce RTX 5070
-Laptop GPU checked the eight reviews in about 10 seconds.
+- PeerCheck is tested on Linux, including WSL on Windows.
+- The models and the DBLP database take about 5 GB of disk.
+- No graphics card is needed. On an Intel Core Ultra 9 275HX processor, the demo above took about 2 seconds for
+  five papers and 23 to 28 seconds for eight reviews, the loading of the models included.
+- An NVIDIA GeForce RTX 5070 Laptop GPU checked the eight reviews in about 10 seconds.
 
 ## 📦 Install
 
 ### 🐳 With Docker
-
-The Docker image holds PeerCheck with Python, Java, Perl, and poppler, and GitHub Actions rebuilds it at every
-change. In the command below, `-v "$PWD:/data"` gives the container the current folder, `-v peercheck-cache:/cache`
-keeps the models between runs, and `-e HF_TOKEN` passes the token of EditLens, as EditLens access below describes.
 
 ```bash
 docker run --rm -v "$PWD:/data" -v peercheck-cache:/cache -e HF_TOKEN ghcr.io/aalramadan/peercheck \
   reviews reviews/ --html reviews.html
 ```
 
+- The image holds PeerCheck with Python, Java, Perl, and poppler. GitHub Actions rebuilds it at every change.
+- `-v "$PWD:/data"` gives the container the current folder.
+- `-v peercheck-cache:/cache` keeps the models between runs.
+- `-e HF_TOKEN` passes the token of EditLens, as EditLens access below describes.
+
 ### 🐍 With Python
 
 ```bash
 git clone https://github.com/aalramadan/PeerCheck.git
 cd PeerCheck
-python -m pip install -e ".[reviews]"   # installs all checks, including the libraries of the review checks
+python -m pip install -e ".[reviews]"   # installs every check
 peercheck doctor                        # lists missing programs
+peercheck setup references              # downloads Hallucinator, the DBLP database, and the Retraction Watch list
+peercheck setup cocodet                 # downloads the CoCoDet model, about 600 MB
+peercheck setup editlens                # downloads the EditLens model, about 1.4 GB, after the steps below
 ```
 
 > [!TIP]
 > To check only submissions and conflicts, `python -m pip install -e .` installs PeerCheck without the review
 > checks.
 
-Some checks need data or models, which these commands download once.
-
-```bash
-peercheck setup references   # Hallucinator, the DBLP database, and the Retraction Watch list
-peercheck setup cocodet      # the CoCoDet model, about 600 MB
-peercheck setup editlens     # the EditLens model, about 1.4 GB, after the steps below
-```
-
 ### 🔑 EditLens access
 
-The authors of EditLens distribute the model only to users who accept its license.
-
 > [!NOTE]
-> The license of EditLens allows non-commercial use only.
+> The authors of EditLens give the model only to users who accept its license, which allows non-commercial use
+> only.
 
 1. Create a free account at huggingface.co.
 2. Accept the license at huggingface.co/pangram/editlens_roberta-large.
@@ -181,8 +149,15 @@ peercheck gui                                                            # opens
 peercheck menu                                                           # opens an interactive menu
 ```
 
-Each command writes an Excel workbook. A paper or a review needs a closer look when any of its findings is an
-error or a warning.
+- Each command writes an Excel workbook.
+- The commands read the unchanged exports of EasyChair and HotCRP, the two conference systems, and plain CSV or
+  Excel lists.
+  - PDFs named with their paper ID, as EasyChair and HotCRP name them, such as `conf2027-paper12.pdf`.
+  - An author list, a CSV or Excel file with the columns paper, first, last, email, and affiliation.
+  - Reviews, as the XML files of EasyChair, the review CSV file of HotCRP, or any CSV file with the columns paper
+    and review and one column per field of the review form.
+  - A committee list with first, last, email, and affiliation, or the EasyChair file `reviewer.csv`. An optional
+    column dblp with the DBLP person ID settles a name that several DBLP authors share.
 
 > [!TIP]
 > Check the original PDFs with `peercheck papers` before `peercheck canary`, since the hidden-text check reports the
@@ -191,15 +166,6 @@ error or a warning.
 
 > [!WARNING]
 > Keep the key file of `peercheck canary` private, since it reveals the planted citation of each paper.
-
-The commands read the unchanged exports of the conference systems EasyChair and HotCRP. The lists may also be
-plain CSV or Excel files.
-
-- PDFs named with their paper ID, as EasyChair and HotCRP name them, such as `conf2027-paper12.pdf`.
-- An author list, a CSV or Excel file with the columns paper, first, last, email, and affiliation.
-- Reviews, as the XML files of EasyChair, the review CSV file of HotCRP, or any CSV file with the columns paper
-  and review and one column per field of the review form.
-- A committee list with first, last, email, and affiliation, or the EasyChair file `reviewer.csv`.
 
 ## ⚙️ Options
 
@@ -233,9 +199,11 @@ PeerCheck is tuned for software engineering venues and ships with these profiles
 | fse-2027 | FSE 2027 Research Track | ACM acmsmall, one column | 18 plus 4 of references |
 | example-easychair | an example venue on EasyChair | IEEE, two columns, US Letter | 10 plus 2 of references |
 
-However, you can check the papers of any other venue. Copy a file of `src/profiles/`, such as
-`example-easychair.yaml` for a venue on EasyChair, change its values, and pass the copy by path, such as
-`peercheck --profile myvenue.yaml papers submissions/`.
+Any other venue gets a profile in three steps.
+
+1. Copy a file of `src/profiles/`, such as `example-easychair.yaml` for a venue on EasyChair.
+2. Change its values.
+3. Pass the copy by path, such as `peercheck --profile myvenue.yaml papers submissions/`.
 
 ## 🧪 Tests
 
@@ -255,8 +223,9 @@ mvn -f external/submission-checker/pom.xml package   # rebuilds the revised SIGS
 
 ## 📄 License
 
-PeerCheck is licensed under the GNU General Public License version 3. `NOTICE.md` lists the tools of other authors
-with their licenses. To cite PeerCheck, use *Cite this repository* on GitHub, which reads `CITATION.cff`.
+- PeerCheck is licensed under the GNU General Public License version 3.
+- `NOTICE.md` lists the tools of other authors with their licenses.
+- To cite PeerCheck, use *Cite this repository* on GitHub, which reads `CITATION.cff`.
 
 ## 📚 References
 
