@@ -5,6 +5,7 @@
 <p align="center">
   <a href="https://github.com/aalramadan/PeerCheck/actions/workflows/tests.yml"><img alt="Tests" src="https://github.com/aalramadan/PeerCheck/actions/workflows/tests.yml/badge.svg"></a>
   <img alt="Python 3.10 or newer" src="https://img.shields.io/badge/python-3.10%2B-3776AB">
+  <a href="https://github.com/aalramadan/PeerCheck/releases/latest"><img alt="Latest release" src="https://img.shields.io/github/v/release/aalramadan/PeerCheck"></a>
   <a href="LICENSE"><img alt="License GPL-3.0" src="https://img.shields.io/badge/license-GPL--3.0-blue"></a>
   <img alt="Runs locally" src="https://img.shields.io/badge/runs-locally-2ea44f">
 </p>
@@ -39,13 +40,15 @@ peercheck --profile samples/venue.yaml reviews samples/reviews --canaries sample
 
 ![HTML report of peercheck reviews on eight sample reviews](docs/reviews-report.png)
 
-Each finding is classified as an error, warning, or informational note. An error breaks a stated rule of the
-venue. A warning marks a likely problem. An informational note gives context. A red bar marks a paper or a review
-with an error or a warning.
+### Reading the reports
 
-In the reviews report, CoCoDet P(AI) is the probability that CoCoDet gives to the label AI. EditLens Score runs
-from 0 for human writing to 1 for AI writing. EditLens reads a score below 0.0971 as Human, a score of 0.997 or
-more as AI, and a score between them as AI-Edited.
+- An **error** breaks a stated rule of the venue.
+- A **warning** marks a likely problem.
+- An **info** note gives context.
+- A **red bar** marks a paper or a review with an error or a warning.
+- **CoCoDet P(AI)** is the probability, from 0 to 1, that CoCoDet gives to the label AI.
+- **EditLens Score** runs from 0 for human writing to 1 for AI writing. EditLens reads a score below 0.0971 as
+  Human, a score of 0.997 or more as AI, and a score between them as AI-Edited.
 
 ## 🔍 Checks
 
@@ -99,6 +102,8 @@ not count as shared. OpenReview, a review platform, provides the list of webmail
 
 ## 🧰 Requirements
 
+The Docker image holds every program that PeerCheck needs. Without Docker, PeerCheck needs these programs.
+
 - Python 3.10 or newer
 - Perl and poppler, for the format check
 - Java 11 or newer, for the anonymity and template check
@@ -114,6 +119,19 @@ five papers and 23 to 28 seconds for eight reviews, the loading of the models in
 Laptop GPU checked the eight reviews in about 10 seconds.
 
 ## 📦 Install
+
+### 🐳 With Docker
+
+The Docker image holds PeerCheck with Python, Java, Perl, and poppler, and GitHub Actions rebuilds it at every
+change. In the command below, `-v "$PWD:/data"` gives the container the current folder, `-v peercheck-cache:/cache`
+keeps the models between runs, and `-e HF_TOKEN` passes the token of EditLens, as EditLens access below describes.
+
+```bash
+docker run --rm -v "$PWD:/data" -v peercheck-cache:/cache -e HF_TOKEN ghcr.io/aalramadan/peercheck \
+  reviews reviews/ --html reviews.html
+```
+
+### 🐍 With Python
 
 ```bash
 git clone https://github.com/aalramadan/PeerCheck.git
@@ -149,17 +167,6 @@ The authors of EditLens distribute the model only to users who accept its licens
 
 > [!TIP]
 > To skip EditLens, check the reviews with `--detectors cocodet`.
-
-### 🐳 Docker
-
-The Docker image holds PeerCheck with Java, Perl, and poppler, and GitHub Actions rebuilds it at every change. In
-the command below, `-v "$PWD:/data"` gives the container the current folder, `-v peercheck-cache:/cache` keeps the
-models between runs, and `-e HF_TOKEN` passes the token of EditLens.
-
-```bash
-docker run --rm -v "$PWD:/data" -v peercheck-cache:/cache -e HF_TOKEN ghcr.io/aalramadan/peercheck \
-  reviews reviews/ --html reviews.html
-```
 
 ## 🚀 Usage
 
