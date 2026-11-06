@@ -35,7 +35,7 @@ package-dir = {"peercheck" = "src"}
 packages = ["peercheck", "peercheck.checks", "peercheck.reviews"]
 
 [tool.setuptools.package-data]
-peercheck = ["profiles/*.yaml"]
+peercheck = ["profiles/*.yaml", "gui.html"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
