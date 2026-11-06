@@ -32,11 +32,11 @@ peercheck --profile samples/venue.yaml reviews samples/reviews --canaries sample
 > together with a review export of HotCRP and the conflict check. GitHub Actions rebuilds the reports at every
 > change.
 
-### Papers
+#### Papers
 
 ![HTML report of peercheck papers on five sample papers](docs/papers-report.png)
 
-### Reviews
+#### Reviews
 
 ![HTML report of peercheck reviews on eight sample reviews](docs/reviews-report.png)
 
@@ -76,7 +76,7 @@ We tested the two AI detectors on 1,409 reviews.
 - PeerCheck is tested on Linux, including WSL on Windows.
 - The models and the DBLP database take about 5 GB of disk.
 
-### 🐳 With Docker
+#### 🐳 Docker
 
 ```bash
 docker run --rm -v "$PWD:/data" -v peercheck-cache:/cache -e HF_TOKEN ghcr.io/aalramadan/peercheck \
@@ -88,7 +88,7 @@ docker run --rm -v "$PWD:/data" -v peercheck-cache:/cache -e HF_TOKEN ghcr.io/aa
 - `-v peercheck-cache:/cache` keeps the models between runs.
 - `-e HF_TOKEN` passes the token of EditLens, as EditLens access below describes.
 
-### 🐍 With Python
+#### 🐍 Python
 
 PeerCheck needs these programs.
 
@@ -115,7 +115,7 @@ peercheck setup editlens                # downloads the EditLens model, about 1.
 > To check only submissions and conflicts, `python -m pip install -e .` installs PeerCheck without the review
 > checks.
 
-### 🔑 EditLens access
+#### 🔑 EditLens access
 
 > [!NOTE]
 > The authors of EditLens give the model only to users who accept its license, which allows non-commercial use
@@ -161,7 +161,7 @@ peercheck menu                                                           # opens
 > [!WARNING]
 > Keep the key file of `peercheck canary` private, since it reveals the planted citation of each paper.
 
-### ⚙️ Options
+#### ⚙️ Options
 
 | Option | Commands | What it does |
 |---|---|---|
@@ -183,7 +183,7 @@ peercheck menu                                                           # opens
 
 Run any command with `--help` for every option.
 
-### 📖 Reading the reports
+#### 📖 Reports
 
 - An **error** breaks a stated rule of the venue.
 - A **warning** marks a likely problem.
