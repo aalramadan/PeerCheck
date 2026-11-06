@@ -24,6 +24,10 @@ HEADER_ALIASES = {
 }
 # Review fields meant for the program committee only, which never go to the authors.
 COMMITTEE_ONLY = re.compile(r"confidential|program committee|\bpc\b|chairs? only", re.IGNORECASE)
+# The fixed columns of a HotCRP review CSV export; every other column is a field of the review form.
+HOTCRP_COLUMNS = ("paper", "title", "review", "reviewername", "email")
+# A score as HotCRP writes it, a number or a letter, with an optional description such as "3. Weak accept".
+SCORE_VALUE = re.compile(r"[0-9A-Za-z]{1,2}(\.? [^\n]{0,60})?")
 
 
 class InputError(ValueError):
@@ -103,15 +107,54 @@ def read_people(path: Path, with_paper: bool) -> dict[int, list[Person]] | list[
     return [_person(row, columns) for row in rows]
 
 
-def read_reviews(folder: Path) -> list[Review]:
-    """Read every review of the EasyChair review XML files of a folder."""
-    if not folder.is_dir():
-        raise InputError(f"review folder not found: {folder}")
+def read_reviews(path: Path) -> list[Review]:
+    """Read every review of a folder or a file: EasyChair review XML files and HotCRP review CSV exports."""
+    if path.is_file():
+        files = [path]
+    elif path.is_dir():
+        # A folder may also hold other CSV files, such as an author list, which are no review exports.
+        files = sorted(p for p in path.iterdir()
+                       if p.suffix.lower() == ".xml" or (p.suffix.lower() == ".csv" and _is_review_export(p)))
+    else:
+        raise InputError(f"reviews not found: {path}")
     reviews = []
-    for path in sorted(folder.glob("*.xml")):
-        root = SafeET.parse(path).getroot()
+    for file in files:
+        if file.suffix.lower() == ".csv":
+            reviews.extend(read_hotcrp_reviews(file))
+            continue
+        root = SafeET.parse(file).getroot()
         elements = [root] if root.tag == "review" else list(root.iter("review"))
-        reviews.extend(parse_review(element, path.name) for element in elements)
+        reviews.extend(parse_review(element, file.name) for element in elements)
+    return reviews
+
+
+def read_hotcrp_reviews(path: Path) -> list[Review]:
+    """Read the reviews of a HotCRP review CSV export, one review per row.
+
+    HotCRP writes the columns paper, title, review (the review ID within the paper, such as A), reviewername and
+    email where the reviewer may be named, and one column per field of the review form. A field whose values are
+    all short scores, such as 3 or B, counts as a score. Any other field counts as text, and the text fields meant
+    for the program committee stay out of the text for the authors.
+    """
+    with path.open(encoding="utf-8-sig", newline="") as handle:
+        rows = [{key.strip(): (value or "").strip() for key, value in row.items() if key} for row in csv.DictReader(handle)]
+    if not rows or "paper" not in rows[0]:
+        raise InputError(f"{path} is no HotCRP review export: it needs the column paper")
+    fields = [name for name in rows[0] if name not in HOTCRP_COLUMNS]
+    scores = [name for name in fields if all(SCORE_VALUE.fullmatch(row[name]) for row in rows if row[name])]
+    reviews = []
+    for number, row in enumerate(rows, start=1):
+        texts = {name: _clean(row[name]) for name in fields if name not in scores}
+        reviews.append(Review(
+            review_id=f"{row['paper']}{row.get('review') or f'-{number}'}",
+            paper_id=_paper_id(row["paper"]),
+            title=row.get("title", ""),
+            source=path.name,
+            scores={name: row[name] for name in scores},
+            fields=texts,
+            author_text="\n\n".join(value for name, value in texts.items() if value and not COMMITTEE_ONLY.search(name)),
+            reviewer=_named_person(row.get("reviewername", ""), row.get("email", "")),
+        ))
     return reviews
 
 
@@ -163,6 +206,17 @@ def _reviewer(element) -> Person | None:
     if not any(parts.values()):
         return None
     return Person(first=parts["first_name"], last=parts["last_name"], email=parts["email"])
+
+
+def _is_review_export(path: Path) -> bool:
+    with path.open(encoding="utf-8-sig", newline="") as handle:
+        header = {name.strip().lower() for name in next(csv.reader(handle), [])}
+    return {"paper", "review"} <= header
+
+
+def _named_person(name: str, email: str) -> Person | None:
+    first, _, last = name.strip().rpartition(" ")
+    return Person(first=first, last=last, email=email.strip()) if name.strip() or email.strip() else None
 
 
 def _paper_id(value) -> int | None:

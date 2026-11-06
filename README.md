@@ -61,7 +61,7 @@ Each check has a plain name and, in parentheses, the name that selects it on the
 
 ### 💬 Reviews, with `peercheck reviews`
 
-The review checks read the review XML files that EasyChair exports.
+The review checks read the reviews that EasyChair exports as XML files and that HotCRP exports as a CSV file.
 
 - **AI detection** (`cocodet`, `editlens`) labels each review as human-written or AI-generated. A review is
   flagged only when the two detectors agree. This mirrors the policy used by ICLR 2026. CoCoDet must label the
@@ -166,12 +166,13 @@ error or a warning.
 > [!WARNING]
 > Keep the key file of `peercheck canary` private, since it reveals the planted citation of each paper.
 
-The commands read these inputs.
+The commands read the unchanged exports of the conference systems EasyChair and HotCRP. The lists may also be
+plain CSV or Excel files.
 
-- PDFs named with their paper ID, as the conference systems EasyChair and HotCRP name them, such as
-  `conf2027-paper12.pdf`.
+- PDFs named with their paper ID, as EasyChair and HotCRP name them, such as `conf2027-paper12.pdf`.
 - An author list, a CSV or Excel file with the columns paper, first, last, email, and affiliation.
-- The review XML files that EasyChair exports.
+- Reviews, as the XML files of EasyChair, the review CSV file of HotCRP, or any CSV file with the columns paper
+  and review and one column per field of the review form.
 - A committee list with first, last, email, and affiliation, or the EasyChair file `reviewer.csv`.
 
 ## ⚙️ Options
