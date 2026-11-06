@@ -1,0 +1,230 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PeerCheck</title>
+<style>
+:root{--bg:#ffffff;--fg:#1f2328;--muted:#59636e;--line:#d1d9e0;--head:#f6f8fa;--accent:#0969da;--error:#cf222e;
+--clear:#1a7f37;color-scheme:light}
+:root[data-theme=dark]{--bg:#0d1117;--fg:#e6edf3;--muted:#9198a1;--line:#3d444d;--head:#151b23;--accent:#4493f8;
+--error:#f85149;--clear:#3fb950;color-scheme:dark}
+body{font-family:system-ui,sans-serif;margin:0;color:var(--fg);background:var(--bg)}
+header{display:flex;flex-wrap:wrap;gap:1rem;align-items:center;padding:1rem 2rem;border-bottom:1px solid var(--line)}
+header h1{font-size:1.4rem;margin:0 auto 0 0}
+main{max-width:72rem;margin:0 auto;padding:1rem 2rem 3rem}
+nav{display:flex;gap:.5rem;margin:1rem 0}
+nav button{background:none;color:var(--muted);border:1px solid var(--line);border-radius:.4rem;padding:.45rem .9rem;
+cursor:pointer;font-size:.95rem}
+nav button[aria-selected=true]{color:var(--fg);border-color:var(--accent);box-shadow:inset 0 -2px 0 var(--accent)}
+form{border:1px solid var(--line);border-radius:.5rem;padding:1rem 1.25rem;background:var(--head)}
+.field{display:grid;grid-template-columns:12rem 1fr;gap:.25rem 1rem;align-items:baseline;margin:.75rem 0}
+.field small{grid-column:2;color:var(--muted)}
+fieldset{border:none;margin:.75rem 0;padding:0}
+legend{font-weight:600;margin-bottom:.35rem}
+fieldset label{display:inline-flex;gap:.35rem;align-items:center;margin:0 1.25rem .35rem 0}
+fieldset small{display:block;color:var(--muted)}
+button.run{margin-top:.75rem;background:var(--accent);color:#fff;border:none;border-radius:.4rem;padding:.55rem 1.2rem;
+font-size:1rem;cursor:pointer}
+button.run:disabled{opacity:.6;cursor:wait}
+#theme{background:none;color:var(--fg);border:1px solid var(--line);border-radius:.4rem;padding:.3rem .7rem;cursor:pointer}
+#status{margin:1.25rem 0 .5rem}
+#status.error{color:var(--error)}
+#status.done{color:var(--clear)}
+#links a{color:var(--accent);margin-right:1.25rem}
+iframe{width:100%;min-height:24rem;border:1px solid var(--line);border-radius:.5rem;margin-top:.75rem;background:var(--bg)}
+table{border-collapse:collapse;width:100%;font-size:.9rem;margin-top:.75rem}
+th,td{border:1px solid var(--line);padding:.35rem .5rem;text-align:left;vertical-align:top;white-space:pre-wrap}
+th{background:var(--head)}
+pre{white-space:pre-wrap;word-break:break-word;color:var(--muted);font-size:.8rem}
+</style>
+</head>
+<body>
+<header>
+  <h1>PeerCheck</h1>
+  <label>Venue profile <select id="profile"></select></label>
+  <button id="theme" type="button">Light or dark</button>
+</header>
+<main>
+  <nav role="tablist">
+    <button type="button" role="tab" data-tab="papers" aria-selected="true">Submissions</button>
+    <button type="button" role="tab" data-tab="reviews" aria-selected="false">Reviews</button>
+    <button type="button" role="tab" data-tab="conflicts" aria-selected="false">Conflicts of interest</button>
+  </nav>
+
+  <form id="papers">
+    <div class="field"><label for="pdfs">Submission PDFs</label>
+      <input id="pdfs" name="pdfs" type="file" accept=".pdf" multiple required>
+      <small>The PDFs as the conference system names them, with the paper ID in the file name.</small></div>
+    <div class="field"><label for="papers-authors">Author list (optional)</label>
+      <input id="papers-authors" name="authors" type="file" accept=".csv,.xlsx,.xls">
+      <small>CSV or Excel file with the columns paper, first, last, email, and affiliation.</small></div>
+    <div class="field"><label for="submissions">Submission sheet (optional)</label>
+      <input id="submissions" name="submissions" type="file" accept=".csv,.xlsx,.xls">
+      <small>The submission sheet of EasyChair (Excel) or HotCRP (CSV), which the report extends.</small></div>
+    <fieldset><legend>Checks</legend>
+      <label><input type="checkbox" name="checks" value="layout" checked> Format</label>
+      <label><input type="checkbox" name="checks" value="sigsoft" checked> Anonymity and template</label>
+      <label><input type="checkbox" name="checks" value="hidden-text" checked> Hidden text</label>
+      <label><input type="checkbox" name="checks" value="references"> References</label>
+      <small>References needs the download of <code>peercheck setup references</code> first.</small></fieldset>
+    <button class="run" type="submit">Check the submissions</button>
+  </form>
+
+  <form id="reviews" hidden>
+    <div class="field"><label for="exports">Review exports</label>
+      <input id="exports" name="reviews" type="file" accept=".xml,.csv" multiple required>
+      <small>The review XML files of EasyChair or the review CSV file of HotCRP.</small></div>
+    <div class="field"><label for="canaries">Canary key (optional)</label>
+      <input id="canaries" name="canaries" type="file" accept=".csv">
+      <small>The key file of <code>peercheck canary</code>, to find reviews that cite the made-up work hidden in
+        their paper.</small></div>
+    <fieldset><legend>AI detectors</legend>
+      <label><input type="checkbox" name="detectors" value="cocodet" checked> CoCoDet</label>
+      <label><input type="checkbox" name="detectors" value="editlens" checked> EditLens</label>
+      <small>EditLens needs a Hugging Face account that accepted its license, as the README describes.</small></fieldset>
+    <fieldset><legend>Checks</legend>
+      <label><input type="checkbox" name="checks" value="duplicates" checked> Copied text</label>
+      <label><input type="checkbox" name="checks" value="citations" checked> Citation requests</label></fieldset>
+    <button class="run" type="submit">Check the reviews</button>
+  </form>
+
+  <form id="conflicts" hidden>
+    <div class="field"><label for="conflicts-authors">Author list</label>
+      <input id="conflicts-authors" name="authors" type="file" accept=".csv,.xlsx,.xls" required>
+      <small>CSV or Excel file with the columns paper, first, last, email, and affiliation.</small></div>
+    <div class="field"><label for="pc">Committee list</label>
+      <input id="pc" name="pc" type="file" accept=".csv,.xlsx,.xls" required>
+      <small>CSV or Excel file with the columns first, last, email, and affiliation.</small></div>
+    <button class="run" type="submit">Find conflicts of interest</button>
+  </form>
+
+  <section id="result" hidden>
+    <p id="status" role="status"></p>
+    <p id="links"></p>
+    <div id="output"></div>
+    <details id="log-box"><summary>Log</summary><pre id="log"></pre></details>
+  </section>
+</main>
+<script>
+const token = new URLSearchParams(location.search).get('token') || '';
+const root = document.documentElement;
+root.dataset.theme = localStorage.getItem('peercheck-theme') ||
+  (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+document.getElementById('theme').addEventListener('click', () => {
+  root.dataset.theme = root.dataset.theme === 'dark' ? 'light' : 'dark';
+  localStorage.setItem('peercheck-theme', root.dataset.theme);
+});
+
+const tabs = document.querySelectorAll('nav button');
+for (const tab of tabs) {
+  tab.addEventListener('click', () => {
+    for (const other of tabs) {
+      other.setAttribute('aria-selected', String(other === tab));
+      document.getElementById(other.dataset.tab).hidden = other !== tab;
+    }
+  });
+}
+
+async function api(path, options = {}) {
+  const reply = await fetch(path, {...options, headers: {'X-PeerCheck-Token': token, ...(options.headers || {})}});
+  const data = await reply.json().catch(() => ({}));
+  if (!reply.ok) throw new Error(data.error || reply.statusText);
+  return data;
+}
+
+const profile = document.getElementById('profile');
+api('/api/profiles').then(data => {
+  for (const item of data.profiles) profile.add(new Option(`${item.name} (${item.label})`, item.key));
+}).catch(error => report('error', error.message));
+
+const result = document.getElementById('result');
+const status = document.getElementById('status');
+const links = document.getElementById('links');
+const output = document.getElementById('output');
+const log = document.getElementById('log');
+
+function report(kind, text) {
+  result.hidden = false;
+  status.className = kind;
+  status.textContent = text;
+}
+
+function link(href, text, download) {
+  const anchor = document.createElement('a');
+  anchor.href = href;
+  anchor.textContent = text;
+  if (download) anchor.download = '';
+  else anchor.target = '_blank';
+  return anchor;
+}
+
+function showReport(href) {
+  const frame = document.createElement('iframe');
+  frame.title = 'Report';
+  frame.src = href;
+  frame.addEventListener('load', () => {
+    const page = frame.contentDocument.documentElement;
+    const fit = () => { frame.style.height = page.scrollHeight + 'px'; };
+    new ResizeObserver(fit).observe(frame.contentDocument.body);
+    fit();
+  });
+  output.append(frame);
+}
+
+function showRows(rows) {
+  if (!rows.length) {
+    output.append(Object.assign(document.createElement('p'), {textContent: 'No possible conflicts of interest.'}));
+    return;
+  }
+  const table = document.createElement('table');
+  const head = table.createTHead().insertRow();
+  for (const name of Object.keys(rows[0])) head.append(Object.assign(document.createElement('th'), {textContent: name}));
+  const body = table.createTBody();
+  for (const row of rows) {
+    const line = body.insertRow();
+    for (const value of Object.values(row)) line.insertCell().textContent = value ?? '';
+  }
+  output.append(table);
+}
+
+for (const form of document.querySelectorAll('form')) {
+  form.addEventListener('submit', async event => {
+    event.preventDefault();
+    const buttons = document.querySelectorAll('button.run');
+    for (const button of buttons) button.disabled = true;
+    report('', 'Starting.');
+    links.replaceChildren();
+    output.replaceChildren();
+    log.textContent = '';
+    try {
+      const {run} = await api('/api/new', {method: 'POST'});
+      const files = [...form.querySelectorAll('input[type=file]')].flatMap(input => [...input.files].map(file => [input.name, file]));
+      for (const [index, [field, file]] of files.entries()) {
+        report('', `Uploading file ${index + 1} of ${files.length}.`);
+        const query = new URLSearchParams({run, field, name: file.name});
+        await api(`/api/file?${query}`, {method: 'PUT', body: file});
+      }
+      report('', 'Running the checks. Many files and the AI detectors take a few minutes.');
+      const chosen = name => [...form.querySelectorAll(`input[name=${name}]:checked`)].map(input => input.value);
+      const done = await api('/api/start', {method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({run, kind: form.id, profile: profile.value, checks: chosen('checks'),
+                              detectors: chosen('detectors')})});
+      log.textContent = done.log;
+      report(done.ok ? 'done' : 'error',
+             done.ok ? done.summary || 'Done.' : 'The check stopped with an error. The log below gives the reason.');
+      document.getElementById('log-box').open = !done.ok;
+      if (done.report) links.append(link(done.report, 'Open the report in a new tab', false));
+      if (done.workbook) links.append(link(done.workbook, 'Download the Excel workbook', true));
+      if (done.report) showReport(done.report);
+      else if (done.ok && form.id === 'conflicts') showRows(done.rows);
+    } catch (error) {
+      report('error', error.message);
+    } finally {
+      for (const button of buttons) button.disabled = false;
+    }
+  });
+}
+</script>
+</body>
+</html>

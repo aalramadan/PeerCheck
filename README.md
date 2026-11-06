@@ -170,6 +170,7 @@ peercheck conflicts --authors authors.csv --pc pc.csv --dblp-dump dblp.xml.gz
 peercheck canary submissions/ --out marked/ --key canaries.csv           # plants a citation in each PDF
 peercheck reviews reviews/ --canaries canaries.csv                       # finds the planted citations
 peercheck --profile fse-2027 papers submissions/                         # uses the rules of FSE 2027
+peercheck gui                                                            # opens the checks as a page in the browser
 peercheck menu                                                           # opens an interactive menu
 ```
 

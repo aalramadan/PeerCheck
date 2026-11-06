@@ -8,7 +8,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-from peercheck import __version__, canary, conflicts, dblp, inputs, pipeline, report, tools
+from peercheck import __version__, canary, conflicts, dblp, gui, inputs, pipeline, report, tools
 from peercheck import profile as profiles
 from peercheck.checks import references
 from peercheck.findings import needs_review
@@ -102,6 +102,11 @@ def parser() -> argparse.ArgumentParser:
     setup.add_argument("--retraction-csv", type=Path, help="references: use this Retraction Watch CSV, no download")
     setup.add_argument("--refresh", action="store_true", help="references: download and build again")
     setup.set_defaults(handler=run_setup)
+
+    browser = commands.add_parser("gui", help="open the checks as a page in the browser")
+    browser.add_argument("--port", type=int, default=0, help="port on 127.0.0.1 (default: a free port)")
+    browser.add_argument("--no-browser", action="store_true", help="print the address of the page without opening it")
+    browser.set_defaults(handler=lambda a: gui.serve(a.profile, a.port, not a.no_browser))
 
     commands.add_parser("doctor", help="report missing programs and files").set_defaults(handler=run_doctor)
     commands.add_parser("profiles", help="list the venue profiles").set_defaults(handler=run_profiles)
