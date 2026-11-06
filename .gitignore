@@ -24,7 +24,6 @@ report*.json
 
 # Downloaded models, databases, and tools.
 .cache/
-cocodet/model/
 
 # Python, Java, and LaTeX build files.
 __pycache__/
