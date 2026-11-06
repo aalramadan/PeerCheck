@@ -38,7 +38,7 @@ def test_a_pdf_the_checker_cannot_open_is_a_warning_not_a_pass():
 def test_command_passes_the_profile_and_the_author_list(tmp_path, monkeypatch):
     monkeypatch.setattr(tools, "program", lambda name: name)
     command = sigsoft._command(_papers(), profile.load("example-easychair"), tmp_path)
-    assert command[command.index("--id-pattern") + 1] == r"_paper_(\d+)\.pdf$"
+    assert r"--id-pattern=_paper_(\d+)\.pdf$" in command
     assert "--flag-acknowledgments" in command
     assert (tmp_path / "sigsoft-authors.csv").read_text().splitlines()[1].startswith("1,A,Maria,Lindqvist")
 
@@ -57,6 +57,15 @@ def test_bundled_jar_reads_a_good_pdf_and_reports_a_corrupt_one(tmp_path):
     results = sigsoft.check_batch(_papers(), profile.load("example-easychair"), tmp_path)
     assert not [f for f in results[1] if f.check == "sigsoft.error"]
     assert [f.check for f in results[2]] == ["sigsoft.error"]
+
+
+@pytest.mark.skipif(not shutil.which("java") or not tools.submission_checker().is_file(),
+                    reason="needs Java and the bundled jar")
+def test_bundled_jar_takes_a_hotcrp_file_pattern_that_starts_with_a_dash(tmp_path):
+    pdf = tmp_path / "conf2027-paper1.pdf"
+    pdf.write_bytes((PAPERS / "ieee-refs-start-p10.pdf").read_bytes())
+    results = sigsoft.check_batch([Paper(1, pdf)], profile.load("icse-2027"), tmp_path)
+    assert not [f for f in results[1] if f.check == "sigsoft.error"]
 
 
 def test_issues_of_a_pdf_that_opened_survive_a_partial_failure():

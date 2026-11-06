@@ -102,7 +102,8 @@ def _command(papers: list[Paper], profile: Profile, workdir: Path) -> list[str]:
     rules, anonymity = profile.format, profile.options("anonymity")
     command = [tools.program("java"), "-jar", str(tools.submission_checker()), "--json",
                "--style", rules.style, "--mainpages", str(rules.main_pages),
-               "--refpages", str(rules.reference_pages), "--id-pattern", profile.file_pattern]
+               # The joined form keeps a pattern that starts with a dash, such as -paper(\d+), from reading as an option.
+               "--refpages", str(rules.reference_pages), f"--id-pattern={profile.file_pattern}"]
     authors = _write_authors(papers, workdir)
     if authors:
         command += ["--meta", str(authors)]
