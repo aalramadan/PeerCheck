@@ -72,3 +72,29 @@ def test_empty_reviewer_fields_give_no_reviewer():
     reviews = {r.review_id: r for r in inputs.read_reviews(EASYCHAIR)}
     assert reviews["rev0007a"].reviewer is None
     assert reviews["rev0007b"].reviewer.email == "dana@example.org"
+
+
+HOTCRP = Path(__file__).parent / "fixtures" / "hotcrp" / "reviews.csv"
+
+
+def test_hotcrp_review_export_gives_the_scores_the_text_for_authors_and_the_reviewer():
+    first, second = inputs.read_reviews(HOTCRP)
+    assert (first.review_id, first.paper_id, second.review_id) == ("12A", 12, "12B")
+    assert first.scores == {"Overall merit": "3", "Reviewer expertise": "2"}
+    assert "lacks a baseline" in first.author_text and "unsure about the novelty" not in first.author_text
+    assert (first.reviewer.last, first.reviewer.email) == ("Roe", "jane.roe@example.org")
+
+
+def test_review_folder_reads_easychair_xml_and_hotcrp_csv_together(tmp_path):
+    for source in [HOTCRP, *EASYCHAIR.glob("review_*.xml")]:
+        (tmp_path / source.name).write_bytes(source.read_bytes())
+    sources = {review.source for review in inputs.read_reviews(tmp_path)}
+    assert "reviews.csv" in sources and any(name.endswith(".xml") for name in sources)
+
+
+def test_review_csv_without_a_paper_column_is_refused(tmp_path):
+    path = tmp_path / "reviews.csv"
+    path.write_text("title,Overall merit\nA paper,3\n")
+    with pytest.raises(inputs.InputError, match="column paper"):
+        inputs.read_reviews(path)
+

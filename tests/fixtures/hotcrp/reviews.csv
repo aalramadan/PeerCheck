@@ -1,0 +1,3 @@
+paper,title,review,reviewername,email,Overall merit,Reviewer expertise,Paper summary,Strengths,Weaknesses,Comments for PC
+12,A Study of Flaky Tests,A,Jane Roe,jane.roe@example.org,3,2,"The paper studies flaky tests in ten open source projects and proposes a rerun policy.","The motivation is clear and the data set is public.","The evaluation lacks a baseline.","I am unsure about the novelty compared with the authors' earlier work."
+12,A Study of Flaky Tests,B,John Doe,john.doe@example.org,2,3,"The paper proposes a detector of flaky tests based on test history.","The tool is useful for practitioners.","The data set is small.",

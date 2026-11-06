@@ -57,3 +57,15 @@ def test_canary_check_runs_without_any_model_and_fills_its_column(tmp_path):
     sheet = openpyxl.load_workbook(out).worksheets[0]
     header = [cell.value for cell in sheet[1]]
     assert {row[header.index("Canary")] for row in sheet.iter_rows(min_row=2, values_only=True)} == {"no"}
+
+
+def test_review_check_reads_a_hotcrp_export_and_shows_its_overall_merit(tmp_path):
+    out = tmp_path / "reviews.xlsx"
+    export = Path(__file__).parent / "fixtures" / "hotcrp" / "reviews.csv"
+    assert cli.main([str(export), "--detectors", "", "--checks", "", "--out", str(out)]) == 0
+    sheet = openpyxl.load_workbook(out).worksheets[0]
+    header = [cell.value for cell in sheet[1]]
+    rows = list(sheet.iter_rows(min_row=2, values_only=True))
+    assert [row[header.index("Review ID")] for row in rows] == ["12A", "12B"]
+    assert [row[header.index("Overall Evaluation")] for row in rows] == ["3", "2"]
+

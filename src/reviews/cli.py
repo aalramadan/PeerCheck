@@ -43,8 +43,9 @@ def main(argv: list[str] | None = None) -> int:
 
 def parser() -> argparse.ArgumentParser:
     """Build the parser of the review command line."""
-    top = argparse.ArgumentParser(prog="peercheck reviews", description="Check EasyChair review XML files.")
-    top.add_argument("folder", help="folder with review XML files, or setup to download the models")
+    top = argparse.ArgumentParser(prog="peercheck reviews",
+                                  description="Check reviews exported from EasyChair (XML) or HotCRP (CSV).")
+    top.add_argument("folder", help="folder or file of review exports, or setup to download the models")
     top.add_argument("extra", nargs="*", help="after setup: cocodet or editlens")
     top.add_argument("--profile", default="icse-2027", help="venue profile key or YAML file")
     top.add_argument("--detectors", default="cocodet,editlens", help="comma-separated subset of cocodet,editlens")
@@ -141,8 +142,10 @@ def _choose(text: str, allowed: tuple[str, ...], what: str) -> tuple[str, ...]:
 def _row(review: Review) -> dict[str, object]:
     scores = review.scores
     return {"Source File": review.source, "Submission": review.paper_id, "Review ID": review.review_id,
-            "Title": review.title, "Overall Evaluation": scores.get("Overall evaluation"),
-            "Reviewer's Confidence": scores.get("Reviewer's confidence"),
+            "Title": review.title,
+            # EasyChair and HotCRP name the two common scores differently.
+            "Overall Evaluation": scores.get("Overall evaluation") or scores.get("Overall merit"),
+            "Reviewer's Confidence": scores.get("Reviewer's confidence") or scores.get("Reviewer expertise"),
             "Words for Authors": len(review.author_text.split())}
 
 

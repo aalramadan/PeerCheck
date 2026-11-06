@@ -54,7 +54,7 @@ def parser() -> argparse.ArgumentParser:
     papers.add_argument("--html", type=Path, help="also write an HTML page for viewing in a browser")
     papers.set_defaults(handler=run_papers)
 
-    reviews = commands.add_parser("reviews", help="check the EasyChair review XML files of a folder",
+    reviews = commands.add_parser("reviews", help="check the reviews exported from EasyChair or HotCRP",
                                   add_help=False)
     reviews.add_argument("rest", nargs=argparse.REMAINDER, help="arguments of python -m peercheck.reviews")
     reviews.set_defaults(handler=run_reviews)
