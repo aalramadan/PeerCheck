@@ -32,6 +32,7 @@ h1{font-size:1.4rem;margin:0 0 .3rem}
 input[type=search]{padding:.3rem .5rem;min-width:16rem}
 table{border-collapse:collapse;width:100%;font-size:.9rem}
 th,td{border:1px solid var(--line);padding:.35rem .5rem;text-align:left;vertical-align:top}
+td:not(:last-child){white-space:nowrap}
 th{background:var(--head);position:sticky;top:0}
 tr.flagged td:first-child{border-left:4px solid var(--error)}
 tr.clear td:first-child{border-left:4px solid var(--clear)}

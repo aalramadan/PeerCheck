@@ -51,3 +51,7 @@ jobs:
           cache-from: type=gha
           # Without the provenance record, which GitHub lists as a second platform, unknown/unknown.
           provenance: false
+      - name: Delete the images that lost their tag
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: python3 .github/scripts/prune_images.py
