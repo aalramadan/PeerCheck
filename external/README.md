@@ -19,7 +19,7 @@
 | `phantomlint/` | github.com/tobycmurray/phantom-lint | commit `7f62001` | BSD-3-Clause | copies the warning phrases of PhantomLint into `src/checks/hidden_text.py` |
 | `submission-checker/` | github.com/acmsigsoft/submission-checker | release v0.4.3, commit `3ffa1eb` | Apache-2.0 | runs the jar, built from the revised source in this folder, in the anonymity and template check |
 
-## Checks and the tools behind them
+## Checks
 
 | Command | Check (command-line name) | Finds | Built on |
 |---|---|---|---|
