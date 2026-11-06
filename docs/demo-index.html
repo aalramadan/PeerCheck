@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PeerCheck demo</title>
+<style>
+:root { --bg: #ffffff; --fg: #1f2328; --muted: #59636e; --line: #d1d9e0; --link: #0969da; }
+@media (prefers-color-scheme: dark) { :root { --bg: #0d1117; --fg: #e6edf3; --muted: #9198a1; --line: #3d444d; --link: #4493f8; } }
+body { margin: 0; background: var(--bg); color: var(--fg); font: 16px/1.5 system-ui, sans-serif; }
+main { max-width: 760px; margin: 0 auto; padding: 32px 16px; }
+h1 { margin: 0 0 4px; } p { color: var(--muted); }
+a { color: var(--link); }
+ul { padding: 0; list-style: none; }
+li { border: 1px solid var(--line); border-radius: 8px; padding: 12px 16px; margin: 12px 0; }
+li span { display: block; color: var(--muted); font-size: 14px; }
+</style>
+</head>
+<body>
+<main>
+<h1>PeerCheck demo</h1>
+<p>PeerCheck checked the samples of its repository. GitHub Actions rebuilds these reports at every change.</p>
+<ul>
+<li><a href="report.html">Papers</a> (<a href="report.xlsx">Excel</a>)<span>Format, anonymity, and hidden text of five sample submissions.</span></li>
+<li><a href="reviews.html">Reviews from EasyChair</a> (<a href="reviews.xlsx">Excel</a>)<span>AI detection, a planted citation, copied text, and citation requests in eight reviews.</span></li>
+<li><a href="hotcrp.html">Reviews from HotCRP</a> (<a href="hotcrp.xlsx">Excel</a>)<span>The same checks on three reviews of a HotCRP export.</span></li>
+<li><a href="conflicts.xlsx">Conflicts of interest</a> (Excel)<span>Shared email domains and affiliations between authors and a program committee.</span></li>
+</ul>
+<p><a href="https://github.com/aalramadan/PeerCheck">PeerCheck on GitHub</a></p>
+</main>
+</body>
+</html>

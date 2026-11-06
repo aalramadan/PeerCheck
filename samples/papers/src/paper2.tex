@@ -1,0 +1,16 @@
+% A submission in the wrong format: A4 paper, one column, and 12 pt type.
+\documentclass[a4paper,12pt]{article}
+\begin{document}
+\title{FlakeScope: Ranking Flaky Test Failures}
+\author{Anonymous Author(s)}
+\maketitle
+\begin{abstract}
+Flaky tests pass and fail on the same code. FlakeScope ranks the failures of a build by the chance that each
+failure is flaky and places the flaky failure first in 71\% of 4,210 failures of ten projects.
+\end{abstract}
+\input{body}
+\begin{thebibliography}{1}
+\bibitem{luo} Q. Luo, F. Hariri, L. Eloussi, and D. Marinov, ``An empirical analysis of flaky tests,'' in
+\emph{Proc. FSE}, 2014, pp. 643--653.
+\end{thebibliography}
+\end{document}

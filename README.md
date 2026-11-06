@@ -21,17 +21,23 @@ reviews, and conflicts of interest.
 These two report pages come from the commands below.
 
 ```bash
-peercheck papers submissions/ --authors authors.csv --checks layout,sigsoft,hidden-text --html report.html
-peercheck reviews reviews/ --canaries canaries.csv --html reviews.html
+peercheck --profile samples/venue.yaml papers samples/papers --authors samples/authors.csv \
+  --checks layout,sigsoft,hidden-text --html report.html
+peercheck --profile samples/venue.yaml reviews samples/reviews --canaries samples/canaries.csv --html reviews.html
 ```
+
+> [!TIP]
+> The [live demo](https://aalramadan.github.io/PeerCheck/) shows the full reports with their Excel workbooks,
+> together with a review export of HotCRP and the conflict check. GitHub Actions rebuilds the reports at every
+> change.
 
 ### Papers
 
-![HTML report of peercheck papers on six example papers](docs/papers-report.png)
+![HTML report of peercheck papers on five sample papers](docs/papers-report.png)
 
 ### Reviews
 
-![HTML report of peercheck reviews on eight example reviews](docs/reviews-report.png)
+![HTML report of peercheck reviews on eight sample reviews](docs/reviews-report.png)
 
 Each finding is classified as an error, warning, or informational note. An error breaks a stated rule of the
 venue. A warning marks a likely problem. An informational note gives context. A red bar marks a paper or a review
@@ -103,8 +109,9 @@ brew install poppler openjdk                      # macOS, which already has Per
 ```
 
 PeerCheck is tested on Linux, including WSL on Windows. The models and the DBLP database take about 5 GB of
-disk. No graphics card is needed. On an Intel Core i5-13500 processor, the demo above took about 4 seconds for six
-papers and 21 seconds for eight reviews, the loading of the models included.
+disk. No graphics card is needed. On an Intel Core Ultra 9 275HX processor, the demo above took about 2 seconds for
+five papers and 23 to 28 seconds for eight reviews, the loading of the models included. An NVIDIA GeForce RTX 5070
+Laptop GPU checked the eight reviews in about 10 seconds.
 
 ## 📦 Install
 
@@ -142,6 +149,17 @@ The authors of EditLens distribute the model only to users who accept its licens
 
 > [!TIP]
 > To skip EditLens, check the reviews with `--detectors cocodet`.
+
+### 🐳 Docker
+
+The Docker image holds PeerCheck with Java, Perl, and poppler, and GitHub Actions rebuilds it at every change. In
+the command below, `-v "$PWD:/data"` gives the container the current folder, `-v peercheck-cache:/cache` keeps the
+models between runs, and `-e HF_TOKEN` passes the token of EditLens.
+
+```bash
+docker run --rm -v "$PWD:/data" -v peercheck-cache:/cache -e HF_TOKEN ghcr.io/aalramadan/peercheck \
+  reviews reviews/ --html reviews.html
+```
 
 ## 🚀 Usage
 
@@ -224,7 +242,8 @@ mvn -f external/submission-checker/pom.xml package   # rebuilds the revised SIGS
 - Every check and every model runs locally.
 - The reference check stays offline by default. The profile option `online: true` sends DOIs and arXiv
   identifiers to doi.org and arxiv.org. The option `online_titles: true` also sends reference titles.
-- `.gitignore` keeps PDFs, review XML files, spreadsheets, and CSV files out of git, test fixtures excepted.
+- `.gitignore` keeps PDFs, review XML files, spreadsheets, and CSV files out of git, except the test fixtures and
+  the samples.
 
 ## 📄 License
 
