@@ -40,23 +40,6 @@ peercheck --profile samples/venue.yaml reviews samples/reviews --canaries sample
 
 ![HTML report of peercheck reviews on eight sample reviews](docs/reviews-report.png)
 
-## 🔍 Checks
-
-| Command | Check (command-line name) | Finds | Built on |
-|---|---|---|---|
-| `papers` | Format (`layout`) | page size, columns, margins, fonts, page limits, page numbers, and sections that break the rules of the venue | the format checker of HotCRP, a conference system |
-| `papers` | Anonymity and template (`sigsoft`) | author names, email addresses, affiliations, links that reveal the authors, and a template other than that of the venue | a revised copy of the submission checker of ACM SIGSOFT, the software engineering group of the ACM |
-| `papers` | Hidden text (`hidden-text`) | white, invisible, or tiny text, invisible Unicode characters, and prompts hidden for AI tools | the PDF libraries pdfguardrail and PyMuPDF and the phrases of PhantomLint, a scanner for hidden prompts |
-| `papers` | References (`references`) | references that no bibliographic database confirms and retracted references | Hallucinator, a reference checker, with an offline copy of DBLP, the open bibliography of computer science, and the Retraction Watch list |
-| `reviews` | AI detection (`cocodet`, `editlens`) | potentially AI-generated reviews, with the label of each detector on its own | CoCoDet, trained on peer reviews, and EditLens, trained on AI-edited text |
-| `reviews` | Planted citation (`--canaries`) | reviews that cite the made-up work hidden in their paper | the method of Rao et al. that ICML 2026 used |
-| `reviews` | Copied text (`duplicates`) | paragraphs that reviews share, with at least half of their short character sequences alike | MinHash, a fast search for similar text, from the datasketch library |
-| `reviews` | Citation requests (`citations`) | works that reviewers ask the authors to cite, their own included, and requests for more works than the paper has pages | DBLP, for the works of the reviewers, through `--dblp-index` |
-| `conflicts` | Conflicts of interest | co-authorship within three years (the window of the ACM SIGSOFT Policy on Program Committees), shared email domains other than webmail, affiliations that match, and declared conflicts without evidence | DBLP, the affiliation word lists of HotCRP, and the webmail list of OpenReview |
-
-- Before the review period, `peercheck canary` hides a request to cite a made-up work, such as Smith et al. (2019),
-  in white text in a copy of each PDF. A wrong hit among all reviews has a chance of 0.1% or less.
-
 ## 📊 Benchmark
 
 We tested the two AI detectors on 1,409 reviews.
@@ -187,7 +170,7 @@ peercheck menu                                                           # opens
 | `--json`, `--html` | papers, reviews | also write a JSON file or a page for the browser |
 | `--authors` | papers, conflicts | reads the author list |
 | `--submissions` | papers | reads the submission sheet of EasyChair or HotCRP |
-| `--checks` | papers, reviews | runs only the checks it names, such as `--checks layout,references` |
+| `--checks` | papers, reviews | runs only the checks it names, such as `--checks layout,references`, from the list of checks in `external/README.md` |
 | `--detectors` | reviews | picks the AI detectors, `cocodet,editlens` by default |
 | `--canaries` | reviews | runs the planted-citation check with the key file of `peercheck canary` |
 | `--device` | reviews | runs the detectors on the processor (`cpu`) or an NVIDIA graphics card (`cuda`) |
