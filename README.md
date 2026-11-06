@@ -80,15 +80,16 @@ We tested the two AI detectors on 1,409 reviews.
 - 297 reviews of 60 of these papers, written by five current models on NVIDIA build, the model service of NVIDIA.
 - 98 of the human reviews, each polished by a model.
 
-| Reviews | Count | CoCoDet says AI | EditLens says AI-Edited | EditLens says AI |
+| Written by | Reviews | CoCoDet (AI) | EditLens (AI-Edited) | EditLens (AI) |
 |---|---|---|---|---|
-| written by people | 1,014 | 0 | 51 | 0 |
-| written by people, then polished by a model | 98 | 0 | 89 | 0 |
-| written by DiffusionGemma 26B | 58 | 58 | 58 | 0 |
-| written by Gemma 4 31B | 60 | 60 | 60 | 0 |
-| written by Mistral Large 4 | 60 | 52 | 60 | 0 |
-| written by Nemotron 3 Ultra | 60 | 56 | 60 | 0 |
-| written by Step 5 | 59 | 47 | 58 | 0 |
+| People | 1,014 | 0 | 51 | 0 |
+| People, then polished by a model | 98 | 0 | 89 | 0 |
+| DiffusionGemma 26B | 58 | 58 | 58 | 0 |
+| Gemma 4 31B | 60 | 60 | 60 | 0 |
+| Mistral Large 4 | 60 | 52 | 60 | 0 |
+| Nemotron 3 Ultra | 60 | 56 | 60 | 0 |
+| Step 5 | 59 | 47 | 58 | 0 |
+| **Total** | **1,409** | **273** | **436** | **0** |
 
 - CoCoDet caught 273 of the 297 AI reviews (91.9%) and flagged none of the human or polished reviews.
 - EditLens labeled 296 of the 297 AI reviews as AI-Edited. It also labeled 89 of the 98 polished reviews (90.8%)
