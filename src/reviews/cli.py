@@ -1,8 +1,9 @@
 """Command line of the review checks, run as python -m peercheck.reviews or through peercheck reviews.
 
 The review checks load PyTorch and the detector models, therefore they run in their own process. CoCoDet and
-EditLens label each review, and a review counts as flagged only when the two detectors agree, as ICLR 2026
-forwarded only reviews that two detectors flagged. The canary, near-duplicate, and citation checks need no model.
+EditLens label each review, and the report gives the result of each detector on its own. A CoCoDet label AI marks
+the review for a closer look. An EditLens label is a second opinion beside it and marks no review. The canary,
+near-duplicate, and citation checks need no model.
 """
 
 from __future__ import annotations
@@ -18,7 +19,6 @@ from peercheck.models import Review
 from peercheck.reviews import citations, cocodet, duplicates, editlens
 
 DETECTORS = ("cocodet", "editlens")
-NAMES = {"cocodet": "CoCoDet", "editlens": "EditLens"}
 CHECKS = ("duplicates", "citations")
 CAUTION = ("CoCoDet and EditLens give leads, not verdicts. The CoCoDet model card states that it \"should not be "
            "used as the sole arbiter of academic misconduct\". The Open Pangram release states that EditLens "
@@ -91,7 +91,7 @@ def run(args: argparse.Namespace) -> int:
         verdict = labels[index] if labels else None
         lens = lenses[index] if lenses else None
         rows[review.review_id].update(_detector_columns(verdict, lens))
-        found[review.review_id].extend(_detector_findings(_ai_calls(verdict, lens), detectors))
+        found[review.review_id].extend(_detector_findings(verdict, lens))
     if key is not None:
         for review_id, items in canary.check_reviews(reviews, key, venue.options("canary")).items():
             found[review_id].extend(items)
@@ -162,36 +162,23 @@ def _detector_columns(verdict, lens) -> dict[str, object]:
     return columns
 
 
-# What each detector reports when it counts a review as AI, for the notes of one detector alone.
-CALLS = {"CoCoDet": "labels the review as AI", "EditLens": "finds AI involvement in the review"}
+# The words of each EditLens label other than Human in a finding.
+EDITLENS_LABELS = {"ai": "AI-generated", "ai-edited": "AI-edited"}
 
 
-def _ai_calls(verdict, lens) -> dict[str, str]:
-    """Return the evidence of each detector that counts the review as AI, keyed by the name of the detector.
-
-    CoCoDet counts with its label AI. EditLens counts from the score AGREE_FROM, which confirms CoCoDet on reviews.
-    """
-    calls = {}
+def _detector_findings(verdict, lens) -> list[Finding]:
+    """Report the result of each detector on its own: a CoCoDet label AI marks the review for a closer look, and an
+    EditLens label other than Human becomes a note beside it."""
+    found = []
     if verdict is not None and verdict.label == "ai":
-        calls["CoCoDet"] = f"CoCoDet P(AI) {verdict.probabilities.get('ai')}"
-    if lens is not None and lens.score >= editlens.AGREE_FROM:
-        calls["EditLens"] = f"EditLens score {lens.score:.4f}, at least {editlens.AGREE_FROM}"
-    return calls
-
-
-def _detector_findings(calls: dict[str, str], detectors: tuple[str, ...]) -> list[Finding]:
-    """Flag a review that the two detectors count as AI; a call of one detector alone becomes a note."""
-    if len(calls) == 2:
-        return [Finding("detectors.agree-ai", Severity.WARNING,
-                        f"{' and '.join(calls)} agree that the review reads as machine-written",
-                        evidence="; ".join(calls.values()))]
-    if not calls:
-        return []
-    ((name, evidence),) = calls.items()
-    other = next((NAMES[d] for d in detectors if NAMES[d] != name), None)
-    rest = f"{other} does not" if other else "no second detector ran"
-    return [Finding(f"detectors.{name.lower()}-ai", Severity.INFO, f"{name} {CALLS[name]}; {rest}",
-                    evidence=evidence)]
+        found.append(Finding("cocodet.ai", Severity.WARNING, "CoCoDet labels the review as AI-generated",
+                             evidence=f"CoCoDet P(AI) {verdict.probabilities.get('ai')}"))
+    # EditLens labels most reviews that AI polished as AI-edited, therefore its label marks no review.
+    if lens is not None and lens.label in EDITLENS_LABELS:
+        found.append(Finding(f"editlens.{lens.label}", Severity.INFO,
+                             f"EditLens labels the review as {EDITLENS_LABELS[lens.label]}",
+                             evidence=f"EditLens score {lens.score:.4f}"))
+    return found
 
 
 def _canary_state(items: list[Finding]) -> str:

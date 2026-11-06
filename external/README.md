@@ -16,9 +16,28 @@ port. `NOTICE.md` at the root of the repository lists every license.
 | `phantomlint/` | github.com/tobycmurray/phantom-lint | commit `7f62001` | BSD-3-Clause | the PhantomLint package, the source of the phrases of the hidden-text check |
 | `submission-checker/` | github.com/acmsigsoft/submission-checker | release v0.4.3, commit `3ffa1eb` | Apache-2.0 | revised source and built jar of the anonymity and template check |
 
-The EditLens score that confirms CoCoDet, 0.2743, was set on 900 reviews of the public CoCoNUTS test set
-(huggingface.co/datasets/khaaaaaan/CoCoNUTS, MIT license). On 900 other reviews of that set, the two detectors
-together flagged 297 of 300 reviews written by AI and 3 of 450 written by people.
+PeerCheck reports the two detectors of AI-written reviews on their own. A test set outside the training data of
+CoCoDet shows how each detector labels reviews. Its human reviews are the 1,014 official reviews of ICLR 2017 in
+PeerRead (github.com/allenai/PeerRead), written in 2016. Five current models served by NVIDIA build wrote 297
+reviews of 60 of these papers. A model also polished one human review of each of 98 papers. CoCoDet labels 273 of
+the 297 AI reviews (91.9%) as AI and none of the human or polished reviews. EditLens labels 296 of the 297 AI
+reviews as AI-Edited and none as AI. It also labels 89 of the 98 polished reviews (90.8%) and 51 of the 1,014
+human reviews (5.0%) as AI-Edited. A rule that flagged only the reviews that the two detectors agreed on caught 208
+of the 297 AI reviews (70.0%), therefore PeerCheck dropped that rule.
+
+| Reviews | Count | CoCoDet AI | EditLens AI-Edited | EditLens AI |
+|---|---|---|---|---|
+| written by people, ICLR 2017 | 1,014 | 0 | 51 | 0 |
+| polished by a model | 98 | 0 | 89 | 0 |
+| written by DiffusionGemma 26B | 58 | 58 | 58 | 0 |
+| written by Gemma 4 31B | 60 | 60 | 60 | 0 |
+| written by Mistral Large 4 | 60 | 52 | 60 | 0 |
+| written by Nemotron 3 Ultra | 60 | 56 | 60 | 0 |
+| written by Step 5 | 59 | 47 | 58 | 0 |
+
+On 900 reviews of the public CoCoNUTS test set (huggingface.co/datasets/khaaaaaan/CoCoNUTS, MIT license), whose
+other splits trained CoCoDet, CoCoDet labels 298 of the 300 reviews written by AI as AI and 3 of the 450 written
+by people, all three polished by AI.
 
 Model weights and databases stay out, since setup downloads each of these files. These are CoCoDet with
 ModernBERT-base, the EditLens weights, DBLP, and the Retraction Watch list. Python dependencies, such as

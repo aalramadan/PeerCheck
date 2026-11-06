@@ -44,8 +44,8 @@ venue. A warning marks a likely problem. An informational note gives context. A 
 with an error or a warning.
 
 In the reviews report, CoCoDet P(AI) is the probability that CoCoDet gives to the label AI. EditLens Score runs
-from 0 for human writing to 1 for AI writing. EditLens itself reads a score of 0.997 or more as AI, while PeerCheck
-takes a score of 0.2743 or more as the confirmation of an AI label of CoCoDet.
+from 0 for human writing to 1 for AI writing. EditLens reads a score below 0.0971 as Human, a score of 0.997 or
+more as AI, and a score between them as AI-Edited.
 
 ## 🔍 Checks
 
@@ -69,12 +69,12 @@ Each check has a plain name and, in parentheses, the name that selects it on the
 
 The review checks read the reviews that EasyChair exports as XML files and that HotCRP exports as a CSV file.
 
-- **AI detection** (`cocodet`, `editlens`) labels each review as human-written or AI-generated. A review is
-  flagged only when the two detectors agree. This mirrors the policy used by ICLR 2026. CoCoDet must label the
-  review as AI. EditLens must then confirm AI involvement with a score of 0.2743 or more. The two detectors are
-  CoCoDet, trained on peer reviews, with the labels Human, Mix, and AI, and EditLens, trained on AI-edited text,
-  with the labels Human, AI-Edited, and AI. Mix marks content that is partly human and partly AI. AI-Edited marks
-  human writing that AI edited. `external/README.md` reports how the threshold was set and tested.
+- **AI detection** (`cocodet`, `editlens`) labels each review with two detectors, and the report gives the
+  result of each one on its own. CoCoDet, trained on peer reviews, labels a review as Human, Mix, or AI, and its
+  label AI marks the review for a closer look. Mix marks content that is partly human and partly AI. EditLens,
+  trained on AI-edited text, labels a review as Human, AI-Edited, or AI, and its label appears beside the CoCoDet
+  label as a second opinion. AI-Edited marks human writing that AI edited. `external/README.md` reports how the two detectors
+  labeled a test set of reviews.
 - **Planted citation** (`--canaries`) finds reviews that an AI tool wrote from the paper. Before the review period,
   `peercheck canary` writes a copy of each PDF with an instruction hidden in white text. The instruction asks any
   AI tool to cite a made-up work, such as Smith et al. (2019). A review that cites the made-up work of its paper is
@@ -257,19 +257,17 @@ with their licenses. To cite PeerCheck, use *Cite this repository* on GitHub, wh
    [doi.org/10.18653/v1/2026.acl-long.1240](https://doi.org/10.18653/v1/2026.acl-long.1240)
 2. EditLens: Thai et al. 2026. *EditLens: Quantifying the Extent of AI Editing in Text.* ICLR 2026.
    [arxiv.org/abs/2510.03154](https://arxiv.org/abs/2510.03154)
-3. Two detectors that agree: ICLR. 2026. *A Retrospective on the ICLR 2026 Review Process.* ICLR Blog.
-   [blog.iclr.cc](https://blog.iclr.cc/2026/03/31/a-retrospective-on-the-iclr-2026-review-process/)
-4. Canary check: Rao et al. 2025. *Detecting LLM-generated peer reviews.* PLOS ONE.
+3. Canary check: Rao et al. 2025. *Detecting LLM-generated peer reviews.* PLOS ONE.
    [doi.org/10.1371/journal.pone.0331871](https://doi.org/10.1371/journal.pone.0331871)
-5. Canary check: ICML. 2026. *On Violations of LLM Review Policies.* ICML Blog.
+4. Canary check: ICML. 2026. *On Violations of LLM Review Policies.* ICML Blog.
    [blog.icml.cc](https://blog.icml.cc/2026/03/18/on-violations-of-llm-review-policies/)
-6. Hidden-text phrases: Murray. 2025. *PhantomLint: Principled Detection of Hidden LLM Prompts in Structured
+5. Hidden-text phrases: Murray. 2025. *PhantomLint: Principled Detection of Hidden LLM Prompts in Structured
    Documents.* arXiv preprint. [arxiv.org/abs/2508.17884](https://arxiv.org/abs/2508.17884)
-7. Duplicates check: Day. 2022. *Exploratory analysis of text duplication in peer-review reveals peer-review fraud
+6. Duplicates check: Day. 2022. *Exploratory analysis of text duplication in peer-review reveals peer-review fraud
    and paper mills.* Scientometrics 127(10), 5965–5987.
    [doi.org/10.1007/s11192-022-04504-5](https://doi.org/10.1007/s11192-022-04504-5)
-8. Limit on citation requests: Wren et al. 2019. *Reviewer-coerced citation: case report, update on journal policy
+7. Limit on citation requests: Wren et al. 2019. *Reviewer-coerced citation: case report, update on journal policy
    and suggestions for future prevention.* Bioinformatics 35(18), 3217–3218.
    [doi.org/10.1093/bioinformatics/btz071](https://doi.org/10.1093/bioinformatics/btz071)
-9. Citations of works of the reviewers: Barnett. 2025. *Are peer reviewers influenced by their work being cited?*
+8. Citations of works of the reviewers: Barnett. 2025. *Are peer reviewers influenced by their work being cited?*
    eLife 14. [doi.org/10.7554/eLife.108748](https://doi.org/10.7554/eLife.108748)
