@@ -19,10 +19,9 @@ AI-written reviews in `src/reviews/editlens.py`. PeerCheck runs no file of this 
   that commit, over 1,000 even steps from 0 to 1. A score below 0.0971 reads as Human. A score of 0.997 or more
   reads as AI. Unlike `scripts/eval/ternary_eval.py`, PeerCheck keeps the scores on their own scale, since it
   labels one review at a time.
-- The score that confirms the AI label of CoCoDet, 0.2743, comes from 900 reviews of the CoCoNUTS test set at
-  revision `ac418fb`, 150 of each label. It gives the two detectors together their best F1 score with at most 1% of
-  the human reviews flagged. On 900 other reviews of the set, the two detectors flag 297 of 300 reviews
-  written by AI and 3 of 450 written by people, all three polished by AI. CoCoDet trained on other reviews of CoCoNUTS.
+- PeerCheck reports the EditLens label beside the label of CoCoDet as a second opinion that marks no review,
+  since EditLens labels most reviews that AI polished as AI-Edited. `external/README.md` gives the labels of the
+  two detectors on a test set of reviews.
 
 ## Differences
 
