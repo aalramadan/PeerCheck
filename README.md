@@ -72,7 +72,7 @@ peercheck --profile samples/venue.yaml reviews samples/reviews --canaries sample
 
 ## 📊 Benchmark
 
-We tested the two AI detectors on 1,409 reviews that CoCoDet never saw in training.
+We tested the two AI detectors on 1,409 reviews.
 
 - 1,014 reviews written by people, the official reviews of ICLR 2017 in
   [PeerRead](https://github.com/allenai/PeerRead), a public dataset of peer reviews, written in 2016 before AI
