@@ -27,7 +27,15 @@ EXPECTED_ERRORS = (inputs.InputError, profiles.ProfileError, tools.ToolError, Va
 
 def main(argv: list[str] | None = None) -> int:
     """Run the command given on the command line, or the interactive menu when none is given."""
-    args = parser().parse_args(argv)
+    argv = sys.argv[1:] if argv is None else list(argv)
+    command = _command_index(argv)
+    if argv[command:command + 1] == ["reviews"]:
+        # The review checks read their own options in their own process. argparse would read an option right
+        # after the command, such as --help or --canaries, as an option of the command itself.
+        args = parser().parse_args(argv[:command + 1])
+        args.rest = argv[command + 1:]
+    else:
+        args = parser().parse_args(argv)
     if not getattr(args, "command", None):
         return menu(args.profile)
     try:
@@ -35,6 +43,14 @@ def main(argv: list[str] | None = None) -> int:
     except EXPECTED_ERRORS as exc:
         print(f"peercheck: {exc}", file=sys.stderr)
         return 2
+
+
+def _command_index(argv: list[str]) -> int:
+    """Return the position of the command, after the options of PeerCheck itself, such as --profile fse-2027."""
+    index = 0
+    while index < len(argv) and argv[index].startswith("-"):
+        index += 2 if argv[index] == "--profile" else 1
+    return index
 
 
 def parser() -> argparse.ArgumentParser:
@@ -224,7 +240,7 @@ def _menu_papers() -> list[str]:
 
 
 def _menu_reviews() -> list[str]:
-    return ["reviews", _ask("Folder of review XML files", "reviews"), "--out", _ask("Report file", "reviews.xlsx")]
+    return ["reviews", _ask("Folder or file of review exports", "reviews"), "--out", _ask("Report file", "reviews.xlsx")]
 
 
 def _menu_conflicts() -> list[str]:
