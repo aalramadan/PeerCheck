@@ -100,7 +100,8 @@ def normalize(text: str) -> str:
 
 
 def _verdict(logits: torch.Tensor, truncated: bool, words: int) -> Verdict:
-    probabilities = torch.softmax(logits.float(), dim=0)
+    # The score is computed on the CPU, since the logits stay on the device of the model, such as a GPU.
+    probabilities = torch.softmax(logits.float().cpu(), dim=0)
     score = float(probabilities @ torch.arange(len(probabilities), dtype=torch.float32)) / (len(probabilities) - 1)
     label = "human" if score < HUMAN_BELOW else "ai" if score >= AI_FROM else "ai-edited"
     notes = ((f"text longer than {MAX_TOKENS} tokens; only the start was read",) if truncated else ()) + \
