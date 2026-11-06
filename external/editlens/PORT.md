@@ -20,8 +20,8 @@ AI-written reviews in `src/reviews/editlens.py`. PeerCheck runs no file of this 
   reads as AI. Unlike `scripts/eval/ternary_eval.py`, PeerCheck keeps the scores on their own scale, since it
   labels one review at a time.
 - PeerCheck reports the EditLens label beside the label of CoCoDet as a second opinion that marks no review,
-  since EditLens labels most reviews that AI polished as AI-Edited. `external/README.md` gives the labels of the
-  two detectors on a test set of reviews.
+  since EditLens labels most reviews that AI polished as AI-Edited. The Benchmark section of the main README gives
+  the labels of the two detectors on a test set of reviews.
 
 ## Differences
 

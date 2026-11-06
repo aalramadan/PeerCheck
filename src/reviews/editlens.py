@@ -11,7 +11,7 @@ With these thresholds, none of the 6,309 human texts of the five released test s
 
 On peer reviews, EditLens gives most reviews that AI wrote or polished a score between the two thresholds, which
 reads as AI-Edited. PeerCheck therefore reports the EditLens label beside the label of CoCoDet as a second opinion.
-external/README.md gives the labels of the two detectors on a test set of reviews.
+The Benchmark section of README.md gives the labels of the two detectors on a test set of reviews.
 
 The weights come from a pinned revision on Hugging Face into its cache. They are gated under CC BY-NC-SA 4.0, for
 non-commercial use only, and each user accepts the terms on Hugging Face and logs in once with hf auth login. The
