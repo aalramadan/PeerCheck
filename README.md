@@ -40,19 +40,6 @@ peercheck --profile samples/venue.yaml reviews samples/reviews --canaries sample
 
 ![HTML report of peercheck reviews on eight sample reviews](docs/reviews-report.png)
 
-### Reading the reports
-
-- An **error** breaks a stated rule of the venue.
-- A **warning** marks a likely problem.
-- An **info** note gives context.
-- A **red bar** marks a paper or a review with an error or a warning.
-- **CoCoDet** labels a review as Human, Mix (partly human and partly AI), or AI. Its label AI marks the review for a
-  closer look.
-- **CoCoDet P(AI)** is the probability, from 0 to 1, that CoCoDet gives to the label AI.
-- **EditLens** labels a review as Human, AI-Edited (human writing that AI edited), or AI, as a second opinion.
-- **EditLens Score** runs from 0 for human writing to 1 for AI writing. A score below 0.0971 reads as Human, a
-  score of 0.997 or more as AI, and a score between them as AI-Edited.
-
 ## 🔍 Checks
 
 | Command | Check (command-line name) | Finds | Built on |
@@ -101,27 +88,10 @@ We tested the two AI detectors on 1,409 reviews.
   collection that CoCoDet was trained on, CoCoDet caught 298 of the 300 AI reviews and flagged 3 of the 450 human
   reviews, all three polished by AI.
 
-## 🧰 Requirements
-
-> [!TIP]
-> With the Docker image of the install steps, Docker is the only program to install.
-
-- Python 3.10 or newer
-- Perl and poppler, for the format check
-- Java 11 or newer, for the anonymity and template check
-
-```bash
-sudo apt install perl poppler-utils default-jre   # Debian or Ubuntu
-brew install poppler openjdk                      # macOS, which already has Perl
-```
+## 📦 Install
 
 - PeerCheck is tested on Linux, including WSL on Windows.
 - The models and the DBLP database take about 5 GB of disk.
-- No graphics card is needed. On an Intel Core Ultra 9 275HX processor, the demo above took about 2 seconds for
-  five papers and 23 to 28 seconds for eight reviews, the loading of the models included.
-- An NVIDIA GeForce RTX 5070 Laptop GPU checked the eight reviews in about 10 seconds.
-
-## 📦 Install
 
 ### 🐳 With Docker
 
@@ -136,6 +106,17 @@ docker run --rm -v "$PWD:/data" -v peercheck-cache:/cache -e HF_TOKEN ghcr.io/aa
 - `-e HF_TOKEN` passes the token of EditLens, as EditLens access below describes.
 
 ### 🐍 With Python
+
+PeerCheck needs these programs.
+
+- Python 3.10 or newer
+- Perl and poppler, for the format check
+- Java 11 or newer, for the anonymity and template check
+
+```bash
+sudo apt install perl poppler-utils default-jre   # Debian or Ubuntu
+brew install poppler openjdk                      # macOS, which already has Perl
+```
 
 ```bash
 git clone https://github.com/aalramadan/PeerCheck.git
@@ -197,7 +178,7 @@ peercheck menu                                                           # opens
 > [!WARNING]
 > Keep the key file of `peercheck canary` private, since it reveals the planted citation of each paper.
 
-## ⚙️ Options
+### ⚙️ Options
 
 | Option | Commands | What it does |
 |---|---|---|
@@ -218,6 +199,19 @@ peercheck menu                                                           # opens
 | `--key` | canary | names the private file that lists the planted citation of each paper |
 
 Run any command with `--help` for every option.
+
+### 📖 Reading the reports
+
+- An **error** breaks a stated rule of the venue.
+- A **warning** marks a likely problem.
+- An **info** note gives context.
+- A **red bar** marks a paper or a review with an error or a warning.
+- **CoCoDet** labels a review as Human, Mix (partly human and partly AI), or AI. Its label AI marks the review for a
+  closer look.
+- **CoCoDet P(AI)** is the probability, from 0 to 1, that CoCoDet gives to the label AI.
+- **EditLens** labels a review as Human, AI-Edited (human writing that AI edited), or AI, as a second opinion.
+- **EditLens Score** runs from 0 for human writing to 1 for AI writing. A score below 0.0971 reads as Human, a
+  score of 0.997 or more as AI, and a score between them as AI-Edited.
 
 ## 🏛️ Venue profiles
 
