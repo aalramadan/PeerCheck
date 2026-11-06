@@ -69,7 +69,36 @@ peercheck --profile samples/venue.yaml reviews samples/reviews --canaries sample
 
 - Before the review period, `peercheck canary` hides a request to cite a made-up work, such as Smith et al. (2019),
   in white text in a copy of each PDF. A wrong hit among all reviews has a chance of 0.1% or less.
-- `external/README.md` reports how each AI detector labeled a test set of reviews.
+
+## 📊 Benchmark
+
+We tested the two AI detectors on 1,409 reviews that CoCoDet never saw in training.
+
+- 1,014 reviews written by people, the official reviews of ICLR 2017 in
+  [PeerRead](https://github.com/allenai/PeerRead), a public dataset of peer reviews, written in 2016 before AI
+  writing tools.
+- 297 reviews of 60 of these papers, written by five current models on NVIDIA build, the model service of NVIDIA.
+- 98 of the human reviews, each polished by a model.
+
+| Reviews | Count | CoCoDet says AI | EditLens says AI-Edited | EditLens says AI |
+|---|---|---|---|---|
+| written by people | 1,014 | 0 | 51 | 0 |
+| written by people, then polished by a model | 98 | 0 | 89 | 0 |
+| written by DiffusionGemma 26B | 58 | 58 | 58 | 0 |
+| written by Gemma 4 31B | 60 | 60 | 60 | 0 |
+| written by Mistral Large 4 | 60 | 52 | 60 | 0 |
+| written by Nemotron 3 Ultra | 60 | 56 | 60 | 0 |
+| written by Step 5 | 59 | 47 | 58 | 0 |
+
+- CoCoDet caught 273 of the 297 AI reviews (91.9%) and flagged none of the human or polished reviews.
+- EditLens labeled 296 of the 297 AI reviews as AI-Edited. It also labeled 89 of the 98 polished reviews (90.8%)
+  and 51 of the 1,014 human reviews (5.0%) as AI-Edited. It cannot tell a review that AI wrote from one that AI
+  polished.
+- Flagging only the reviews that the two detectors call AI would have caught 208 of the 297 AI reviews (70.0%).
+  PeerCheck therefore reports each detector on its own.
+- On 900 reviews of the [CoCoNUTS](https://huggingface.co/datasets/khaaaaaan/CoCoNUTS) test set, from the
+  collection that CoCoDet was trained on, CoCoDet caught 298 of the 300 AI reviews and flagged 3 of the 450 human
+  reviews, all three polished by AI.
 
 ## 🧰 Requirements
 
