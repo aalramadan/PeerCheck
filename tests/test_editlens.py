@@ -30,6 +30,12 @@ def test_score_is_the_expected_bucket_divided_by_three():
     assert editlens._verdict(torch.zeros(4), False, 100) == editlens.Verdict("ai-edited", 0.5)
 
 
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="needs a GPU")
+def test_score_of_logits_on_the_gpu_matches_the_score_on_the_cpu():
+    logits = torch.tensor([0.0, 0.0, 0.0, 30.0], device="cuda")
+    assert editlens._verdict(logits, False, 100) == editlens.Verdict("ai", 1.0)
+
+
 def test_notes_name_a_cut_text_and_a_text_shorter_than_the_training_texts():
     notes = editlens._verdict(torch.zeros(4), True, 20).notes
     assert "longer than 512 tokens" in notes[0] and "20 words, fewer than the 75" in notes[1]
