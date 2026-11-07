@@ -12,12 +12,15 @@ A person matches dblp in one of three ways.
 - Otherwise the name selects the person records whose names fold to the same words once the dblp
   homonym suffix, such as " 0001", is removed, together with the records whose names share the
   first and the last word, such as Lionel C. Briand for Lionel Briand, since dblp may keep one
-  person under both forms.
+  person under both forms. The first and the last word are compared without a generational suffix,
+  such as Jr., and with ae, oe, ue, and aa as one letter, such as Juergen Mueller for Jürgen Müller.
 - When several person records match, or a dblp disambiguation page holds the name, the affiliation
   notes of each record are compared with Person.affiliation by the method of ISCA-2021-Script
-  (github.com/hibagus/ISCA-2021-Script, filter_affiliation, fuzzy partial ratio of at least 80). One
-  surviving record resolves the name. Otherwise the identity is ambiguous and keeps the names of
-  every matching record, with their number, for a person to check.
+  (github.com/hibagus/ISCA-2021-Script, filter_affiliation, fuzzy partial ratio of at least 80),
+  with whole folded words in place of letters, a rapidfuzz token set ratio of at least 80, since a
+  partial ratio lets ETH fit the word Netherlands. An affiliation of three letters or fewer, such as
+  UW, picks no record. One surviving record resolves the name. Otherwise the identity is ambiguous
+  and keeps the names of every matching record, with their number, for a person to check.
 
 Each scan reads the whole dump. A further scan runs only for the names of a matched record that no
 earlier scan covered, such as an alias with another first name, and for a merged record whose
@@ -45,10 +48,15 @@ RECORDS = (
 )
 # The affiliation cutoff of filter_affiliation in ISCA-2021-Script.
 AFFILIATION_MIN = 80
+# Affiliations of at most this many letters, such as UW, may name several organizations.
+SHORT_AFFILIATION = 3
 MAX_SCANS = 3
 INDEX_VERSION = 1
 _HOMEPAGES = "homepages/"
 _HOMONYM = re.compile(r"\s+\d{4}$")
+_GENERATIONS = frozenset(["jr", "sr", "ii", "iii"])
+# The second letter of the ASCII spellings of umlauts and of å, such as ue in Mueller.
+_DIGRAPH = re.compile(r"(?<=[aou])e|(?<=a)a")
 _PID = re.compile(r"(?:^|^pid/|/pid/|homepages/)([a-z0-9]+/[A-Za-z0-9_-]+)$")
 _WORD = re.compile(r"[a-z0-9]+")
 _DOI = re.compile(r"(?:doi\.org/|^doi:)(10\.\d{4,9}/\S+)$", re.IGNORECASE)
@@ -122,6 +130,10 @@ class DblpIndex:
         key = self._by_doi.get(doi.strip().lower())
         return self.publications[key] if key else None
 
+    def missing(self, people: Iterable[Person]) -> list[Person]:
+        """Return the people the index holds no identity for, such as people added after it was built."""
+        return [person for person in people if self.identity(person) is None]
+
     def save(self, path: Path) -> None:
         """Write the index to a gzip-compressed JSON file."""
         data = {
@@ -184,7 +196,9 @@ def build_index(dump: Path, people: Iterable[Person], dtd: Path | None = None) -
 def fold(text: str) -> str:
     """Return the words of a text in lowercase ASCII, joined by single spaces."""
     if not text.isascii():
-        text = unicodedata.normalize("NFKD", text.translate(_SPECIAL)).encode("ascii", "ignore").decode()
+        decomposed = unicodedata.normalize("NFKD", text.translate(_SPECIAL))
+        # Accents drop out, while any other character outside ASCII, such as a dash, parts two words.
+        text = "".join(c if c.isascii() else " " for c in decomposed if not unicodedata.combining(c))
     return " ".join(_WORD.findall(text.lower()))
 
 
@@ -194,9 +208,11 @@ def base_name(name: str) -> str:
 
 
 def loose_key(name: str) -> str:
-    """Return the first and the last word of a folded name without homonym suffix."""
+    """Return the first and the last word of a folded name without suffixes, with ae, oe, ue, and aa as one letter."""
     words = fold(base_name(name)).split()
-    return f"{words[0]} {words[-1]}" if len(words) > 1 else "".join(words)
+    while len(words) > 1 and words[-1] in _GENERATIONS:
+        words.pop()
+    return _DIGRAPH.sub("", f"{words[0]} {words[-1]}" if len(words) > 1 else "".join(words))
 
 
 def parse_pid(text: str) -> str:
@@ -374,11 +390,11 @@ def _resolve(person: Person, scan: _Scan) -> Identity:
     if len(people) == 1 and len(candidates) == 1:
         method = "name" if people[0].pid in exact else "first and last name"
         return Identity(names=people[0].names, pid=people[0].pid, records=1, method=method)
-    if person.affiliation:
-        wanted = person.affiliation.lower()
+    wanted = fold(person.affiliation)
+    if len(wanted.replace(" ", "")) > SHORT_AFFILIATION:
         fitting = [
             r for r in people
-            if any(fuzz.partial_ratio(wanted, note.lower()) >= AFFILIATION_MIN for note in r.affiliations)
+            if any(fuzz.token_set_ratio(wanted, fold(note)) >= AFFILIATION_MIN for note in r.affiliations)
         ]
         if len(fitting) == 1:
             return Identity(names=fitting[0].names, pid=fitting[0].pid, records=1, method="name and affiliation")

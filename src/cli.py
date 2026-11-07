@@ -164,6 +164,9 @@ def run_reviews(args: argparse.Namespace) -> int:
 def run_conflicts(args: argparse.Namespace) -> int:
     """Find conflicts of interest from the author and committee lists and write the report."""
     venue = profiles.load(args.profile)
+    if args.save_index and (args.dblp_index or not args.dblp_dump):
+        raise inputs.InputError("--save-index saves the index built from --dblp-dump; give --dblp-dump without "
+                                "--dblp-index")
     authors = inputs.read_people(args.authors, with_paper=True)
     members = conflicts.read_members(args.reviewer_csv) if args.reviewer_csv else {}
     if args.pc:
@@ -176,15 +179,20 @@ def run_conflicts(args: argparse.Namespace) -> int:
         raise inputs.InputError("--assignment-csv and --conflict-csv need --reviewer-csv for the member IDs")
     assignments = conflicts.read_pairs(args.assignment_csv, members) if args.assignment_csv else None
     declared = conflicts.read_pairs(args.conflict_csv, members) if args.conflict_csv else None
+    people = list(dict.fromkeys([person for group in authors.values() for person in group] + committee))
     index = None
     if args.dblp_index:
         index = dblp.load_index(args.dblp_index)
+        missing = index.missing(people)
+        if missing:
+            raise inputs.InputError(f"the dblp index {args.dblp_index} lacks {len(missing)} of the {len(people)} "
+                                    f"people of the lists, such as {missing[0].name}; build it again with --dblp-dump "
+                                    "and --save-index")
     elif args.dblp_dump:
-        people = [person for group in authors.values() for person in group] + committee
         index = dblp.build_index(args.dblp_dump, people)
         if args.save_index:
             index.save(args.save_index)
-    options = venue.options("conflicts") | ({"coauthor_years": args.years} if args.years else {})
+    options = venue.options("conflicts") | ({"coauthor_years": args.years} if args.years is not None else {})
     found = conflicts.find_conflicts(authors, committee, index, assignments, declared, options)
     sheets = {"Conflicts": conflicts.rows(found)}
     if index is not None and assignments:

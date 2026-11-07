@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from peercheck import conflicts, dblp
+from peercheck import cli, conflicts, dblp
 from peercheck.inputs import InputError
 from peercheck.models import Person
 
@@ -63,6 +63,62 @@ class TestAffiliations:
     def test_affiliations_of_different_organizations_do_not_match(self, first, second):
         assert conflicts.affiliation_match(first, second) == ""
 
+    @pytest.mark.parametrize("first, second, words", [
+        ("CMU", "Carnegie Mellon University", "cmu (carnegie mellon)"),
+        ("Massachusetts Institute of Technology", "MIT", "massachusetts (mit)"),
+        ("TU Darmstadt", "Technische Universität Darmstadt", "darmstadt tu (technische universitat)"),
+        ("UIUC", "University of Illinois at Urbana-Champaign", "uiuc (university illinois urbana champaign)"),
+        ("UIUC", "University of Illinois Urbana–Champaign", "uiuc (university illinois urbana champaign)"),
+        ("University of Pennsylvania", "UPenn", "pennsylvania (upenn)"),
+        ("UW", "University of Washington", "uw (university washington)"),
+        ("Chinese University of Hong Kong", "CUHK", "kong (cuhk)"),
+        ("CUHK", "Chinese University of Hong Kong", "cuhk (chinese university hong kong)"),
+    ])
+    def test_abbreviations_match_through_the_alternates_of_hotcrp(self, first, second, words):
+        assert conflicts.affiliation_match(first, second) == words
+
+    @pytest.mark.parametrize("first, second", [
+        ("Arizona State University", "University of Arizona"),
+        ("York University", "New York University"),
+        ("The Chinese University of Hong Kong", "The University of Hong Kong"),
+        ("Hong Kong Polytechnic University", "The University of Hong Kong"),
+        ("Washington University in St. Louis", "University of Washington"),
+        ("Michigan State University", "University of Michigan"),
+        ("Columbia University", "University of British Columbia"),
+        ("Pennsylvania State University", "University of Pennsylvania"),
+        ("University of Chicago", "University of Illinois Chicago"),
+        ("Boston College", "Boston University"),
+        ("UW Madison", "University of Washington"),
+        ("UIUC", "University of Illinois Chicago"),
+    ])
+    def test_sync_words_of_hotcrp_keep_organizations_of_one_name_apart(self, first, second):
+        assert conflicts.affiliation_match(first, second) == ""
+
+    @pytest.mark.parametrize("first, second", [
+        ("Universty of Toronto", "Stanford University"),
+        ("German Aerospace Center", "Technical University of Munich, Germany"),
+        ("Karolinska Institutet", "Massachusetts Institute of Technology"),
+        ("Dipartimento di Informatica, Università di Pisa", "School of Informatics, University of Edinburgh"),
+    ])
+    def test_a_strong_word_never_matches_a_weak_word_by_spelling(self, first, second):
+        assert conflicts.affiliation_match(first, second) == ""
+
+    @pytest.mark.parametrize("first, second", [
+        ("Independent Researcher", "Independent Researcher"),
+        ("N/A", "N/A"),
+        ("No affiliation", "No affiliation"),
+        ("Universidad Politécnica de Madrid", "Universitat Politècnica de Catalunya"),
+        ("Università degli Studi di Milano", "Università degli Studi di Napoli Federico II"),
+        ("Lunds universitet", "Uppsala universitet"),
+        ("Pontifícia Universidade Católica do Rio de Janeiro", "Pontifícia Universidade Católica do Rio Grande do Sul"),
+        ("Universidad Nacional de Colombia", "Universidad Nacional Autónoma de México"),
+        ("Department of Electrical and Computer Engineering, University of Waterloo",
+         "Department of Electrical Engineering, Stanford University"),
+        ("Data Science Institute, Imperial College London", "Center for Data Science, New York University"),
+    ])
+    def test_placeholders_and_generic_words_make_no_match(self, first, second):
+        assert conflicts.affiliation_match(first, second) == ""
+
 
 class TestDomains:
     @pytest.mark.parametrize("email, domain", [
@@ -72,15 +128,33 @@ class TestDomains:
     def test_org_domain_keeps_the_registered_name(self, email, domain):
         assert conflicts.org_domain(email) == domain
 
+    @pytest.mark.parametrize("email, domain", [
+        ("a@etri.re.kr", "etri.re.kr"), ("b@anssi.gouv.fr", "anssi.gouv.fr"), ("c@inegi.gob.mx", "inegi.gob.mx"),
+        ("d@smith.me.uk", "smith.me.uk"), ("e@gns.cri.nz", "gns.cri.nz"), ("f@a.b.test.ck", "b.test.ck"),
+        ("g@www.www.ck", "www.ck"), ("h@ac.uk", ""),
+    ])
+    def test_org_domain_keeps_one_label_below_the_public_suffix(self, email, domain):
+        assert conflicts.org_domain(email) == domain
+
     def test_webmail_domains_of_any_country_never_make_a_conflict(self):
         authors = {1: [Person("A", "One", "a@yahoo.co.uk")]}
         assert conflicts.find_conflicts(authors, [Person("B", "Two", "b@yahoo.co.uk")], options=OPTIONS) == []
+
+    @pytest.mark.parametrize("domain", ["mail.com", "seznam.cz", "wp.pl", "uol.com.br", "tuta.io", "189.cn"])
+    def test_common_webmail_providers_never_make_a_conflict(self, domain):
+        authors = {1: [Person("A", "One", f"a@{domain}")]}
+        assert conflicts.find_conflicts(authors, [Person("B", "Two", f"b@{domain}")], options=OPTIONS) == []
 
     def test_webmail_option_adds_a_domain(self):
         authors = {1: [Person("A", "One", "a@mail.example")]}
         committee = [Person("B", "Two", "b@mail.example")]
         assert len(conflicts.find_conflicts(authors, committee, options=OPTIONS)) == 1
         assert conflicts.find_conflicts(authors, committee, options={**OPTIONS, "webmail": ["mail.example"]}) == []
+
+    def test_webmail_option_takes_a_single_domain(self):
+        authors = {1: [Person("A", "One", "a@mail.example")]}
+        committee = [Person("B", "Two", "b@mail.example")]
+        assert conflicts.find_conflicts(authors, committee, options={**OPTIONS, "webmail": "mail.example"}) == []
 
 
 class TestFindConflicts:
@@ -140,6 +214,33 @@ class TestFindConflicts:
         found = conflicts.find_conflicts({1: [MULLER]}, [KIM], index, options=OPTIONS)
         assert (found[0].declared, found[0].assigned) == (None, None)
 
+    def test_declared_conflict_without_an_index_claims_no_dblp_check(self):
+        member = Person("Kim", "Doe", "kim@one.example", "One University")
+        found = conflicts.find_conflicts({3: [UNRELATED]}, [member], declared={3: [member]}, options=OPTIONS)
+        assert found[0].reasons == (
+            "declared in the conflict export, while no author shares an email domain or an affiliation with Kim Doe",
+        )
+
+    def test_people_with_different_dblp_ids_are_not_one_author(self):
+        author = Person("Ana", "Pérez", "ana.perez@ejemplo.example", "Universidad de Ejemplo", dblp="22/2001")
+        member = Person("Ana", "Pérez", "aperez@labs.example", "Example Labs Inc.", dblp="https://dblp.org/pid/22/2002")
+        assert conflicts.find_conflicts({1: [author]}, [member], options=OPTIONS) == []
+
+    def test_one_dblp_person_under_two_name_forms_is_an_author_and_no_coauthor(self):
+        author = Person("Robin", "Okafor", "robin.okafor@gmail.com")
+        member = Person("Robin X.", "Okafor", "r.okafor@riverside.example")
+        index = dblp.build_index(DUMP, [author, member])
+        found = conflicts.find_conflicts({1: [author]}, [member], index, options=OPTIONS)
+        assert [(c.kinds, c.reasons) for c in found] == [
+            (("author",), ("Robin X. Okafor is an author of the paper (same dblp person ID)",)),
+        ]
+
+    def test_people_listed_twice_give_one_row_with_one_set_of_reasons(self):
+        author = Person("Robin", "Okafor", "robin@riverside.example", "Riverside Research Lab")
+        member = Person("Ana", "Ruiz", "ana@riverside.example", "Riverside Research Lab")
+        found = conflicts.find_conflicts({1: [author, author]}, [member, member], options=OPTIONS)
+        assert [(c.others, c.kinds, len(c.reasons)) for c in found] == [((author,), ("email domain", "affiliation"), 2)]
+
 
 class TestReviewerTies:
     def test_assigned_reviewers_who_wrote_together_are_listed(self, index):
@@ -147,6 +248,10 @@ class TestReviewerTies:
         assert [(t.paper_id, t.member.name, t.others[0].name, t.kinds) for t in ties] == [
             (4, "Kim Doe", "François Lemaître", ("reviewer co-authorship",)),
         ]
+
+    def test_reviewer_assigned_twice_has_no_tie_with_the_same_person(self, index):
+        ties = conflicts.reviewer_ties({4: [KIM, LEMAITRE, KIM]}, index, OPTIONS)
+        assert [(t.member.name, t.others[0].name) for t in ties] == [("Kim Doe", "François Lemaître")]
 
 
 class TestRows:
@@ -176,3 +281,45 @@ class TestEasyChairFiles:
         (tmp_path / "conflict.csv").write_text("7,10\n")
         with pytest.raises(InputError, match="PC member 7"):
             conflicts.read_pairs(tmp_path / "conflict.csv", {})
+
+    @pytest.mark.parametrize("text", ["1;10\n2;10\n", "1\t10\n2\t10\n"])
+    def test_pairs_separated_by_semicolons_or_tabs_are_read(self, tmp_path, text):
+        (tmp_path / "assignment.csv").write_text(text)
+        assert conflicts.read_pairs(tmp_path / "assignment.csv", {1: KIM, 2: LEMAITRE}) == {10: [KIM, LEMAITRE]}
+
+    def test_file_without_any_pair_raises(self, tmp_path):
+        (tmp_path / "conflict.csv").write_text("member,submission\n")
+        with pytest.raises(InputError, match="no row"):
+            conflicts.read_pairs(tmp_path / "conflict.csv", {1: KIM})
+
+
+class TestCommand:
+    @pytest.fixture
+    def command(self, tmp_path) -> list[str]:
+        (tmp_path / "authors.csv").write_text(
+            "paper,first,last,email,affiliation\n1,Robin,Okafor,robin@riverside.example,Riverside Research Lab\n",
+            encoding="utf-8")
+        (tmp_path / "pc.csv").write_text(
+            "first,last,email,affiliation\nJürgen,Müller,j.mueller@testville.example,University of Testville\n",
+            encoding="utf-8")
+        return ["conflicts", "--authors", str(tmp_path / "authors.csv"), "--pc", str(tmp_path / "pc.csv"),
+                "--out", str(tmp_path / "conflicts.xlsx")]
+
+    def test_years_zero_reaches_the_check(self, command, monkeypatch):
+        options = []
+        monkeypatch.setattr(conflicts, "find_conflicts", lambda *args: options.append(args[-1]) or [])
+        assert cli.main([*command, "--years", "0"]) == 0
+        assert options[0]["coauthor_years"] == 0
+
+    def test_save_index_without_a_dump_is_refused(self, command, tmp_path, capsys):
+        assert cli.main([*command, "--save-index", str(tmp_path / "index.json.gz")]) == 2
+        assert "--dblp-dump" in capsys.readouterr().err
+        assert not (tmp_path / "index.json.gz").exists()
+
+    def test_saved_index_that_lacks_a_listed_person_is_refused(self, command, tmp_path, capsys):
+        okafor = Person("Robin", "Okafor", "robin@riverside.example", "Riverside Research Lab")
+        dblp.build_index(DUMP, [MULLER, okafor]).save(tmp_path / "full.json.gz")
+        assert cli.main([*command, "--dblp-index", str(tmp_path / "full.json.gz")]) == 0
+        dblp.build_index(DUMP, [MULLER]).save(tmp_path / "partial.json.gz")
+        assert cli.main([*command, "--dblp-index", str(tmp_path / "partial.json.gz")]) == 2
+        assert "Robin Okafor" in capsys.readouterr().err
