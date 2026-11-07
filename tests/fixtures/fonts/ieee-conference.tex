@@ -1,0 +1,20 @@
+% A clean IEEEtran conference paper in 10 pt, with its title in the 24 pt of the template.
+\pdftrailerid{}
+\pdfinfoomitdate=1
+\pdfsuppressptexinfo=-1
+\documentclass[10pt,conference]{IEEEtran}
+\usepackage{amsmath,booktabs,listings,tikz,lipsum}
+\usepackage{hyperref}
+\begin{document}
+\title{Detecting Order-Dependent Flaky Tests in Java Projects}
+\author{\IEEEauthorblockN{Anonymous Author(s)}\IEEEauthorblockA{Anonymous Institution}}
+\maketitle
+\begin{abstract}
+Flaky tests pass and fail on the same code. The detector of this paper reruns each test in shuffled orders and
+labels 51 of 533 tests as flaky.
+\end{abstract}
+\begin{IEEEkeywords}
+flaky tests, test order dependence, regression testing
+\end{IEEEkeywords}
+\input{body}
+\end{document}

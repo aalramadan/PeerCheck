@@ -10,6 +10,7 @@
 
 | Folder | Origin | Version | License | What PeerCheck does with it |
 |---|---|---|---|---|
+| `aclpubcheck/` | github.com/acl-org/aclpubcheck | commit `fb584f3` | MIT | keeps `formatchecker.py`, the format checker of ACL venues, whose list of Times fonts `src/checks/fonts.py` takes and whose scan of the margins `src/checks/margins.py` follows |
 | `census-surnames/` | U.S. Census Bureau, Frequently Occurring Surnames from the 2010 Census | 2010 census | public domain | reads the 9,999 most common surnames for the made-up citations of the canary check |
 | `coconuts/` | github.com/icip-cas/CoCoNUTS | commit `25df608` | no license file | keeps `infer.py`, the original of CoCoDet, and runs its own version in `src/reviews/cocodet.py` |
 | `editlens/` | github.com/pangramlabs/EditLens | commit `05a588f` | CC BY-NC-SA 4.0 | keeps the code of Open Pangram, the release of EditLens, without its data and runs its own version in `src/reviews/editlens.py` |

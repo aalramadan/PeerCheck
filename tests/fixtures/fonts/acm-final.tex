@@ -1,0 +1,19 @@
+% A clean acmart acmsmall paper without the review option.
+\pdftrailerid{}
+\pdfinfoomitdate=1
+\pdfsuppressptexinfo=-1
+\documentclass[acmsmall,screen]{acmart}
+\usepackage{booktabs,listings,tikz,lipsum}
+\begin{document}
+\title{Detecting Order-Dependent Flaky Tests in Java Projects}
+\author{Anonymous Author}
+\affiliation{\institution{Anonymous Institution}\country{Country}}
+\begin{abstract}
+Flaky tests pass and fail on the same code. The detector of this paper reruns each test in shuffled orders and
+labels 51 of 533 tests as flaky.
+\end{abstract}
+\ccsdesc[500]{Software and its engineering~Software testing and debugging}
+\keywords{flaky tests, test order dependence, regression testing}
+\maketitle
+\input{body}
+\end{document}
