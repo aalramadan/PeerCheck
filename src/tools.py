@@ -60,7 +60,8 @@ def cache_dir() -> Path:
 def missing() -> dict[str, str]:
     """Return each program or file of external/ that is missing, with its install hint."""
     problems = {name: hint for name, hint in INSTALL_HINTS.items() if not shutil.which(name)}
-    for path in (banal(), submission_checker(), census_surnames()):
+    data = (external("hotcrp/affiliationmatchers.json"), external("publicsuffix/public_suffix_list.dat"))
+    for path in (banal(), submission_checker(), census_surnames(), *data):
         if not path.is_file():
             problems[path.name] = f"file missing at {path}; run PeerCheck from a full clone of the repository"
     return problems

@@ -37,8 +37,10 @@ packages = ["peercheck", "peercheck.checks", "peercheck.reviews", "peercheck.ext
 
 [tool.setuptools.package-data]
 peercheck = ["profiles/*.yaml", "gui.html"]
-"peercheck.external" = ["hotcrp/banal", "hotcrp/LICENSE", "submission-checker/submission-checker.jar",
-                        "submission-checker/LICENSE", "census-surnames/census_surnames.txt"]
+"peercheck.external" = ["hotcrp/banal", "hotcrp/LICENSE", "hotcrp/affiliationmatchers.json",
+                        "submission-checker/submission-checker.jar", "submission-checker/LICENSE",
+                        "census-surnames/census_surnames.txt", "publicsuffix/public_suffix_list.dat",
+                        "publicsuffix/LICENSE"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
