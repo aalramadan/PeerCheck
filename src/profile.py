@@ -15,9 +15,10 @@ TOP_KEYS = {"name", "source", "submission_system", "file_pattern", "id_column", 
 FORMAT_KEYS = {
     "style", "paper_size", "paper_size_tolerance", "columns", "main_pages", "reference_pages", "margins",
     "margin_tolerance", "body_font_max", "body_font_min", "leading_min", "reference_font_min", "page_numbers",
-    "required_headings", "require_abstract",
+    "required_headings", "require_abstract", "exempt_sections", "exempt_pages_max",
 }
-OPTIONAL_FORMAT_KEYS = {"margins", "body_font_min", "leading_min", "require_abstract"}
+OPTIONAL_FORMAT_KEYS = {"margins", "body_font_min", "leading_min", "require_abstract", "exempt_sections",
+                        "exempt_pages_max"}
 # Options of the checks that hold a list of strings.
 LIST_OPTIONS = {"anonymity": ("allowed_hosts",), "hidden_text": ("extra_phrases",)}
 
@@ -45,6 +46,8 @@ class FormatRules:
     page_numbers: str
     required_headings: tuple[str, ...]
     require_abstract: bool
+    exempt_sections: tuple[str, ...] = ()
+    exempt_pages_max: float | None = None
 
 
 @dataclass(frozen=True)
@@ -132,6 +135,9 @@ def parse(data: Any, key: str) -> Profile:
             required_headings=tuple(
                 h.lower() for h in strings(rules["required_headings"], f"profile {key}: required_headings")),
             require_abstract=bool(rules.get("require_abstract", True)),
+            exempt_sections=tuple(
+                s.lower() for s in strings(rules.get("exempt_sections"), f"profile {key}: exempt_sections")),
+            exempt_pages_max=_optional_number(rules.get("exempt_pages_max")),
         ),
         checks={str(name): _check_options(str(name), options, f"profile {key}: checks.{name}")
                 for name, options in checks.items()},
