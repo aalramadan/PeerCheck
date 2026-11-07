@@ -1,12 +1,10 @@
-"""Deletes the versions of the PeerCheck image on GitHub that carry no tag and that no tagged image lists.
+"""Deletes the images of PeerCheck on GitHub that lost their tag or whose release was removed.
 
-Each push moves the tag latest to a new image, and the image before it stays behind without a tag. The Docker
-workflow runs this script after each push with the token of the workflow. A tagged image built for several
-platforms lists child manifests without tags, and these stay, since the tagged image needs them.
-"""
+A tagged image built for several platforms lists child manifests without tags, which stay with it."""
 
 import json
 import os
+import re
 import urllib.request
 
 INDEX_TYPES = ("application/vnd.oci.image.index.v1+json, application/vnd.docker.distribution.manifest.list.v2+json, "
@@ -16,6 +14,13 @@ INDEX_TYPES = ("application/vnd.oci.image.index.v1+json, application/vnd.docker.
 def to_delete(versions: list[dict], needed: set[str]) -> list[dict]:
     """Return the versions without a tag whose digest no tagged image lists."""
     return [v for v in versions if not v["metadata"]["container"]["tags"] and v["name"] not in needed]
+
+
+def stale_releases(versions: list[dict], releases: set[str]) -> list[dict]:
+    """Return the versions whose every tag names a release that no longer exists, such as 1.1.0."""
+    version_tag = re.compile(r"^\d+\.\d+\.\d+$")
+    return [v for v in versions if v["metadata"]["container"]["tags"]
+            and all(version_tag.match(tag) and tag not in releases for tag in v["metadata"]["container"]["tags"])]
 
 
 def listed_digests(manifest: dict) -> set[str]:
@@ -41,13 +46,17 @@ def main() -> None:
         if len(batch) < 100:
             break
         page += 1
+    tags = fetch(f"https://api.github.com/repos/{os.environ['GITHUB_REPOSITORY']}/tags?per_page=100", github)
+    stale = stale_releases(versions, {tag["name"].removeprefix("v") for tag in tags})
     pull = fetch(f"https://ghcr.io/token?scope=repository:{owner}/{package}:pull", {})["token"]
     registry = {"Authorization": f"Bearer {pull}", "Accept": INDEX_TYPES}
     needed = set()
     for version in versions:
+        if version in stale:
+            continue
         for tag in version["metadata"]["container"]["tags"]:
             needed |= listed_digests(fetch(f"https://ghcr.io/v2/{owner}/{package}/manifests/{tag}", registry))
-    for version in to_delete(versions, needed):
+    for version in stale + to_delete(versions, needed):
         urllib.request.urlopen(urllib.request.Request(f"{api}/{version['id']}", method="DELETE", headers=github)).close()
         print(f"deleted {version['name']}")
 
