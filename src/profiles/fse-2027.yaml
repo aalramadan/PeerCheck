@@ -18,6 +18,9 @@ format:
   # section after the conclusion does not count toward the limit.
   main_pages: 18
   reference_pages: 4
+  exempt_sections: [data availability]
+  # PeerCheck warns when the exempt section runs longer than a page, which may hold text moved out of the limit.
+  exempt_pages_max: 1
   # Margins of an acmart v2.20 acmsmall paper with the review and anonymous options, as banal
   # measures them (top, right, bottom, left), with the tolerance of the IEEE profiles.
   margins: [84, 42, 36, 44]

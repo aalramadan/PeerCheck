@@ -36,7 +36,7 @@ REPORT_COLUMNS = (
     "Total Pages", "Main Pages", "Reference-only Pages", "References Start Page", "Blank Pages",
     "Appendix Pages", "Figure Pages", "Words", "Characters", "Body Font (pt)", "Reference Font (pt)",
     "Line Spacing (pt)", "Margins (top, right, bottom, left)", "Columns", "Paper Size (height x width, pt)",
-    "Page Number Margin",
+    "Page Number Margin", "Exempt Pages",
 )
 
 
@@ -52,6 +52,8 @@ class Layout:
     main_pages: int = 0
     reference_pages: int = 0
     references_start: int | None = None
+    exempt_start: int | None = None
+    exempt_pages: int = 0
     blank_pages: int = 0
     appendix_pages: int = 0
     figure_pages: int = 0
@@ -74,7 +76,7 @@ class Layout:
             self.appendix_pages, self.figure_pages, self.words, self.characters, self.body_font,
             self.reference_font, self.leading, _join(self.margins), self.columns,
             None if self.paper_size is None else f"{self.paper_size[0]:g} x {self.paper_size[1]:g}",
-            self.page_number_margin,
+            self.page_number_margin, self.exempt_pages,
         )
         return dict(zip(REPORT_COLUMNS, values))
 
@@ -110,8 +112,8 @@ def run_banal(pdf: Path) -> dict:
     return report
 
 
-def measure(report: dict) -> Layout:
-    """Turn a banal JSON report into page counts and measures."""
+def measure(report: dict, exempt: tuple[str, ...] = ()) -> Layout:
+    """Turn a banal JSON report into page counts and measures, leaving out pages after an exempt section heading."""
     pages = report.get("pages") or []
     layout = Layout(total_pages=len(pages))
     for number, page in enumerate(pages, start=1):
@@ -125,7 +127,13 @@ def measure(report: dict) -> Layout:
         layout.references_start = next((n for n, p in enumerate(pages, 1) if "reffontsize" in p), None)
     start = layout.references_start or len(pages) + 1
     layout.reference_pages = sum(1 for n, p in enumerate(pages, 1) if n >= start and p.get("type") == "bib")
-    layout.main_pages = layout.total_pages - layout.reference_pages
+    if exempt:
+        layout.exempt_start = next((n for n, p in enumerate(pages, 1) if n < start and any(
+            _normalize(h).startswith(exempt) for h in p.get("headings", []))), None)
+    if layout.exempt_start:
+        # The page of the heading may still hold main text, therefore only the pages after it are exempt.
+        layout.exempt_pages = start - layout.exempt_start - 1
+    layout.main_pages = layout.total_pages - layout.reference_pages - layout.exempt_pages
     layout.blank_pages = sum(1 for p in pages if p.get("type") == "blank")
     layout.appendix_pages = sum(1 for p in pages if p.get("type") == "appendix")
     layout.figure_pages = sum(1 for p in pages if p.get("type") == "figure")
@@ -166,6 +174,10 @@ def evaluate(layout: Layout, rules: FormatRules, first_page_text: str | None) ->
         add("mixed-paper-sizes", Severity.WARNING, "pages of different sizes")
     if layout.main_pages > rules.main_pages:
         add("main-pages", Severity.ERROR, f"{layout.main_pages} pages of main text, limit {rules.main_pages}")
+    if rules.exempt_pages_max is not None and layout.exempt_pages > rules.exempt_pages_max:
+        add("exempt-pages", Severity.WARNING,
+            f"{layout.exempt_pages} pages after the heading of a section outside the page limit, such as "
+            f"{rules.exempt_sections[0]}, where {rules.exempt_pages_max:g} would be expected")
     if layout.reference_pages > rules.reference_pages:
         add("reference-pages", Severity.ERROR,
             f"{layout.reference_pages} reference-only pages, limit {rules.reference_pages}")
@@ -209,11 +221,28 @@ def evaluate(layout: Layout, rules: FormatRules, first_page_text: str | None) ->
 
 def inspect(paper: Paper, profile: Profile) -> LayoutResult:
     """Measure the layout of a paper with banal and check it against the profile."""
+    rules = profile.format
     try:
-        layout = measure(run_banal(paper.pdf))
+        layout = measure(run_banal(paper.pdf), rules.exempt_sections)
     except (BanalError, tools.ToolError) as exc:
         return LayoutResult(None, [Finding("layout.error", Severity.WARNING, f"banal could not read the PDF: {exc}")])
-    return LayoutResult(layout, evaluate(layout, profile.format, _first_page_text(paper.pdf)))
+    top = rules.margins[0] if rules.margins else 0
+    if layout.exempt_start and opens_page(paper.pdf, layout.exempt_start, rules.exempt_sections, top):
+        layout.exempt_pages += 1
+        layout.main_pages -= 1
+    return LayoutResult(layout, evaluate(layout, rules, _first_page_text(paper.pdf)))
+
+
+def opens_page(pdf: Path, number: int, sections: tuple[str, ...], top: float) -> bool:
+    """Tell whether the first text below the top margin of a page is the heading of one of the sections."""
+    try:
+        with pymupdf.open(pdf) as document:
+            blocks = sorted(document[number - 1].get_text("blocks"), key=lambda block: (block[1], block[0]))
+    except (RuntimeError, ValueError, IndexError):
+        return False
+    # Running heads sit in the top margin, above the text block of the template.
+    body = [block[4] for block in blocks if block[1] >= top - 1 and block[4].strip()]
+    return bool(body) and _normalize(body[0].splitlines()[0]).startswith(sections)
 
 
 def check(paper: Paper, profile: Profile, workdir: Path) -> list[Finding]:

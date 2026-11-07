@@ -1,5 +1,6 @@
 """Tests of the banal format check: page counts, format rules, and unreadable PDFs."""
 
+import dataclasses
 import json
 import shutil
 import subprocess
@@ -174,3 +175,42 @@ def test_banal_error_names_no_path_or_file_of_the_pdf(tmp_path):
     (finding,) = layout.inspect(Paper(9, tmp_path / "icse2027-paper9.pdf"), profile.load("icse-2027")).findings
     assert finding.check == "layout.error"
     assert str(tmp_path) not in finding.message and "icse2027-paper9" not in finding.message
+
+
+def _pages_with_statement(statement_pages):
+    """Return banal pages of 18 body pages, a statement on the next pages, and one page of references."""
+    pages = [{"headings": ["I. INTRODUCTION"]}] + [{} for _ in range(17)]
+    pages += [{"headings": ["8 DATA AVAILABILITY"]}] + [{} for _ in range(statement_pages - 1)]
+    return pages + [{"type": "bib", "headings": ["REFERENCES"]}]
+
+
+def test_pages_after_an_exempt_section_heading_do_not_count_as_main_text():
+    measured = layout.measure({"pages": _pages_with_statement(3), "w": 20000}, ("data availability",))
+    assert (measured.exempt_start, measured.exempt_pages, measured.main_pages) == (19, 2, 19)
+
+
+def test_exempt_section_longer_than_the_profile_allows_is_a_warning():
+    measured = layout.measure({"pages": _pages_with_statement(3), "w": 20000}, ("data availability",))
+    rules = dataclasses.replace(profile.load("fse-2027").format, main_pages=19, exempt_pages_max=1)
+    found = [(f.check, f.severity) for f in layout.evaluate(measured, rules, "Abstract")]
+    assert ("layout.exempt-pages", Severity.WARNING) in found
+
+
+def test_exempt_section_that_opens_its_page_frees_that_page_too(tmp_path):
+    pdf = tmp_path / "statement.pdf"
+    document = pymupdf.open()
+    opened = document.new_page()
+    opened.insert_text((72, 120), "8 Data Availability")
+    opened.insert_text((72, 140), "The artifact is available on Zenodo.")
+    shared = document.new_page()
+    shared.insert_text((72, 120), "and the results hold in every project.")
+    shared.insert_text((72, 160), "8 Data Availability")
+    document.save(pdf)
+    document.close()
+    assert layout.opens_page(pdf, 1, ("data availability",), top=84)
+    assert not layout.opens_page(pdf, 2, ("data availability",), top=84)
+
+
+def test_fse_profile_exempts_the_data_availability_section():
+    rules = profile.load("fse-2027").format
+    assert rules.exempt_sections == ("data availability",) and rules.exempt_pages_max == 1
