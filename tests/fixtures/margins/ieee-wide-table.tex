@@ -1,0 +1,31 @@
+% An IEEEtran conference paper with two tables over the text width. The table on page 2 is 40 pt wider than the text
+% block and runs into the right margin. The table on page 3 is 6 pt wider, within the tolerance of the margin check.
+\pdftrailerid{}
+\pdfinfoomitdate=1
+\pdfsuppressptexinfo=-1
+\documentclass[10pt,conference,letterpaper]{IEEEtran}
+\usepackage{booktabs}
+\usepackage{lipsum}
+\newcommand{\ranktable}[1]{%
+\begin{table*}[t]
+\caption{Rank of the flaky failure per project and method}
+\centering
+\begin{tabular*}{\dimexpr\textwidth+#1\relax}{@{\extracolsep{\fill}}lrrrrrrrrrr@{}}
+\toprule
+Method & lang & guava & jsoup & spring & netty & kafka & flink & hadoop & hbase & Total \\
+\midrule
+Ranking & 61 & 133 & 30 & 140 & 88 & 120 & 95 & 160 & 110 & 937 \\
+Rerun order & 33 & 70 & 16 & 77 & 41 & 64 & 52 & 85 & 62 & 500 \\
+\bottomrule
+\end{tabular*}
+\end{table*}}
+\begin{document}
+\title{Ranking Flaky Test Failures}
+\author{\IEEEauthorblockN{Anonymous Author(s)}}
+\maketitle
+\ranktable{40pt}
+\section{Introduction}
+\lipsum[1-9]
+\ranktable{6pt}
+\lipsum[10-24]
+\end{document}

@@ -1,0 +1,35 @@
+% An IEEEtran conference paper with two figures over the text width. The raster image on page 2 is 10% wider than
+% the text block and runs into both side margins. The drawing on page 3 has a white background box 30 pt wider than
+% the text block on each side, which leaves no ink in the margins.
+\pdftrailerid{}
+\pdfinfoomitdate=1
+\pdfsuppressptexinfo=-1
+\documentclass[10pt,conference,letterpaper]{IEEEtran}
+\usepackage{graphicx}
+\usepackage{tikz}
+\usepackage{lipsum}
+\begin{document}
+\title{Ranking Flaky Test Failures}
+\author{\IEEEauthorblockN{Anonymous Author(s)}}
+\maketitle
+
+\begin{figure*}[t]
+\makebox[\textwidth][c]{\includegraphics[width=1.1\textwidth]{example-image-16x9.png}}
+\caption{A build page as a raster image wider than the text.}
+\end{figure*}
+
+\section{Introduction}
+\lipsum[1-9]
+
+\begin{figure*}[t]
+\makebox[\textwidth][c]{%
+\begin{tikzpicture}
+\fill[white] (-30pt, 0) rectangle (\textwidth + 30pt, 3cm);
+\draw (0, 0) rectangle (\textwidth, 3cm);
+\node at (0.5\textwidth, 1.5cm) {Build logs, rerun history, and ranked failures};
+\end{tikzpicture}}
+\caption{The stages of the ranking on a white background wider than the text.}
+\end{figure*}
+
+\lipsum[10-24]
+\end{document}

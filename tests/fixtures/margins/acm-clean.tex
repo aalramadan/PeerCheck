@@ -1,0 +1,28 @@
+% A clean acmart acmsmall paper without the review option, with the copyright block, the ACM reference format, and
+% the running heads and footers of a published article.
+\pdftrailerid{}
+\pdfinfoomitdate=1
+\pdfsuppressptexinfo=-1
+\documentclass[acmsmall,screen]{acmart}
+\usepackage{listings}
+\usepackage{tikz}
+\usepackage{lipsum}
+\lstset{basicstyle=\ttfamily\footnotesize, frame=single, breaklines=true, columns=fullflexible}
+\setcopyright{acmlicensed}
+\acmJournal{PACMSE}
+\acmYear{2027}
+\acmVolume{4}
+\acmNumber{FSE}
+\acmArticle{101}
+\acmMonth{7}
+\acmDOI{XXXXXXX.XXXXXXX}
+\begin{document}
+\title{Ranking Flaky Test Failures with Build Histories and Change Distance}
+\author{Jane Example}
+\affiliation{\institution{Example University}\city{Example City}\country{Exampleland}}
+\email{jane@example.org}
+\author{John Sample}
+\affiliation{\institution{Sample Institute}\city{Sample City}\country{Sampleland}}
+\email{john@example.org}
+\input{acm-body}
+\end{document}

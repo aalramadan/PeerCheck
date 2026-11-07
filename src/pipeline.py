@@ -13,6 +13,7 @@ from peercheck.checks import (
     fonts,
     hidden_text,
     layout,
+    margins,
     pdf_integrity,
     references,
     sigsoft,
@@ -28,7 +29,8 @@ PROFILE_KEYS = {"sigsoft": "sigsoft", "hidden-text": "hidden_text", "references"
 SINGLE_CHECKS = {"hidden-text": hidden_text.check, "references": references.check}
 # Checks of PeerCheck that run with a check of an external tool and share its switch, under their own code prefix.
 COMPANION_CHECKS = {
-    "layout": (("pdf", pdf_integrity.check), ("fonts", fonts.check), ("unresolved", unresolved_references.check)),
+    "layout": (("pdf", pdf_integrity.check), ("fonts", fonts.check), ("margins", margins.check),
+               ("unresolved", unresolved_references.check)),
     "sigsoft": (("identity", embedded_identity.check),),
 }
 # A PDF that cannot open makes every other check fail, and these failures repeat the cause.
