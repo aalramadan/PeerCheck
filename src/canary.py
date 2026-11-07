@@ -46,7 +46,7 @@ KEY_COLUMNS = ("paper", "citation")
 @functools.cache
 def surnames() -> tuple[str, ...]:
     """Return the 9,999 most common surnames of the 2010 US Census, in upper case and in the order of the list."""
-    text = tools.external("census-surnames/census_surnames.txt").read_text(encoding="utf-8")
+    text = tools.census_surnames().read_text(encoding="utf-8")
     return tuple(text.split())
 
 
