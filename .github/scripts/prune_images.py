@@ -34,19 +34,24 @@ def fetch(url: str, headers: dict[str, str]) -> object:
         return json.load(reply)
 
 
+def fetch_all(url: str, headers: dict[str, str]) -> list:
+    """Return every item of a list of the GitHub API, which gives at most 100 items per page."""
+    items, page = [], 1
+    while True:
+        batch = fetch(f"{url}?per_page=100&page={page}", headers)
+        items += batch
+        if len(batch) < 100:
+            return items
+        page += 1
+
+
 def main() -> None:
     """Delete every untagged version that no tagged image needs and print each deleted digest."""
     owner, package = os.environ["GITHUB_REPOSITORY_OWNER"].lower(), "peercheck"
     api = f"https://api.github.com/users/{owner}/packages/container/{package}/versions"
     github = {"Authorization": f"Bearer {os.environ['GITHUB_TOKEN']}", "Accept": "application/vnd.github+json"}
-    versions, page = [], 1
-    while True:
-        batch = fetch(f"{api}?per_page=100&page={page}", github)
-        versions += batch
-        if len(batch) < 100:
-            break
-        page += 1
-    tags = fetch(f"https://api.github.com/repos/{os.environ['GITHUB_REPOSITORY']}/tags?per_page=100", github)
+    versions = fetch_all(api, github)
+    tags = fetch_all(f"https://api.github.com/repos/{os.environ['GITHUB_REPOSITORY']}/tags", github)
     stale = stale_releases(versions, {tag["name"].removeprefix("v") for tag in tags})
     pull = fetch(f"https://ghcr.io/token?scope=repository:{owner}/{package}:pull", {})["token"]
     registry = {"Authorization": f"Bearer {pull}", "Accept": INDEX_TYPES}

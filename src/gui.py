@@ -8,6 +8,7 @@ from __future__ import annotations
 import json
 import re
 import secrets
+import signal
 import subprocess
 import sys
 import tempfile
@@ -24,6 +25,16 @@ from peercheck import pipeline
 from peercheck import profile as profiles
 
 PAGE = Path(__file__).with_name("gui.html")
+# The page answers only requests addressed to these names, on any port, since docker run -p and SSH tunnels forward
+# another port to the port of the server.
+LOCAL_NAMES = ("127.0.0.1", "localhost")
+# A container listens on every address, 0.0.0.0, and docker run -p publishes its port on a local name.
+LISTEN_ADDRESSES = LOCAL_NAMES + ("0.0.0.0",)
+# A closed terminal sends SIGHUP and docker stop sends SIGTERM; each ends the page as Ctrl+C does.
+STOP_SIGNALS = tuple(getattr(signal, name) for name in ("SIGTERM", "SIGHUP") if hasattr(signal, name))
+# RequestError and json.JSONDecodeError are ValueErrors; a full disk or a file name that the file system refuses
+# raises OSError, and an option of the wrong type raises TypeError.
+REQUEST_ERRORS = (OSError, TypeError, ValueError)
 # The upload fields of the page: a folder field takes many files, a single field takes one list or key file.
 FOLDER_FIELDS = ("pdfs", "reviews")
 SINGLE_FIELDS = ("authors", "submissions", "canaries", "pc")
@@ -94,7 +105,7 @@ class Server(ThreadingHTTPServer):
         self.profile, self.root = profile, root
         self.token = secrets.token_urlsafe(24)
         self.running = threading.Lock()
-        self.hosts = {f"127.0.0.1:{self.server_port}", f"localhost:{self.server_port}"}
+        self.runs: set[str] = set()
 
     def profiles(self) -> list[dict[str, str]]:
         """Return the profiles that the page offers: the profile of the session first, then the shipped ones."""
@@ -126,12 +137,18 @@ class Server(ThreadingHTTPServer):
                 "workbook": link + "report.xlsx" if (folder / "report.xlsx").is_file() else None,
                 "rows": sheet_rows(folder / "report.xlsx", "Conflicts") if kind == "conflicts" else []}
 
+    def new_run(self) -> str:
+        """Make the folder of a new run and return its id."""
+        run = secrets.token_urlsafe(16)
+        (self.root / run).mkdir()
+        self.runs.add(run)
+        return run
+
     def run_folder(self, run: str) -> Path:
-        """Return the folder of an existing run of this session."""
-        folder = self.root / run
-        if not run or "/" in run or not folder.is_dir():
+        """Return the folder of a run that this session made."""
+        if run not in self.runs:
             raise RequestError("unknown run")
-        return folder
+        return self.root / run
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -158,9 +175,7 @@ class Handler(BaseHTTPRequestHandler):
         path = urlsplit(self.path).path
         try:
             if path == "/api/new":
-                run = secrets.token_urlsafe(16)
-                (self.server.root / run).mkdir()
-                self._json(HTTPStatus.OK, {"run": run})
+                self._json(HTTPStatus.OK, {"run": self.server.new_run()})
             elif path == "/api/start":
                 request = json.loads(self._body() or b"{}")
                 if not isinstance(request, dict):
@@ -168,7 +183,7 @@ class Handler(BaseHTTPRequestHandler):
                 self._json(HTTPStatus.OK, self.server.start(request))
             else:
                 self._json(HTTPStatus.NOT_FOUND, {"error": "not found"})
-        except (RequestError, json.JSONDecodeError) as exc:
+        except REQUEST_ERRORS as exc:
             self._json(HTTPStatus.BAD_REQUEST, {"error": str(exc)})
 
     def do_PUT(self) -> None:
@@ -181,20 +196,21 @@ class Handler(BaseHTTPRequestHandler):
             target.parent.mkdir(exist_ok=True)
             target.write_bytes(self._body())
             self._json(HTTPStatus.OK, {"saved": target.name})
-        except RequestError as exc:
+        except REQUEST_ERRORS as exc:
             self._json(HTTPStatus.BAD_REQUEST, {"error": str(exc)})
 
     def log_message(self, *args) -> None:
         """Keep the terminal free of one line per request."""
 
     def _addressed_here(self) -> bool:
-        if self.headers.get("Host") in self.server.hosts:
+        if (self.headers.get("Host") or "").rsplit(":", 1)[0] in LOCAL_NAMES:
             return True
         self._json(HTTPStatus.FORBIDDEN, {"error": "open the page at 127.0.0.1 or localhost"})
         return False
 
     def _with_token(self) -> bool:
-        if secrets.compare_digest(self.headers.get("X-PeerCheck-Token", ""), self.server.token):
+        # As bytes, since compare_digest refuses strings with characters outside ASCII.
+        if secrets.compare_digest(self.headers.get("X-PeerCheck-Token", "").encode(), self.server.token.encode()):
             return True
         self._json(HTTPStatus.FORBIDDEN, {"error": "open the page from the address that peercheck gui printed"})
         return False
@@ -230,15 +246,17 @@ class Handler(BaseHTTPRequestHandler):
 
 
 def serve(profile: str, port: int = 0, open_browser: bool = True, host: str = "127.0.0.1") -> int:
-    """Serve the page until Ctrl+C, then delete the uploaded files."""
+    """Serve the page until Ctrl+C or a stop signal, then delete the uploaded files."""
+    for number in STOP_SIGNALS:
+        signal.signal(number, signal.default_int_handler)
     with tempfile.TemporaryDirectory(prefix="peercheck-gui-") as root:
         server = Server(port, profile, Path(root), host)
         # The page opens at 127.0.0.1 even when a container listens on every address.
         url = f"http://127.0.0.1:{server.server_port}/?token={server.token}"
-        print(f"PeerCheck runs at {url}\nPress Ctrl+C to stop.", flush=True)
-        if open_browser:
-            webbrowser.open(url)
         try:
+            print(f"PeerCheck runs at {url}\nPress Ctrl+C to stop.", flush=True)
+            if open_browser:
+                webbrowser.open(url)
             server.serve_forever()
         except KeyboardInterrupt:
             print()

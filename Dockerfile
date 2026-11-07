@@ -8,7 +8,10 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /opt/peercheck
-COPY . .
+# Only the files of the package, since a working clone may also hold submissions, reviews, and reports.
+COPY pyproject.toml README.md LICENSE NOTICE.md ./
+COPY src src
+COPY external external
 # The editable install keeps src/ beside external/, where the checks find the tools of other authors. The CPU build
 # of PyTorch keeps the image small.
 RUN pip install --no-cache-dir torch --index-url https://download.pytorch.org/whl/cpu \

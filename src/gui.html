@@ -57,10 +57,10 @@ pre{white-space:pre-wrap;word-break:break-word;color:var(--muted);font-size:.8re
       <input id="pdfs" name="pdfs" type="file" accept=".pdf" multiple required>
       <small>The PDFs as the conference system names them, with the paper ID in the file name.</small></div>
     <div class="field"><label for="papers-authors">Author list (optional)</label>
-      <input id="papers-authors" name="authors" type="file" accept=".csv,.xlsx,.xls">
+      <input id="papers-authors" name="authors" type="file" accept=".csv,.xlsx">
       <small>CSV or Excel file with the columns paper, first, last, email, and affiliation.</small></div>
     <div class="field"><label for="submissions">Submission sheet (optional)</label>
-      <input id="submissions" name="submissions" type="file" accept=".csv,.xlsx,.xls">
+      <input id="submissions" name="submissions" type="file" accept=".csv,.xlsx">
       <small>The submission sheet of EasyChair (Excel) or HotCRP (CSV), which the report extends.</small></div>
     <fieldset><legend>Checks</legend>
       <label><input type="checkbox" name="checks" value="layout" checked> Format</label>
@@ -91,10 +91,10 @@ pre{white-space:pre-wrap;word-break:break-word;color:var(--muted);font-size:.8re
 
   <form id="conflicts" hidden>
     <div class="field"><label for="conflicts-authors">Author list</label>
-      <input id="conflicts-authors" name="authors" type="file" accept=".csv,.xlsx,.xls" required>
+      <input id="conflicts-authors" name="authors" type="file" accept=".csv,.xlsx" required>
       <small>CSV or Excel file with the columns paper, first, last, email, and affiliation.</small></div>
     <div class="field"><label for="pc">Committee list</label>
-      <input id="pc" name="pc" type="file" accept=".csv,.xlsx,.xls" required>
+      <input id="pc" name="pc" type="file" accept=".csv,.xlsx" required>
       <small>CSV or Excel file with the columns first, last, email, and affiliation.</small></div>
     <button class="run" type="submit">Find conflicts of interest</button>
   </form>
