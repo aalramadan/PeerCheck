@@ -81,12 +81,15 @@ We tested the two AI detectors on 1,409 reviews.
 ```bash
 docker run --rm -v "$PWD:/data" -v peercheck-cache:/cache -e HF_TOKEN ghcr.io/aalramadan/peercheck \
   reviews reviews/ --html reviews.html
+docker run --rm -p 127.0.0.1:8765:8765 -v peercheck-cache:/cache -e HF_TOKEN ghcr.io/aalramadan/peercheck gui
 ```
 
 - The image holds PeerCheck with Python, Java, Perl, and poppler. GitHub Actions rebuilds it at every change.
 - `-v "$PWD:/data"` gives the container the current folder.
 - `-v peercheck-cache:/cache` keeps the models between runs.
 - `-e HF_TOKEN` passes the token of EditLens, as EditLens access below describes.
+- The second command serves the page of `peercheck gui` at the address it prints, through the port that
+  `-p 127.0.0.1:8765:8765` opens.
 
 #### 🐍 Python
 

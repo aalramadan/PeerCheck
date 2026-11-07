@@ -18,6 +18,9 @@ RUN pip install --no-cache-dir torch --index-url https://download.pytorch.org/wh
 # there, for a run with --user.
 ENV XDG_CACHE_HOME=/cache HF_HOME=/cache/huggingface
 RUN mkdir -m 1777 /cache
+# peercheck gui listens on every address of the container at a fixed port, which docker run -p publishes.
+ENV PEERCHECK_GUI_HOST=0.0.0.0 PEERCHECK_GUI_PORT=8765
+EXPOSE 8765
 WORKDIR /data
 ENTRYPOINT ["peercheck"]
 CMD ["--help"]

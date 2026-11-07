@@ -1,12 +1,7 @@
-"""Local web page of PeerCheck in plain HTML, CSS, and JavaScript, for people who prefer a browser to the command line.
+"""Local web page of PeerCheck: a server of the standard library that runs the checks on uploaded files.
 
-peercheck gui starts a small web server of the Python standard library on 127.0.0.1 and opens the page in the
-browser. The page uploads the chosen files to this server, which keeps them in a temporary folder, runs the same
-command as peercheck papers, reviews, or conflicts, and returns its report. Every file stays on this computer, and
-the temporary folder is deleted when the server stops. The server answers only requests addressed to 127.0.0.1 or
-localhost, which blocks DNS rebinding, and each upload or run needs the token of the session, which only the page
-that the server opened holds.
-"""
+The server answers only requests addressed to 127.0.0.1 or localhost, and every upload or run needs the token of
+the session, which only the page that the server printed holds."""
 
 from __future__ import annotations
 
@@ -94,8 +89,8 @@ class Server(ThreadingHTTPServer):
 
     daemon_threads = True
 
-    def __init__(self, port: int, profile: str, root: Path) -> None:
-        super().__init__(("127.0.0.1", port), Handler)
+    def __init__(self, port: int, profile: str, root: Path, host: str = "127.0.0.1") -> None:
+        super().__init__((host, port), Handler)
         self.profile, self.root = profile, root
         self.token = secrets.token_urlsafe(24)
         self.running = threading.Lock()
@@ -234,10 +229,11 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
 
-def serve(profile: str, port: int = 0, open_browser: bool = True) -> int:
-    """Serve the page on 127.0.0.1 until Ctrl+C, then delete the uploaded files."""
+def serve(profile: str, port: int = 0, open_browser: bool = True, host: str = "127.0.0.1") -> int:
+    """Serve the page until Ctrl+C, then delete the uploaded files."""
     with tempfile.TemporaryDirectory(prefix="peercheck-gui-") as root:
-        server = Server(port, profile, Path(root))
+        server = Server(port, profile, Path(root), host)
+        # The page opens at 127.0.0.1 even when a container listens on every address.
         url = f"http://127.0.0.1:{server.server_port}/?token={server.token}"
         print(f"PeerCheck runs at {url}\nPress Ctrl+C to stop.", flush=True)
         if open_browser:
