@@ -16,7 +16,10 @@ import json
 import os
 import subprocess
 import tarfile
+import threading
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from typing import ClassVar
 
 import pytest
 
@@ -345,3 +348,54 @@ def test_numeric_entities_rewrites_an_entity_that_spans_two_chunks(tmp_path, mon
     (tmp_path / "dump.xml.gz").write_bytes(gzip.compress(DUMP))
     references.numeric_entities(tmp_path / "dump.xml.gz", tmp_path / "numeric.xml.gz")
     assert gzip.decompress((tmp_path / "numeric.xml.gz").read_bytes()) == DUMP.replace(b"&eacute;", b"&#233;")
+
+
+class _Dropping(BaseHTTPRequestHandler):
+    """Serve a payload, cutting the first answer in half as a dropped connection does, and honor byte ranges."""
+
+    payload = bytes(range(256)) * 400
+    answers: ClassVar[list[str]] = []
+    drop_every_answer = False
+
+    def do_GET(self):
+        start = int(self.headers.get("Range", "bytes=0-")[6:].rstrip("-") or 0)
+        first = not self.answers
+        self.answers.append(self.headers.get("Range", ""))
+        self.send_response(206 if start else 200)
+        self.send_header("Content-Length", str(len(self.payload) - start))
+        self.end_headers()
+        body = self.payload[start:]
+        self.wfile.write(body[: len(body) // 2] if first or self.drop_every_answer else body)
+        self.close_connection = True
+
+    def log_message(self, *args):
+        pass
+
+
+def _serve(handler):
+    server = ThreadingHTTPServer(("127.0.0.1", 0), handler)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    return server
+
+
+def test_fetch_resumes_a_dropped_download_from_where_it_stopped(tmp_path):
+    handler = type("Handler", (_Dropping,), {"answers": []})
+    server = _serve(handler)
+    try:
+        references._fetch(f"http://127.0.0.1:{server.server_port}/dblp.xml.gz", tmp_path / "dblp.xml.gz")
+    finally:
+        server.shutdown()
+    assert (tmp_path / "dblp.xml.gz").read_bytes() == _Dropping.payload
+    assert handler.answers[1] == f"bytes={len(_Dropping.payload) // 2}-"
+
+
+def test_fetch_reports_a_download_that_keeps_dropping_and_leaves_no_file(tmp_path):
+    handler = type("Handler", (_Dropping,), {"answers": [], "drop_every_answer": True})
+    server = _serve(handler)
+    try:
+        with pytest.raises(tools.ToolError, match="run the setup again"):
+            references._fetch(f"http://127.0.0.1:{server.server_port}/dblp.xml.gz", tmp_path / "dblp.xml.gz",
+                              attempts=2)
+    finally:
+        server.shutdown()
+    assert not (tmp_path / "dblp.xml.gz").exists()

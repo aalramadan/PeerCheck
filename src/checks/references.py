@@ -102,6 +102,8 @@ ARXIV_IN_TEXT = re.compile(
 UNVERIFIED = ("not_found", "inconclusive")
 # The dump that the DBLP builder of Hallucinator downloads when it gets no local file.
 DBLP_URL = "https://dblp.uni-trier.de/xml/dblp.xml.gz"
+# The DBLP dump of about 1.1 GB comes slowly, and a connection that drops resumes this many times.
+DOWNLOAD_ATTEMPTS = 20
 NAMED_ENTITY = re.compile(rb"&([A-Za-z][A-Za-z0-9]*);")
 XML_ENTITIES = (b"amp", b"lt", b"gt", b"quot", b"apos")
 CHUNK_BYTES = 1 << 24
@@ -482,9 +484,29 @@ def numeric_entities(dump: Path, target: Path) -> None:
         sink.write(NAMED_ENTITY.sub(numeric, rest))
 
 
-def _fetch(url: str, target: Path) -> None:
-    """Download a public file of a published tool or dataset."""
+def _fetch(url: str, target: Path, attempts: int = DOWNLOAD_ATTEMPTS) -> None:
+    """Download a public file of a published tool or dataset, resuming after a dropped connection."""
     target.parent.mkdir(parents=True, exist_ok=True)
-    request = urllib.request.Request(url, headers={"User-Agent": "PeerCheck"})
-    with urllib.request.urlopen(request, timeout=120) as response, target.open("wb") as handle:
-        shutil.copyfileobj(response, handle)
+    partial = target.with_name(target.name + ".partial")
+    partial.unlink(missing_ok=True)
+    expected = None
+    for _ in range(attempts):
+        done = partial.stat().st_size if partial.exists() else 0
+        headers = {"User-Agent": "PeerCheck"} | ({"Range": f"bytes={done}-"} if done else {})
+        try:
+            with urllib.request.urlopen(urllib.request.Request(url, headers=headers), timeout=120) as response:
+                # A server that ignores the range sends the whole file again.
+                resumed = done and response.status == 206
+                length = response.headers.get("Content-Length")
+                expected = (done if resumed else 0) + int(length) if length else None
+                with partial.open("ab" if resumed else "wb") as handle:
+                    shutil.copyfileobj(response, handle)
+        except OSError:
+            continue
+        if expected is None or partial.stat().st_size >= expected:
+            partial.replace(target)
+            return
+    size = partial.stat().st_size if partial.exists() else 0
+    partial.unlink(missing_ok=True)
+    raise tools.ToolError(f"the download of {url} stopped after {size} of {expected or 'unknown'} bytes; "
+                          "run the setup again")
