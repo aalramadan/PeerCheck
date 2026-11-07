@@ -22,7 +22,7 @@ port keeps the original untouched beside it and lists its changes in a `PORT.md`
 | openreview-py webmail list | OpenReview | email domains of the conflict check | MIT | copied into `src/conflicts.py`; `openreview/tools.py` of commit `9e8ba8e` sits in `external/openreview-py/` for reference |
 | Public Suffix List | Mozilla and the publicsuffix.org community | registered email domains of the conflict check | MPL-2.0 | version `2026-11-06_09-01-47_UTC` (commit `94ec5df`) from `publicsuffix.org/list/`, unchanged in `external/publicsuffix/` with its license, which the conflict check reads |
 | PyMuPDF | Artifex | text and layout of PDFs | AGPL-3.0 or commercial | Python dependency |
-| datasketch, rapidfuzz, openpyxl, PyYAML, lxml, defusedxml | their authors | near-duplicate search, fuzzy matching, spreadsheets, profiles, XML | MIT, MIT, MIT, MIT, BSD-3-Clause, PSF | Python dependencies |
+| datasketch, rapidfuzz, openpyxl, PyYAML, lxml, defusedxml, pikepdf | their authors | near-duplicate search, fuzzy matching, spreadsheets, profiles, XML, PDF structure | MIT, MIT, MIT, MIT, BSD-3-Clause, PSF, MPL-2.0 | Python dependencies |
 | DBLP data | Schloss Dagstuhl, University of Trier | conflict check and reference check | CC0 1.0 | downloaded from `dblp.org/xml/` |
 | Retraction Watch data | Crossref, Retraction Watch | retracted references | no license stated in its README | downloaded from `gitlab.com/crossref/retraction-watch-data` |
 | CoCoNUTS test reviews | Chen et al. (icip-cas) | texts of the sample reviews | MIT | `samples/reviews/` and `samples/hotcrp-reviews.csv` |

@@ -18,15 +18,15 @@
 | `hotcrp/` | github.com/kohler/hotcrp | commit `4c1ef77` | GPL-2.0-or-later for `banal`, Click license for the rest | runs `banal` in the format check and reads the affiliation word lists of `affiliationmatchers.json` in the conflict check |
 | `openreview-py/` | github.com/openreview/openreview-py | commit `9e8ba8e` | MIT | copies the webmail list of `openreview/tools.py` into `src/conflicts.py` |
 | `phantomlint/` | github.com/tobycmurray/phantom-lint | commit `7f62001` | BSD-3-Clause | copies the warning phrases of PhantomLint into `src/checks/hidden_text.py` |
-| `publicsuffix/` | publicsuffix.org, the Public Suffix List | version `2026-11-06_09-01-47_UTC`, commit `94ec5df` | MPL-2.0 | reads the public suffixes, such as `ac.uk` and `re.kr`, to find the registered domain of each email address in the conflict check |
+| `publicsuffix/` | publicsuffix.org, the Public Suffix List | version `2026-11-06_09-01-47_UTC`, commit `94ec5df` | MPL-2.0 | reads the public suffixes, such as `ac.uk` and `re.kr`, to find the domain of the organization behind each email address in the conflict check |
 | `submission-checker/` | github.com/acmsigsoft/submission-checker | release v0.4.3, commit `3ffa1eb` | Apache-2.0 | runs the jar, built from the revised source in this folder, in the anonymity and template check |
 
 ## Checks
 
 | Command | Check (command-line name) | Finds | Built on |
 |---|---|---|---|
-| `papers` | Format (`layout`) | page size, columns, margins, fonts, page limits, page numbers, and sections that break the rules of the venue | the format checker of HotCRP, a conference system |
-| `papers` | Anonymity and template (`sigsoft`) | author names, email addresses, affiliations, links that reveal the authors, and a template other than that of the venue | a revised copy of the submission checker of ACM SIGSOFT, the software engineering group of the ACM |
+| `papers` | Format (`layout`) | page size, columns, margins, font size, line spacing, page limits (without exempt sections such as Data Availability), page numbers, and missing sections; template fonts, title size, and fonts that are not embedded; content that runs into the margins; locked or damaged files; and broken references such as Section ?? | the format checker of HotCRP, a conference system, and checks of PeerCheck with PyMuPDF and pikepdf, with the Times fonts of aclpubcheck, the format checker of ACL |
+| `papers` | Anonymity and template (`sigsoft`) | author names, email addresses, affiliations, links that reveal the authors, author names and home folders hidden in images, attachments, comments, and earlier saved versions of the PDF, and a template other than that of the venue | a revised copy of the submission checker of ACM SIGSOFT, the software engineering group of the ACM, and a scan of the PDF objects by PeerCheck |
 | `papers` | Hidden text (`hidden-text`) | white, invisible, or tiny text, invisible Unicode characters, and prompts hidden for AI tools | the PDF libraries pdfguardrail and PyMuPDF and the phrases of PhantomLint, a scanner for hidden prompts |
 | `papers` | References (`references`) | references that no bibliographic database confirms and retracted references | Hallucinator, a reference checker, with an offline copy of DBLP, the open bibliography of computer science, and the Retraction Watch list |
 | `reviews` | AI detection (`cocodet`, `editlens`) | potentially AI-generated reviews, with the label of each detector on its own | CoCoDet, trained on peer reviews, and EditLens, trained on AI-edited text |
