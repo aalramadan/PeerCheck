@@ -23,10 +23,25 @@ def keys(index: dblp.DblpIndex, person: Person, since: int | None = None) -> lis
     return [p.key for p in index.publications_of(person, since)]
 
 
+def homonyms(folder: Path, note: str) -> Path:
+    """Write a dump with two records of Wei Zhang, the first with an affiliation note, and return its path."""
+    shutil.copy(FIXTURES / "dblp.dtd", folder / "dblp.dtd")
+    (folder / "dblp.xml").write_text(
+        '<?xml version="1.0" encoding="ISO-8859-1"?>\n<!DOCTYPE dblp SYSTEM "dblp.dtd">\n<dblp>'
+        f'<www key="homepages/10/0001"><author>Wei Zhang 0001</author><note type="affiliation">{note}</note></www>'
+        '<www key="homepages/10/0002"><author>Wei Zhang 0002</author></www></dblp>\n'
+    )
+    return folder / "dblp.xml"
+
+
 class TestNames:
     def test_fold_removes_accents_case_and_punctuation(self):
         assert dblp.fold("Jürgen Müller-Lüdenscheidt") == "jurgen muller ludenscheidt"
         assert dblp.fold("Søren Groß") == "soren gross"
+
+    def test_fold_parts_words_at_dashes_and_quotes_outside_ascii(self):
+        assert dblp.fold("University of Wisconsin–Madison") == "university of wisconsin madison"
+        assert dblp.fold("King’s College") == dblp.fold("King's College") == "king s college"
 
     def test_base_name_removes_the_homonym_suffix(self):
         assert dblp.base_name("Ana Pérez 0002") == "Ana Pérez"
@@ -34,6 +49,15 @@ class TestNames:
 
     def test_loose_key_keeps_first_and_last_word(self):
         assert dblp.loose_key("Robin X. Okafor") == dblp.loose_key("Robin Okafor") == "robin okafor"
+
+    def test_loose_key_folds_the_ascii_spellings_of_umlauts(self):
+        assert dblp.loose_key("Juergen Mueller") == dblp.loose_key("Jürgen Müller")
+        assert dblp.loose_key("Soeren Gross") == dblp.loose_key("Søren Groß")
+        assert dblp.loose_key("Aase Haugen") == dblp.loose_key("Åse Haugen")
+
+    def test_loose_key_ignores_a_generational_suffix(self):
+        assert dblp.loose_key("Guy L. Steele Jr.") == dblp.loose_key("Guy Steele") == "guy steele"
+        assert dblp.loose_key("Kim Doe III") == dblp.loose_key("Kim Doe")
 
     @pytest.mark.parametrize("text", [
         "22/2001", "homepages/22/2001", "pid/22/2001", "https://dblp.org/pid/22/2001.html",
@@ -154,6 +178,22 @@ class TestIdentity:
         identity = build(person).identity(person)
         assert (identity.names, identity.method) == (("Lena Q. Brandt",), "name and affiliation")
 
+    @pytest.mark.parametrize("affiliation, note", [
+        ("ETH", "Delft University of Technology, The Netherlands"),
+        ("Lund", "Lundbeck A/S, Copenhagen, Denmark"),
+    ])
+    def test_affiliation_inside_a_word_of_a_note_leaves_homonyms_ambiguous(self, tmp_path, affiliation, note):
+        person = Person("Wei", "Zhang", affiliation=affiliation)
+        assert build(person, dump=homonyms(tmp_path, note)).identity(person).ambiguous
+
+    def test_affiliation_of_three_letters_picks_no_homonym(self, tmp_path):
+        person = Person("Wei", "Zhang", affiliation="UW")
+        assert build(person, dump=homonyms(tmp_path, "UW Madison, USA")).identity(person).ambiguous
+
+    def test_ascii_spelling_of_umlauts_finds_the_dblp_name(self):
+        person = Person("Juergen", "Mueller")
+        assert build(person).identity(person).names == ("Jürgen Müller",)
+
     def test_alias_with_another_first_name_runs_a_second_scan(self, monkeypatch):
         runs = []
         original = dblp._Scan.run
@@ -201,3 +241,7 @@ class TestIndex:
         assert loaded.publications == index.publications
         assert loaded.identities == index.identities
         assert keys(loaded, people[1]) == keys(index, people[1])
+
+    def test_missing_lists_the_people_the_index_was_not_built_for(self):
+        index = build(Person("Jürgen", "Müller"))
+        assert index.missing([Person("Jürgen", "Müller"), Person("Lena", "Brandt")]) == [Person("Lena", "Brandt")]

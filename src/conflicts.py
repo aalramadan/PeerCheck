@@ -7,24 +7,32 @@ The check reuses the methods of the conflict tools of large conferences, applied
   authors against the names and affiliations of PC members, and lists in a second view the declared
   conflicts that the matching does not support. This module does both. Two affiliations match the
   way HotCRP's AuthorMatcher matches them: one affiliation shares a strong word with the other, or,
-  when it has only weak words, all its words appear in the other. The stop and weak words are those
-  of HotCRP's etc/affiliationmatchers.json, plus country names and words of at most two letters,
-  which PeerCheck adds. Words of five letters or more, without digits, also match a word with a
-  rapidfuzz ratio of at least affiliation_min, which absorbs typing errors such as Stutgart.
+  when it has only weak words, all its words appear in the other. A word also appears through one
+  of its alternates, such as carnegie mellon for cmu, and counts only where the two affiliations
+  agree on its sync words, such as state for arizona, which keeps Arizona State University apart
+  from the University of Arizona. The stop words, weak words, alternates, and sync words come from
+  HotCRP's etc/affiliationmatchers.json, which the check reads from external/hotcrp/. PeerCheck adds
+  placeholders such as N/A to the stop words, and country names, generic words of other languages
+  and of fields, such as politecnica and data, and words of at most two letters to the weak words.
+  Strong words of five letters or more, without digits, also match a strong word with a rapidfuzz
+  ratio of at least affiliation_min, which absorbs typing errors such as Stutgart.
 - CLOSET with its EasyChair scripts (github.com/pchrszon/ec-closet-support, MIT) and the scripts of
   ISCA 2018 and ISCA 2021 (github.com/mdrumond/pc-chair-kit, github.com/hibagus/ISCA-2021-Script)
   flag co-authorship in dblp within a number of years. ec-closet-support counts a joint paper when
   the current year minus its year is at most the window, the year arithmetic used here.
 - OpenReview (openreview-py, MIT, openreview/tools.py) flags shared email domains and drops webmail
   domains. Its list of common domains opens the webmail list below. A domain counts from its
-  registered name on, such as ubc.ca for cs.ubc.ca and ox.ac.uk for cs.ox.ac.uk.
+  registered name on, one label below its public suffix in the Public Suffix List (publicsuffix.org,
+  MPL-2.0), which the check reads from external/publicsuffix/, such as ubc.ca for cs.ubc.ca,
+  ox.ac.uk for cs.ox.ac.uk, and etri.re.kr for mail.etri.re.kr.
 
 find_conflicts returns one Conflict per paper and PC member with every reason found, and the rows
-function turns the conflicts into rows for a sheet with the columns of COLUMNS. A PC member who is an
-author of the paper, by email, dblp person ID, or name, is reported as such. With an EasyChair
-conflict export, a declared conflict that no data supports, with no co-authorship in any year,
-appears with the kind "declared without support". reviewer_ties lists co-authorship among the
-assigned reviewers of each paper.
+function turns the conflicts into rows for a sheet with the columns of COLUMNS. A person listed
+twice counts once. A PC member who is an author of the paper, by email, dblp person ID, or name, is
+reported as such. The dblp person ID is the one given or the one the dblp index resolves, and two
+different IDs make two people even under one name. With an EasyChair conflict export, a declared
+conflict that no data supports, with no co-authorship in any year, appears with the kind "declared
+without support". reviewer_ties lists co-authorship among the assigned reviewers of each paper.
 
 Options (profile key "conflicts"):
 
@@ -36,12 +44,13 @@ Options (profile key "conflicts"):
 - reference_year (the current year): the year of the submissions.
 - affiliation_min (90): the rapidfuzz ratio at or above which two affiliation words of five letters
   or more count as the same word. ISCA-2021-Script uses 90 as the cutoff of its fuzzy name matches.
-- webmail: further email domains to treat as webmail.
+- webmail: further email domains to treat as webmail, as a list or as one domain.
 
 The EasyChair readers take the files that ec-closet-support documents: reviewer.csv with the PC
 member ID, name, email, and role, and assignment.csv with the PC member ID and the submission ID,
-both without a header. read_pairs reads the conflict export with the layout of assignment.csv, an
-assumption that a real export should confirm. The name of a PC member splits at its last space, as
+both without a header and separated by commas, semicolons, or tabs. read_pairs reads the conflict
+export with the layout of assignment.csv, an assumption that a real export should confirm, and
+refuses a file without any pair. The name of a PC member splits at its last space, as
 ISCA-2021-Script splits names.
 """
 
@@ -50,11 +59,13 @@ from __future__ import annotations
 import csv
 import datetime
 import functools
+import json
 from dataclasses import dataclass
 from pathlib import Path
 
 from rapidfuzz import fuzz
 
+from peercheck import tools
 from peercheck.dblp import DblpIndex, Publication, fold, parse_pid
 from peercheck.inputs import InputError
 from peercheck.models import Person
@@ -64,7 +75,7 @@ COLUMNS = ("Paper", "PC member", "PC member email", "With", "Kinds", "Reasons", 
 LISTED_PAPERS = 3
 FUZZY_WORD_MIN = 5
 
-# The stop and weak words below come from etc/affiliationmatchers.json of HotCRP.
+# The affiliation matching below follows AuthorMatcher::test_affiliation in src/authormatcher.php of HotCRP.
 # Copyright (c) 2006-2022 Eddie Kohler. Copyright (c) 2006-2008 Regents of the University of California.
 # Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated
 # documentation files (the "Software"), to deal in the Software without restriction, including without limitation
@@ -78,30 +89,9 @@ FUZZY_WORD_MIN = 5
 # FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR
 # ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF
 # OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
-STOP_WORDS = frozenset([
-    "all", "and", "any", "for", "in", "inc", "independent", "none", "of", "the", "unaffiliated", "unknown"
-])
-WEAK_WORDS = frozenset([
-    "a", "academia", "academy", "advanced", "africa", "ai", "america", "an", "analytics", "applied", "associates",
-    "association", "at", "australia", "b", "bangalore", "beijing", "berlin", "business", "bv", "c", "cal",
-    "california", "cambridge", "campus", "canada", "capital", "catholic", "center", "centre", "centrum", "chair",
-    "chicago", "china", "chinese", "city", "cnrs", "co", "college", "colorado", "com", "commission", "computer",
-    "computing", "conservancy", "consulting", "corp", "corporation", "d", "darmstadt", "de", "delhi", "denmark",
-    "department", "dept", "development", "di", "e", "east", "ecole", "economics", "electronic", "electronics",
-    "engineering", "europe", "f", "faculty", "federal", "foundation", "france", "fraunhofer", "g", "george", "georgia",
-    "germany", "gmbh", "group", "h", "hochschule", "hong", "hospital", "hyderabad", "i", "iii", "iiit", "iit",
-    "illinois", "india", "indian", "informatics", "information", "institut", "institute", "instituto", "international",
-    "israel", "it", "italy", "j", "jr", "k", "king", "kong", "l", "lab", "laboratories", "laboratory", "labs", "law",
-    "limited", "llc", "london", "los", "ltd", "m", "management", "massachusetts", "mathematics", "md", "mobile",
-    "montreal", "n", "national", "network", "networks", "new", "north", "o", "org", "p", "paris", "penn",
-    "pennsylvania", "phd", "politecnico", "polytechnic", "polytechnique", "project", "q", "r", "research", "rio",
-    "royal", "s", "san", "santa", "school", "science", "sciences", "security", "service", "services", "shanghai",
-    "singapore", "software", "south", "southern", "sr", "standard", "stanford", "state", "student", "systems", "t",
-    "tech", "technical", "technische", "technological", "technologies", "technology", "telecom", "telekom", "texas",
-    "tokyo", "tu", "u", "uc", "uk", "united", "univ", "univeristy", "universidad", "universidade", "universita",
-    "universitat", "universite", "universiteit", "university", "usa", "ut", "uw", "v", "virginia", "w", "washington",
-    "west", "wien", "x", "xi", "y", "york", "z", "zurich"
-])
+
+# Words that people give for no affiliation, such as N/A, which PeerCheck adds to the stop words.
+PLACEHOLDER_WORDS = frozenset(["a", "affiliation", "employed", "n", "na", "no", "researcher", "retired", "self"])
 # Country names that PeerCheck adds to the weak words, since a shared country never makes a conflict.
 COUNTRY_WORDS = frozenset([
     "albania", "algeria", "argentina", "armenia", "austria", "azerbaijan", "bangladesh", "belarus", "belgium",
@@ -115,6 +105,21 @@ COUNTRY_WORDS = frozenset([
     "syria", "taiwan", "tanzania", "thailand", "tunisia", "turkey", "turkiye", "uganda", "ukraine", "uruguay",
     "uzbekistan", "venezuela", "vietnam", "zealand", "zimbabwe"
 ])
+# Generic words of organization names in other languages and names of fields, which PeerCheck adds to the weak words.
+GENERIC_WORDS = frozenset([
+    "artificial", "autonoma", "catholique", "catolica", "cattolica", "centro", "ciencia", "ciencias", "computacao",
+    "computacion", "computation", "computational", "cyber", "das", "data", "degli", "dei", "del", "della", "delle",
+    "dello", "departamento", "departement", "der", "des", "die", "digital", "dipartimento", "dos", "electrical",
+    "engenharia", "escola", "escuela", "estadual", "facolta", "facultad", "faculdade", "faculte", "fakultat", "federale",
+    "forschung", "fur", "informatica", "informatik", "informatique", "ingegneria", "ingenieria", "institutet",
+    "institutt", "instytut", "intelligence", "investigacion", "istituto", "katholieke", "laboratoire", "laboratorio",
+    "las", "learning", "lehrstuhl", "les", "machine", "mechanical", "nacional", "nationale", "nazionale", "pesquisa",
+    "physics", "politechnika", "politecnica", "politehnica", "pontifical", "pontificia", "recherche", "ricerca",
+    "robotics", "scienze", "scuola", "statistics", "studi", "studies", "superieure", "superior", "superiore", "tecnica",
+    "tecnico", "tecnologia", "tecnologica", "tecnologico", "und", "uni", "universitaet", "universitaire",
+    "universitaria", "universitario", "universitas", "universitatea", "universitet", "universiteti", "universiti",
+    "univerza", "univerzita", "uniwersytet"
+])
 # The common domains of OpenReview's conflict code, then further webmail providers.
 WEBMAIL = frozenset([
     "gmail.com", "qq.com", "126.com", "163.com", "outlook.com", "hotmail.com", "yahoo.com", "foxmail.com", "aol.com",
@@ -123,11 +128,16 @@ WEBMAIL = frozenset([
     "web.de", "t-online.de", "posteo.de", "mailbox.org", "yandex.ru", "yandex.com", "mail.ru", "naver.com",
     "hanmail.net", "daum.net", "sina.com", "sina.cn", "sohu.com", "yeah.net", "aliyun.com", "139.com", "zoho.com",
     "fastmail.com", "tutanota.com", "hey.com", "libero.it", "orange.fr", "free.fr", "laposte.net", "rediffmail.com",
+    "mail.com", "email.com", "tuta.io", "tuta.com", "tutanota.de", "fastmail.fm", "zohomail.com", "hushmail.com",
+    "mailfence.com", "duck.com", "189.cn", "188.com", "21cn.com", "tom.com", "kakao.com", "nate.com", "rambler.ru",
+    "bk.ru", "list.ru", "inbox.ru", "ya.ru", "ukr.net", "seznam.cz", "email.cz", "centrum.cz", "wp.pl", "o2.pl",
+    "onet.pl", "op.pl", "interia.pl", "abv.bg", "freemail.hu", "virgilio.it", "tiscali.it", "alice.it", "sfr.fr",
+    "wanadoo.fr", "freenet.de", "arcor.de", "sapo.pt", "uol.com.br", "bol.com.br", "terra.com.br", "ig.com.br",
+    "btinternet.com", "comcast.net", "verizon.net", "att.net", "sbcglobal.net", "bigpond.com", "shaw.ca", "walla.co.il",
 ])
 # Providers whose country domains, such as yahoo.co.uk or hotmail.fr, are webmail as well.
 WEBMAIL_PROVIDERS = frozenset(["gmail", "googlemail", "hotmail", "outlook", "live", "yahoo", "ymail", "aol", "icloud",
                                "protonmail", "gmx", "yandex"])
-_SECOND_LEVEL = frozenset(["ac", "co", "com", "edu", "gov", "net", "org", "or", "ne", "go", "mil", "res"])
 
 
 @dataclass(frozen=True)
@@ -154,25 +164,28 @@ def find_conflicts(
     """Return the possible conflicts of each paper with each PC member, and declared conflicts without support."""
     settings = {**DEFAULTS, **(options or {})}
     since = _since(settings)
-    webmail = WEBMAIL | {domain.strip().lower() for domain in settings["webmail"] or ()}
+    extra = settings["webmail"] or ()
+    webmail = WEBMAIL | {domain.strip().lower() for domain in ([extra] if isinstance(extra, str) else extra)}
     minimum = int(settings["affiliation_min"])
     works = _Works(index)
     found = []
+    committee = list(dict.fromkeys(committee))
     for paper_id in sorted(authors):
+        people = list(dict.fromkeys(authors[paper_id]))
         for member in committee:
             kinds: list[str] = []
             reasons: list[str] = []
             others: list[Person] = []
-            for author in authors[paper_id]:
+            for author in people:
                 pair = _pair(author, member, works, since, webmail, minimum)
                 if pair:
                     others.append(author)
                     kinds.extend(kind for kind, _ in pair if kind not in kinds)
                     reasons.extend(reason for _, reason in pair)
-            is_declared = None if declared is None else _among(member, declared.get(paper_id, []))
-            is_assigned = None if assignments is None else _among(member, assignments.get(paper_id, []))
+            is_declared = None if declared is None else _among(member, declared.get(paper_id, []), works)
+            is_assigned = None if assignments is None else _among(member, assignments.get(paper_id, []), works)
             if not kinds and is_declared:
-                reason = _unsupported(authors[paper_id], member, works)
+                reason = _unsupported(people, member, works)
                 if not reason:
                     continue
                 kinds, reasons = ["declared without support"], [reason]
@@ -188,7 +201,10 @@ def reviewer_ties(assignments: dict[int, list[Person]], index: DblpIndex, option
     works = _Works(index)
     found = []
     for paper_id in sorted(assignments):
-        reviewers = assignments[paper_id]
+        reviewers: list[Person] = []
+        for person in assignments[paper_id]:
+            if not any(_same(person, other, works) for other in reviewers):
+                reviewers.append(person)
         for i, first in enumerate(reviewers):
             for second in reviewers[i + 1:]:
                 joint = works.joint(first, second, since)
@@ -216,22 +232,25 @@ def affiliation_match(first: str, second: str, minimum: int = DEFAULTS["affiliat
     for one in first.split(";"):
         for other in second.split(";"):
             for a, b in ((one, other), (other, one)):
-                words, strong = _words(a)
-                subject = _words(b)[0]
-                seen = sorted(w for w in strong if _seen(w, subject, minimum))
-                if seen:
-                    return " ".join(seen)
-                if words and not strong and all(_seen(w, subject, minimum) for w in words):
-                    return " ".join(sorted(words))
+                words = _shared_words(a, b, minimum)
+                if words:
+                    return words
     return ""
 
 
+@functools.cache
 def org_domain(email: str) -> str:
     """Return the registered domain of an email address, such as ox.ac.uk for a@cs.ox.ac.uk."""
     labels = [label for label in email.rpartition("@")[2].strip().lower().split(".") if label]
-    if len(labels) >= 3 and len(labels[-1]) == 2 and labels[-2] in _SECOND_LEVEL:
-        return ".".join(labels[-3:])
-    return ".".join(labels[-2:])
+    rules, exceptions = _public_suffixes()
+    suffixes = [".".join(labels[start:]) for start in range(len(labels))]
+    for suffix in suffixes:
+        if suffix in exceptions:
+            return suffix
+    for start, suffix in enumerate(suffixes):
+        if suffix in rules or ".".join(["*", *labels[start + 1:]]) in rules:
+            return suffixes[start - 1] if start else ""
+    return ""
 
 
 def read_members(path: Path) -> dict[int, Person]:
@@ -254,6 +273,8 @@ def read_pairs(path: Path, members: dict[int, Person]) -> dict[int, list[Person]
         if member is None:
             raise InputError(f"{path.name}: PC member {row[0].strip()} is not in the reviewer list")
         pairs.setdefault(int(row[1]), []).append(member)
+    if not pairs:
+        raise InputError(f"{path.name}: no row holds a PC member ID and a submission ID")
     return pairs
 
 
@@ -263,6 +284,7 @@ class _Works:
     def __init__(self, index: DblpIndex | None) -> None:
         self.index = index
         self.cache: dict[tuple[Person, int | None], dict[str, Publication]] = {}
+        self.pids: dict[Person, str] = {}
 
     def joint(self, first: Person, second: Person, since: int | None) -> list[Publication]:
         """Return the publications of two people together from a year on, empty without an index."""
@@ -276,6 +298,14 @@ class _Works:
         identity = self.index.identity(person) if self.index is not None else None
         return identity is not None and bool(identity.names)
 
+    def pid(self, person: Person) -> str:
+        """Return the dblp person ID that the index resolves for a person, or else the one given, or nothing."""
+        if person not in self.pids:
+            identity = self.index.identity(person) if self.index is not None else None
+            resolved = identity.pid if identity is not None and not identity.ambiguous else ""
+            self.pids[person] = resolved or parse_pid(person.dblp)
+        return self.pids[person]
+
     def _of(self, person: Person, since: int | None) -> dict[str, Publication]:
         if (person, since) not in self.cache:
             self.cache[person, since] = {p.key: p for p in self.index.publications_of(person, since)}
@@ -284,7 +314,7 @@ class _Works:
 
 def _pair(author: Person, member: Person, works: _Works, since: int, webmail: frozenset[str],
           minimum: int) -> list[tuple[str, str]]:
-    how = _same(author, member)
+    how = _same(author, member, works)
     if how:
         return [("author", f"{member.name} is an author of the paper (same {how})")]
     found = []
@@ -317,8 +347,9 @@ def _coauthor_reason(member: Person, other: Person, joint: list[Publication], in
 def _unsupported(authors: list[Person], member: Person, works: _Works) -> str:
     if any(works.joint(author, member, None) for author in authors):
         return ""
-    reason = "declared in the conflict export, while no author shares a dblp paper, an email domain, or an affiliation " \
-             f"with {member.name}"
+    shared = "an email domain or an affiliation" if works.index is None else \
+        "a dblp paper, an email domain, or an affiliation"
+    reason = f"declared in the conflict export, while no author shares {shared} with {member.name}"
     if works.index is not None:
         unknown = sum(1 for author in authors if not works.known(author))
         if unknown:
@@ -326,27 +357,86 @@ def _unsupported(authors: list[Person], member: Person, works: _Works) -> str:
     return reason
 
 
-@functools.cache
-def _words(text: str) -> tuple[frozenset[str], frozenset[str]]:
-    words = frozenset(word for word in fold(text).split() if word not in STOP_WORDS)
-    strong = frozenset(w for w in words if len(w) > 2 and w not in WEAK_WORDS and w not in COUNTRY_WORDS)
-    return words, strong
+def _shared_words(text: str, subject: str, minimum: int) -> str:
+    words, found = _words(text), _words(subject)
+    seen = [_seen(word, words, found, minimum) for word in words]
+    strong = sorted(label for label, weak in seen if label and not weak)
+    if strong:
+        return " ".join(strong)
+    return " ".join(sorted(label for label, _ in seen)) if seen and all(label for label, _ in seen) else ""
 
 
-def _seen(word: str, subject: frozenset[str], minimum: int) -> bool:
-    if word in subject:
-        return True
-    # Only longer words of letters match fuzzily, since Place12 and Place123 name different places.
+def _seen(word: str, words: frozenset[str], found: frozenset[str], minimum: int) -> tuple[str, bool]:
+    rule = _rules().get(word, {})
+    weak = _weak(word)
+    label = word if word in found or (not weak and _similar(word, found, minimum)) else ""
+    if not label:
+        for alternate in rule.get("alternate", ()):
+            if isinstance(alternate, dict):
+                if not _applies(alternate, words):
+                    continue
+                alternate = alternate["word"]
+            if found.issuperset(alternate.split()):
+                label = f"{word} ({alternate})"
+                # A weak word seen as one strong word, such as massachusetts as mit, counts as strong.
+                weak = weak and (" " in alternate or _weak(alternate))
+                break
+    return (label, weak) if label and _synced(rule.get("sync", ()), words, found) else ("", weak)
+
+
+def _similar(word: str, found: frozenset[str], minimum: int) -> bool:
+    # Only strong words of letters match by spelling, since Place12 and Place123 name different places and a
+    # misspelled Universty would otherwise match every University.
     return len(word) >= FUZZY_WORD_MIN and word.isalpha() and any(
-        len(other) >= FUZZY_WORD_MIN and other.isalpha() and fuzz.ratio(word, other) >= minimum for other in subject
+        len(other) >= FUZZY_WORD_MIN and other.isalpha() and not _weak(other) and fuzz.ratio(word, other) >= minimum
+        for other in found
     )
 
 
-def _same(first: Person, second: Person) -> str:
+def _applies(alternate: dict, words: frozenset[str]) -> bool:
+    # HotCRP skips an alternate unless all its if words are present, and when all its if_not words are.
+    return words.issuperset(alternate.get("if", "").split()) and not (
+        alternate.get("if_not") and words.issuperset(alternate["if_not"].split()))
+
+
+def _synced(sync: str | list[str], words: frozenset[str], found: frozenset[str]) -> bool:
+    # Each group of sync words appears in both affiliations or in neither, such as state for arizona.
+    groups = [sync] if isinstance(sync, str) else sync
+    return all(bool(words.intersection(group.split())) == bool(found.intersection(group.split())) for group in groups)
+
+
+@functools.cache
+def _words(text: str) -> frozenset[str]:
+    return frozenset(
+        word for word in fold(text).split() if word not in PLACEHOLDER_WORDS and not _rules().get(word, {}).get("stop")
+    )
+
+
+@functools.cache
+def _weak(word: str) -> bool:
+    return len(word) <= 2 or word in COUNTRY_WORDS or word in GENERIC_WORDS or bool(_rules().get(word, {}).get("weak"))
+
+
+@functools.cache
+def _rules() -> dict[str, dict]:
+    return json.loads(tools.external("hotcrp/affiliationmatchers.json").read_text(encoding="utf-8"))
+
+
+@functools.cache
+def _public_suffixes() -> tuple[frozenset[str], frozenset[str]]:
+    lines = tools.external("publicsuffix/public_suffix_list.dat").read_text(encoding="utf-8").splitlines()
+    rules = {line.split()[0] for line in lines if line.strip() and not line.startswith("//")}
+    # The rule * applies where no other rule does, which makes an unknown top-level domain a public suffix.
+    return frozenset(r for r in rules if r[0] != "!") | {"*"}, frozenset(r[1:] for r in rules if r[0] == "!")
+
+
+def _same(first: Person, second: Person, works: _Works) -> str:
     if first.email and second.email and first.email.strip().lower() == second.email.strip().lower():
         return "email"
-    if parse_pid(first.dblp) and parse_pid(first.dblp) == parse_pid(second.dblp):
-        return "dblp person ID"
+    one, other = works.pid(first), works.pid(second)
+    if one and other:
+        # Two dblp persons are two people, even under one name.
+        return "dblp person ID" if one == other else ""
     return "name" if _name(first.name) and _name(first.name) == _name(second.name) else ""
 
 
@@ -355,8 +445,8 @@ def _name(name: str) -> str:
     return fold(name)
 
 
-def _among(person: Person, people: list[Person]) -> bool:
-    return any(_same(person, other) for other in people)
+def _among(person: Person, people: list[Person], works: _Works) -> bool:
+    return any(_same(person, other, works) for other in people)
 
 
 def _webmail(domain: str, webmail: frozenset[str]) -> bool:
@@ -376,4 +466,10 @@ def _csv_rows(path: Path) -> list[list[str]]:
     if not path.is_file():
         raise InputError(f"file not found: {path}")
     with path.open(encoding="utf-8-sig", newline="") as handle:
-        return list(csv.reader(handle))
+        sample = handle.read(4096)
+        handle.seek(0)
+        try:
+            delimiter = csv.Sniffer().sniff(sample, delimiters=",;\t").delimiter
+        except csv.Error:
+            delimiter = ","
+        return list(csv.reader(handle, delimiter=delimiter))

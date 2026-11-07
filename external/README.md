@@ -14,9 +14,10 @@
 | `coconuts/` | github.com/icip-cas/CoCoNUTS | commit `25df608` | no license file | keeps `infer.py`, the original of CoCoDet, and runs its own version in `src/reviews/cocodet.py` |
 | `editlens/` | github.com/pangramlabs/EditLens | commit `05a588f` | CC BY-NC-SA 4.0 | keeps the code of Open Pangram, the release of EditLens, without its data and runs its own version in `src/reviews/editlens.py` |
 | `hallucinator/` | github.com/gianlucasb/hallucinator | release v0.2.4 | AGPL-3.0-or-later | keeps the Rust source of the reference checker, whose built program `peercheck setup references` downloads |
-| `hotcrp/` | github.com/kohler/hotcrp | commit `4c1ef77` | GPL-2.0-or-later for `banal`, Click license for the rest | runs `banal` in the format check and copies the affiliation word lists of `affiliationmatchers.json` into `src/conflicts.py` |
+| `hotcrp/` | github.com/kohler/hotcrp | commit `4c1ef77` | GPL-2.0-or-later for `banal`, Click license for the rest | runs `banal` in the format check and reads the affiliation word lists of `affiliationmatchers.json` in the conflict check |
 | `openreview-py/` | github.com/openreview/openreview-py | commit `9e8ba8e` | MIT | copies the webmail list of `openreview/tools.py` into `src/conflicts.py` |
 | `phantomlint/` | github.com/tobycmurray/phantom-lint | commit `7f62001` | BSD-3-Clause | copies the warning phrases of PhantomLint into `src/checks/hidden_text.py` |
+| `publicsuffix/` | publicsuffix.org, the Public Suffix List | version `2026-11-06_09-01-47_UTC`, commit `94ec5df` | MPL-2.0 | reads the public suffixes, such as `ac.uk` and `re.kr`, to find the registered domain of each email address in the conflict check |
 | `submission-checker/` | github.com/acmsigsoft/submission-checker | release v0.4.3, commit `3ffa1eb` | Apache-2.0 | runs the jar, built from the revised source in this folder, in the anonymity and template check |
 
 ## Checks
@@ -31,7 +32,7 @@
 | `reviews` | Planted citation (`--canaries`) | reviews that cite the made-up work hidden in their paper | the method of Rao et al. that ICML 2026 used |
 | `reviews` | Copied text (`duplicates`) | paragraphs that reviews share, with at least half of their short character sequences alike | MinHash, a fast search for similar text, from the datasketch library |
 | `reviews` | Citation requests (`citations`) | works that reviewers ask the authors to cite, their own included, and requests for more works than the paper has pages | DBLP, for the works of the reviewers, through `--dblp-index` |
-| `conflicts` | Conflicts of interest | co-authorship within three years (the window of the ACM SIGSOFT Policy on Program Committees), shared email domains other than webmail, affiliations that match, and declared conflicts without evidence | DBLP, the affiliation word lists of HotCRP, and the webmail list of OpenReview |
+| `conflicts` | Conflicts of interest | co-authorship within three years (the window of the ACM SIGSOFT Policy on Program Committees), shared email domains other than webmail, affiliations that match, and declared conflicts without evidence | DBLP, the affiliation word lists of HotCRP, the webmail list of OpenReview, and the Public Suffix List |
 
 - Before the review period, `peercheck canary` hides a request to cite a made-up work, such as Smith et al. (2019),
   in white text in a copy of each PDF. A wrong hit among all reviews has a chance of 0.1% or less.
