@@ -1,0 +1,43 @@
+% The text of the unresolved-reference fixtures. Every label and every cited key is defined, and the plain
+% question marks of the second paragraph, the listings, the table, and the figure must never count as marks.
+\section{Introduction}\label{sec:intro}
+Flaky tests pass and fail on the same code~\cite{luo2014}. Detectors rerun each failure~\cite{luo2014,bell2018},
+and a survey covers the field~\cite{parry2021}. Section~\ref{sec:method} describes the method,
+Fig.~\ref{fig:overview} gives an overview, Table~\ref{tab:results} lists the results, and
+Eq.~(\ref{eq:score}) defines the score, also written as \eqref{eq:score}. Algorithm~\ref{alg:rank} ranks the
+failures, RQ\ref{rq:accuracy} asks how accurate the ranking is, and \autoref{sec:discussion} and
+\cref{sec:method} close the paper on page~\pageref{sec:discussion}.
+
+A developer asked, ``Why?? The test passed yesterday!'' Another wrote ``Really?!'' and a third asked, ``Is this
+the right page??'' The value $f(?)$ stays open, and the most common (?) cause is the order of the tests. Is the
+cause known? Not yet. The ternary form \texttt{a ? b : c} and the query \texttt{?q=flaky} appear in the logs.
+
+\begin{enumerate}
+\item\label{rq:accuracy} \textbf{RQ1:} How accurate is the ranking? (\textbf{RQ1})
+\end{enumerate}
+\begin{equation}\label{eq:score}
+s(t) = \frac{f(t)}{r(t)} \quad (?)
+\end{equation}
+
+\section{Method}\label{sec:method}
+\textbf{What now??} The tool ranks the failures. \textbf{Is it flaky?} The history decides.
+\begin{verbatim}
+grep -E "[?]" log.txt   # a literal ?? or (?) in the log
+\end{verbatim}
+\begin{lstlisting}[language={[Sharp]C},basicstyle=\ttfamily\small,keywordstyle=\bfseries]
+var name = user?.Name ?? "unknown";
+\end{lstlisting}
+\begin{table}[h]\caption{Results}\label{tab:results}\centering
+\begin{tabular}{lrr}\hline \textbf{Project} & \textbf{Accuracy} & \textbf{Flaky?}\\\hline
+A & 0.71 & yes\\ B & ? & (?)\\\hline\end{tabular}
+\end{table}
+\begin{figure}[h]\centering
+\begin{tikzpicture}\node[draw,diamond] {\textbf{?}};\end{tikzpicture}
+\caption{Overview}\label{fig:overview}
+\end{figure}
+\begin{algorithm}[h]\caption{Rank}\label{alg:rank}
+\begin{algorithmic}\STATE rank the failures\end{algorithmic}
+\end{algorithm}
+
+\section{Discussion}\label{sec:discussion}
+Which failures need attention first? The ranking answers this question for 71\% of the builds.

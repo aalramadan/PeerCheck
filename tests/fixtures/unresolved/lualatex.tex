@@ -1,0 +1,11 @@
+% A LuaLaTeX paper in OpenType Libertine, which sets ?? as the ligature U+2047. make_fixtures.py compiles it once
+% into lualatex-once.pdf, where the reference and the citation are still undefined.
+\documentclass{article}
+\usepackage{libertine}
+\begin{document}
+\section{Introduction}\label{sec:intro}
+Flaky tests pass and fail on the same code~\cite{luo2014}, as discussed in~\ref{sec:intro}.
+A developer asked, ``Why?? The test passed yesterday!''
+\bibliographystyle{plain}
+\bibliography{refs}
+\end{document}

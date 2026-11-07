@@ -1,0 +1,25 @@
+% An acmart sigconf paper, whose citations come from natbib. make_fixtures.py compiles it once into acm-once.pdf,
+% where every reference and citation is still undefined.
+\pdftrailerid{}
+\pdfinfoomitdate=1
+\pdfsuppressptexinfo=-1
+\documentclass[sigconf]{acmart}
+\usepackage{algorithm}
+\usepackage{algorithmic}
+\usepackage{listings}
+\usepackage{tikz}
+\usetikzlibrary{shapes.geometric}
+\usepackage{cleveref}
+\begin{document}
+\title{Ranking Flaky Test Failures}
+\author{Anonymous Author(s)}
+\affiliation{\institution{Anonymous Institution}\country{Country}}
+\begin{abstract}
+Flaky tests pass and fail on the same code. Which failure is flaky? The ranking answers this question.
+\end{abstract}
+\maketitle
+\input{body}
+As \citet{luo2014} show and \citeauthor{bell2018} confirm, the order matters~\citep{parry2021}.
+\bibliographystyle{ACM-Reference-Format}
+\bibliography{refs}
+\end{document}
