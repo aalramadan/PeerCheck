@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from peercheck import gui
+from peercheck import cli, gui
 
 SAMPLES = Path(__file__).resolve().parents[1] / "samples"
 
@@ -128,3 +128,19 @@ def test_page_runs_a_papers_check_and_serves_its_report(server):
     assert outcome["summary"] == "1 papers checked, 1 need review."
     reply, page = call(server, "GET", outcome["report"])
     assert reply == 200 and b"hidden-text.white-text" in page
+
+
+def test_server_in_a_container_listens_on_every_address_but_answers_only_local_names(tmp_path):
+    running = gui.Server(0, "icse-2027", tmp_path, host="0.0.0.0")
+    try:
+        assert running.server_address[0] == "0.0.0.0"
+        assert running.hosts == {f"127.0.0.1:{running.server_port}", f"localhost:{running.server_port}"}
+    finally:
+        running.server_close()
+
+
+def test_gui_command_takes_its_address_and_port_from_the_environment_of_the_docker_image(monkeypatch):
+    monkeypatch.setenv("PEERCHECK_GUI_HOST", "0.0.0.0")
+    monkeypatch.setenv("PEERCHECK_GUI_PORT", "8765")
+    args = cli.parser().parse_args(["gui"])
+    assert (args.host, args.port) == ("0.0.0.0", 8765)

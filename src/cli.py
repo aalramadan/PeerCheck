@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import importlib.util
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -104,9 +105,13 @@ def parser() -> argparse.ArgumentParser:
     setup.set_defaults(handler=run_setup)
 
     browser = commands.add_parser("gui", help="open the checks as a page in the browser")
-    browser.add_argument("--port", type=int, default=0, help="port on 127.0.0.1 (default: a free port)")
+    # The Docker image sets both variables, since a container must listen on every address of a known port.
+    browser.add_argument("--host", default=os.environ.get("PEERCHECK_GUI_HOST", "127.0.0.1"),
+                         help="address to listen on (default 127.0.0.1)")
+    browser.add_argument("--port", type=int, default=int(os.environ.get("PEERCHECK_GUI_PORT", "0")),
+                         help="port to listen on (default: a free port)")
     browser.add_argument("--no-browser", action="store_true", help="print the address of the page without opening it")
-    browser.set_defaults(handler=lambda a: gui.serve(a.profile, a.port, not a.no_browser))
+    browser.set_defaults(handler=lambda a: gui.serve(a.profile, a.port, not a.no_browser, a.host))
 
     commands.add_parser("doctor", help="report missing programs and files").set_defaults(handler=run_doctor)
     commands.add_parser("profiles", help="list the venue profiles").set_defaults(handler=run_profiles)
