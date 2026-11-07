@@ -10,6 +10,7 @@ from dataclasses import asdict
 from pathlib import Path
 
 import openpyxl
+from openpyxl.cell.cell import ILLEGAL_CHARACTERS_RE
 from openpyxl.utils import get_column_letter
 
 from peercheck import __version__
@@ -126,9 +127,10 @@ def write_papers_html(out: Path, run: PapersRun) -> None:
                          metrics.get("Reference-only Pages"), metrics.get("Paper Size (height x width, pt)"),
                          count(result.findings, Severity.ERROR), count(result.findings, Severity.WARNING)],
                         result.findings))
+    skipped = ((len(run.unmatched), "hold no paper ID"), (len(run.duplicates), "repeat a paper ID"))
     notes = ([f"Paper {paper_id} has no PDF." for paper_id in run.missing_pdfs]
-             + [f"{name} holds no paper ID." for name in run.unmatched]
-             + [f"{name} repeats a paper ID and was skipped." for name in run.duplicates])
+             + [f"Skipped {number} PDF(s) that {reason}; the Files sheet of the workbook names them."
+                for number, reason in skipped if number])
     _write_html(out, "PeerCheck, Papers", columns, records, notes + [f"Checks run: {', '.join(run.checks)}."])
 
 
@@ -147,7 +149,9 @@ def write_rows_html(out: Path, title: str, rows: list[dict], findings: dict[str,
 
 def write_json(out: Path, data: object) -> None:
     """Write any result as JSON, turning dataclasses, paths, and enums into plain values."""
-    out.write_text(json.dumps(_plain(data), indent=2, ensure_ascii=False), encoding="utf-8")
+    out.parent.mkdir(parents=True, exist_ok=True)
+    # A file name that is not valid UTF-8 holds lone surrogates, which the escape \udcXX keeps as valid JSON.
+    out.write_text(json.dumps(_plain(data), indent=2, ensure_ascii=False), encoding="utf-8", errors="backslashreplace")
 
 
 def _write_html(out: Path, title: str, columns, records, notes: list[str]) -> None:
@@ -237,6 +241,9 @@ def _append(sheet, values) -> None:
 
 
 def _set(cell, value) -> None:
+    if isinstance(value, str):
+        # openpyxl refuses the control characters that an Excel file cannot hold, such as U+000E from a PDF.
+        value = ILLEGAL_CHARACTERS_RE.sub("", value)
     cell.value = value
     if isinstance(value, str) and value.startswith(FORMULA_START):
         cell.data_type = "s"

@@ -30,12 +30,15 @@ dev = ["pytest>=8", "ruff>=0.6", "pikepdf>=8"]
 peercheck = "peercheck.cli:main"
 
 [tool.setuptools]
-# The package peercheck is the folder src/ itself. The tools and data of other authors stay in external/.
-package-dir = {"peercheck" = "src"}
-packages = ["peercheck", "peercheck.checks", "peercheck.reviews"]
+# The package peercheck is the folder src/ itself. The tools and data of other authors stay in external/, and a wheel
+# holds the files of external/ that the checks need, with their licenses, in peercheck/external/.
+package-dir = {"peercheck" = "src", "peercheck.external" = "external"}
+packages = ["peercheck", "peercheck.checks", "peercheck.reviews", "peercheck.external"]
 
 [tool.setuptools.package-data]
 peercheck = ["profiles/*.yaml", "gui.html"]
+"peercheck.external" = ["hotcrp/banal", "hotcrp/LICENSE", "submission-checker/submission-checker.jar",
+                        "submission-checker/LICENSE", "census-surnames/census_surnames.txt"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

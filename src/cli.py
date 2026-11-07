@@ -56,7 +56,9 @@ def _command_index(argv: list[str]) -> int:
 
 def parser() -> argparse.ArgumentParser:
     """Build the parser of the command line."""
-    top = argparse.ArgumentParser(prog="peercheck", description="Screen submissions and reviews locally.")
+    # No abbreviations, since _command_index finds the command only after a --profile written in full.
+    top = argparse.ArgumentParser(prog="peercheck", description="Screen submissions and reviews locally.",
+                                  allow_abbrev=False)
     top.add_argument("--version", action="version", version=f"PeerCheck {__version__}")
     top.add_argument("--profile", default="icse-2027", help="venue profile key or YAML file (default icse-2027)")
     commands = top.add_subparsers(dest="command")
@@ -105,13 +107,14 @@ def parser() -> argparse.ArgumentParser:
     setup.set_defaults(handler=run_setup)
 
     browser = commands.add_parser("gui", help="open the checks as a page in the browser")
-    # The Docker image sets both variables, since a container must listen on every address of a known port.
-    browser.add_argument("--host", default=os.environ.get("PEERCHECK_GUI_HOST", "127.0.0.1"),
-                         help="address to listen on (default 127.0.0.1)")
-    browser.add_argument("--port", type=int, default=int(os.environ.get("PEERCHECK_GUI_PORT", "0")),
+    # The Docker image sets both variables, since a container must listen on every address of a known port. A string
+    # default goes through the type check only when this command runs, as a value on the command line does.
+    browser.add_argument("--host", type=_gui_host, default=os.environ.get("PEERCHECK_GUI_HOST") or "127.0.0.1",
+                         help=f"address to listen on: {', '.join(gui.LISTEN_ADDRESSES)} (default 127.0.0.1)")
+    browser.add_argument("--port", type=_port, default=os.environ.get("PEERCHECK_GUI_PORT") or "0",
                          help="port to listen on (default: a free port)")
     browser.add_argument("--no-browser", action="store_true", help="print the address of the page without opening it")
-    browser.set_defaults(handler=lambda a: gui.serve(a.profile, a.port, not a.no_browser, a.host))
+    browser.set_defaults(handler=run_gui)
 
     commands.add_parser("doctor", help="report missing programs and files").set_defaults(handler=run_doctor)
     commands.add_parser("profiles", help="list the venue profiles").set_defaults(handler=run_profiles)
@@ -119,16 +122,31 @@ def parser() -> argparse.ArgumentParser:
     return top
 
 
+def _gui_host(text: str) -> str:
+    """Return an address that the page can listen on, or refuse it."""
+    if text not in gui.LISTEN_ADDRESSES:
+        raise argparse.ArgumentTypeError(f"invalid address {text!r}; choose {', '.join(gui.LISTEN_ADDRESSES)}")
+    return text
+
+
+def _port(text: str) -> int:
+    """Return a port number from 0 to 65535, or refuse it."""
+    if not text.isdecimal() or int(text) > 65535:
+        raise argparse.ArgumentTypeError(f"invalid port {text!r}; choose 0 to 65535, where 0 picks a free port")
+    return int(text)
+
+
 def run_papers(args: argparse.Namespace) -> int:
     """Check a folder of submission PDFs and write the report."""
     venue = profiles.load(args.profile)
-    checks = [name.strip() for name in args.checks.split(",")] if args.checks else None
+    checks = list(dict.fromkeys(name.strip() for name in args.checks.split(","))) if args.checks else None
     run = pipeline.run_papers(args.pdfs, venue, args.submissions, args.authors, checks)
-    report.write_papers(args.out, run, venue, args.submissions)
+    # The JSON file and the page come first, since the workbook can fail, such as when it is open in Excel.
     if args.json:
         report.write_json(args.json, run)
     if args.html:
         report.write_papers_html(args.html, run)
+    report.write_papers(args.out, run, venue, args.submissions)
     flagged = sum(1 for result in run.results if needs_review(result.findings))
     print(f"{len(run.results)} papers checked, {flagged} need review. Report: {args.out}")
     for name in run.unmatched + run.duplicates:
@@ -140,8 +158,7 @@ def run_reviews(args: argparse.Namespace) -> int:
     """Run the review checks in their own process, since they load PyTorch and the detector models."""
     if importlib.util.find_spec("torch") is None:
         raise tools.ToolError("the review checks need the reviews extra: pip install 'peercheck[reviews]'")
-    rest = [arg for arg in args.rest if arg != "--"]
-    return subprocess.call([sys.executable, "-m", "peercheck.reviews", "--profile", args.profile, *rest])
+    return subprocess.call([sys.executable, "-m", "peercheck.reviews", "--profile", args.profile, *args.rest])
 
 
 def run_conflicts(args: argparse.Namespace) -> int:
@@ -187,6 +204,13 @@ def run_canary(args: argparse.Namespace) -> int:
     return 0
 
 
+def run_gui(args: argparse.Namespace) -> int:
+    """Serve the checks as a page in the browser until Ctrl+C."""
+    # The page offers the profile of the session first, therefore a profile that does not load stops here.
+    profiles.load(args.profile)
+    return gui.serve(args.profile, args.port, not args.no_browser, args.host)
+
+
 def run_setup(args: argparse.Namespace) -> int:
     """Download the tools or models of one check into the cache."""
     if args.what == "references":
@@ -226,7 +250,11 @@ def menu(profile_key: str) -> int:
             if choice not in actions:
                 print("Please enter 1, 2, 3, or 4.")
                 continue
-            code = main(["--profile", profile_key, *actions[choice]()])
+            try:
+                code = main(["--profile", profile_key, *actions[choice]()])
+            except SystemExit as stop:
+                # argparse stops with SystemExit at an answer that it refuses, such as a folder named --bogus.
+                code = stop.code
             print("Done." if code == 0 else f"Finished with exit code {code}.")
         except (EOFError, KeyboardInterrupt):
             print()
@@ -243,6 +271,8 @@ def _menu_papers() -> list[str]:
     sheet = _ask("Submission sheet (none to skip)", "submissions.xlsx")
     if sheet != "none" and Path(sheet).is_file():
         command += ["--submissions", sheet]
+    elif sheet != "none":
+        print(f"{sheet} not found; the report goes without a submission sheet.")
     authors = _ask("Author list (none to skip)", "none")
     if authors != "none":
         command += ["--authors", authors]
@@ -250,7 +280,10 @@ def _menu_papers() -> list[str]:
 
 
 def _menu_reviews() -> list[str]:
-    return ["reviews", _ask("Folder or file of review exports", "reviews"), "--out", _ask("Report file", "reviews.xlsx")]
+    command = ["reviews", _ask("Folder or file of review exports", "reviews")]
+    detectors = _ask("AI detectors, comma-separated (none to skip)", ",".join(gui.DETECTORS))
+    return command + ["--detectors", "" if detectors == "none" else detectors,
+                      "--out", _ask("Report file", "reviews.xlsx")]
 
 
 def _menu_conflicts() -> list[str]:

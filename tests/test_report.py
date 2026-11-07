@@ -58,6 +58,22 @@ def test_text_from_reviews_and_pdfs_that_looks_like_a_formula_stays_text(tmp_pat
     assert _sheet(out, "Review Findings").cell(row=2, column=6).data_type == "s"
 
 
+def test_control_characters_that_an_excel_file_cannot_hold_are_dropped_from_the_review_report(tmp_path):
+    out = tmp_path / "reviews.xlsx"
+    finding = Finding("canary.hit", Severity.ERROR, "the review cites Garc\x0eia et al.", evidence="e\x0ecient\x00")
+    report.write_sheets(out, {"Reviews": [{"Review": "An e\x0ecient tool"}]}, [("r1", finding)], [])
+    assert _sheet(out, "Reviews").cell(row=2, column=1).value == "An ecient tool"
+    assert [c.value for c in _sheet(out, "Review Findings")[2]][4:] == ["the review cites Garcia et al.", "ecient"]
+
+
+def test_submission_sheet_with_a_control_character_in_a_title_extends_into_the_report(tmp_path):
+    sheet = tmp_path / "submissions.csv"
+    sheet.write_text("ID,Title\n7,Repair of\x0cBuild Scripts\n", encoding="utf-8")
+    out = tmp_path / "report.xlsx"
+    report.write_papers(out, _run(), profile.load("icse-2027"), sheet)
+    assert _sheet(out, None).cell(row=2, column=2).value == "Repair ofBuild Scripts"
+
+
 def test_unmatched_files_get_their_own_sheet(tmp_path):
     out = tmp_path / "report.xlsx"
     report.write_papers(out, _run(), profile.load("example-easychair"))
@@ -70,6 +86,21 @@ def test_json_report_holds_plain_values(tmp_path):
     data = json.loads(out.read_text())
     assert data["results"][0]["findings"][0]["severity"] == "error"
     assert data["results"][0]["paper"]["pdf"] == "CONF_2026_paper_7.pdf"
+
+
+def test_json_report_goes_into_a_folder_that_does_not_exist_yet(tmp_path):
+    out = tmp_path / "new" / "r.json"
+    report.write_json(out, _run())
+    assert json.loads(out.read_text(encoding="utf-8"))["unmatched"] == ["odd name.pdf"]
+
+
+def test_json_report_keeps_a_file_name_that_is_not_valid_utf8(tmp_path):
+    out = tmp_path / "r.json"
+    run = _run()
+    # Python reads the byte 0xE9 of a Latin-1 file name as the lone surrogate U+DCE9.
+    run.unmatched.append("caf\udce9-paper2.pdf")
+    report.write_json(out, run)
+    assert json.loads(out.read_text(encoding="utf-8"))["unmatched"] == ["odd name.pdf", "caf\udce9-paper2.pdf"]
 
 
 def test_html_page_escapes_text_from_pdfs_and_loads_nothing_from_the_web(tmp_path):
@@ -99,6 +130,16 @@ def test_html_page_offers_a_dark_theme_and_shows_no_file_names(tmp_path):
     page = out.read_text()
     assert "data-theme=dark" in page and 'id="theme"' in page
     assert "CONF_2026_paper_7.pdf" not in page
+
+
+def test_html_page_counts_the_skipped_pdfs_without_naming_them(tmp_path):
+    out = tmp_path / "report.html"
+    run = _run()
+    run.duplicates.extend(["CONF_2026_paper_7 (1).pdf", "CONF_2026_paper_9 (1).pdf"])
+    report.write_papers_html(out, run)
+    page = out.read_text()
+    assert "odd name.pdf" not in page and "(1).pdf" not in page
+    assert "Skipped 1 PDF(s) that hold no paper ID" in page and "Skipped 2 PDF(s) that repeat a paper ID" in page
 
 
 def test_html_page_of_papers_is_titled_papers_without_the_venue(tmp_path):

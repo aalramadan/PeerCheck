@@ -17,8 +17,10 @@ class ToolError(RuntimeError):
     """A program or a file of external/ that a check needs is missing."""
 
 
-# The tools and data of other authors sit in external/ at the root of the repository, beside src/.
-EXTERNAL = Path(__file__).resolve().parent.parent / "external"
+_PACKAGE = Path(__file__).resolve().parent
+# A clone keeps the tools and data of other authors in external/ beside src/. A wheel holds the files of external/
+# that the checks need in peercheck/external/, as pyproject.toml lists them.
+EXTERNAL = _PACKAGE / "external" if (_PACKAGE / "external").is_dir() else _PACKAGE.parent / "external"
 
 
 def external(relative: str) -> Path:
@@ -34,6 +36,11 @@ def banal() -> Path:
 def submission_checker() -> Path:
     """Return the path of the jar of the revised SIGSOFT submission checker."""
     return external("submission-checker/submission-checker.jar")
+
+
+def census_surnames() -> Path:
+    """Return the path of the surnames of the 2010 US Census, from which the canary check draws its citations."""
+    return external("census-surnames/census_surnames.txt")
 
 
 def program(name: str) -> str:
@@ -53,7 +60,7 @@ def cache_dir() -> Path:
 def missing() -> dict[str, str]:
     """Return each program or file of external/ that is missing, with its install hint."""
     problems = {name: hint for name, hint in INSTALL_HINTS.items() if not shutil.which(name)}
-    for path in (banal(), submission_checker()):
+    for path in (banal(), submission_checker(), census_surnames()):
         if not path.is_file():
             problems[path.name] = f"file missing at {path}; run PeerCheck from a full clone of the repository"
     return problems
