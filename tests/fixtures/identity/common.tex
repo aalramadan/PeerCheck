@@ -1,0 +1,12 @@
+% Shared preamble of the identity fixtures. The pdfTeX settings keep builds reproducible.
+% Unlike the other fixtures, these keep the PTEX keys of included figures, which the check reads.
+\pdftrailerid{}
+\pdfinfoomitdate=1
+\documentclass[letterpaper,11pt]{article}
+\usepackage[margin=1in]{geometry}
+\usepackage{graphicx}
+\pagestyle{empty}
+\newcommand{\visibleintro}{%
+Flaky tests pass and fail on the same code without any change to the program under test.
+This study reruns each test of 26 open-source Java projects in shuffled orders and records
+every outcome together with the order in which the tests ran.}
