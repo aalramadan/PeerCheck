@@ -1,0 +1,26 @@
+% An IEEEtran paper with hyperref and cleveref. make_fixtures.py compiles it once into ieee-once.pdf, where
+% every reference and citation is still undefined, and fully into ieee.pdf, where all of them resolve.
+\pdftrailerid{}
+\pdfinfoomitdate=1
+\pdfsuppressptexinfo=-1
+\documentclass[conference]{IEEEtran}
+\usepackage{cite}
+\usepackage{amsmath}
+\usepackage{algorithm}
+\usepackage{algorithmic}
+\usepackage{listings}
+\usepackage{tikz}
+\usetikzlibrary{shapes.geometric}
+\usepackage{hyperref}
+\usepackage{cleveref}
+\begin{document}
+\title{Ranking Flaky Test Failures}
+\author{\IEEEauthorblockN{Anonymous Author(s)}}
+\maketitle
+\begin{abstract}
+Flaky tests pass and fail on the same code. Which failure is flaky? The ranking answers this question.
+\end{abstract}
+\input{body}
+\bibliographystyle{IEEEtran}
+\bibliography{refs}
+\end{document}

@@ -1,0 +1,27 @@
+% The IEEEtran paper of ieee.tex with one label and one bibliography key that do not exist. make_fixtures.py
+% compiles it fully into ieee-missing.pdf, where these two stay undefined and everything else resolves.
+\pdftrailerid{}
+\pdfinfoomitdate=1
+\pdfsuppressptexinfo=-1
+\documentclass[conference]{IEEEtran}
+\usepackage{cite}
+\usepackage{amsmath}
+\usepackage{algorithm}
+\usepackage{algorithmic}
+\usepackage{listings}
+\usepackage{tikz}
+\usetikzlibrary{shapes.geometric}
+\usepackage{hyperref}
+\usepackage{cleveref}
+\begin{document}
+\title{Ranking Flaky Test Failures}
+\author{\IEEEauthorblockN{Anonymous Author(s)}}
+\maketitle
+\begin{abstract}
+Flaky tests pass and fail on the same code. Which failure is flaky? The ranking answers this question.
+\end{abstract}
+\input{body}
+A study of the test order~\cite{nowhere2020} follows in Section~\ref{sec:nowhere}.
+\bibliographystyle{IEEEtran}
+\bibliography{refs}
+\end{document}

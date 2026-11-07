@@ -19,12 +19,14 @@ dependencies = [
     "pdfguardrail==0.3.0",
     # The clipped-text rule was tested on 1.28.2. PyMuPDF 2 pulls onnxruntime and layout models.
     "pymupdf>=1.28.2,<2",
+    # The integrity check reads the structure of a PDF with qpdf.
+    "pikepdf>=8",
 ]
 
 [project.optional-dependencies]
 # The detectors CoCoDet and EditLens.
 reviews = ["torch>=2.6", "transformers>=4.56", "huggingface_hub>=0.23"]
-dev = ["pytest>=8", "ruff>=0.6", "pikepdf>=8"]
+dev = ["pytest>=8", "ruff>=0.6"]
 
 [project.scripts]
 peercheck = "peercheck.cli:main"
