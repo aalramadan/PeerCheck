@@ -21,8 +21,8 @@ from peercheck.profile import Profile
 # Header names that EasyChair, HotCRP, and the SIGSOFT author CSV use for the same column.
 HEADER_ALIASES = {
     "paper": ("paper", "submission", "submission #", "submission id", "paper id", "#", "id"),
-    "first": ("first", "first name", "firstname", "given name"),
-    "last": ("last", "last name", "lastname", "family name", "surname"),
+    "first": ("first", "first name", "firstname", "given name", "given_name"),
+    "last": ("last", "last name", "lastname", "family name", "family_name", "surname"),
     "email": ("email", "e-mail", "email address"),
     "affiliation": ("affiliation", "organization", "organisation", "institution"),
     "dblp": ("dblp", "dblp id", "dblp url", "dblp pid"),

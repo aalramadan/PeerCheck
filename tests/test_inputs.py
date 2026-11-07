@@ -345,3 +345,11 @@ def test_field_names_decide_which_text_goes_to_the_authors(tmp_path, name, for_a
     path.write_text(f"paper,review,{name}\n12,A,The evaluation lacks a baseline.\n")
     (review,) = inputs.read_reviews(path)
     assert bool(review.author_text) is for_authors
+
+
+def test_author_list_of_hotcrp_with_given_and_family_names_is_read(tmp_path):
+    path = tmp_path / "authors.csv"
+    path.write_text("paper,title,given_name,family_name,email,affiliation\n"
+                    "4,Flaky Tests,Ana,Ruiz,ana@riverside.example,Riverside State University\n", encoding="utf-8")
+    person = inputs.read_people(path, with_paper=True)[4][0]
+    assert (person.first, person.last, person.email) == ("Ana", "Ruiz", "ana@riverside.example")
