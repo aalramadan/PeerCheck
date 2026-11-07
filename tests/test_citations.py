@@ -41,6 +41,16 @@ def review(text: str, paper_id: int = 9, reviewer: Person | None = None, review_
     return Review(review_id=review_id, paper_id=paper_id, title="", source="test", author_text=text, reviewer=reviewer)
 
 
+def one_work_each(*works: tuple[Person, int, str]) -> dblp.DblpIndex:
+    """Index one work per person, given as the person, the year, and the title, with the DOI 10.5555/<position>."""
+    index = dblp.DblpIndex()
+    for number, (person, year, title) in enumerate(works):
+        key = f"conf/test/{number}"
+        index.publications[key] = dblp.Publication(key, year, title, f"10.5555/{number}", (person.name,))
+        index.identities[dblp.person_key(person)] = dblp.Identity((person.name,))
+    return index
+
+
 class TestExtract:
     def test_dois_lose_trailing_punctuation_and_case(self):
         items = citations.extract("See doi:10.1145/3540250.3549115). Also https://doi.org/10.1109/TSE.2020.0000001.")
@@ -167,3 +177,47 @@ class TestSelfCitation:
 
     def test_unrelated_works_give_no_self_citation_finding(self, found):
         assert checks(found["R5"], "citations.self-citation-request") == []
+
+    def test_a_short_quoted_phrase_inside_a_longer_title_asks_for_no_work(self):
+        doe = Person("Kim", "Doe")
+        index = one_work_each((doe, 2025, "Large Language Models for Automated Program Repair: A Survey."))
+        found = citations.check_reviews(
+            [review('Section 2 never defines what the paper means by "Large Language Models".', reviewer=doe)],
+            {"dblp_index": index},
+        )
+        assert checks(found["X"], "citations.self-citation-request") == []
+
+    def test_a_quoted_title_with_a_typo_still_matches_by_title(self):
+        doe = Person("Kim", "Doe")
+        index = one_work_each((doe, 2025, "Large Language Models for Automated Program Repair: A Survey."))
+        found = citations.check_reviews(
+            [review('Please cite "Large Language Model for Automated Program Repair: A Survey".', reviewer=doe)],
+            {"dblp_index": index},
+        )
+        assert checks(found["X"], "citations.self-citation-request")[0].evidence.endswith(
+            "by title; this reviewer asks for own works in 1 of 1 reviews")
+
+    def test_surnames_with_an_apostrophe_or_a_hyphen_match_by_first_author_and_year(self):
+        obrien, garcia = Person("Liam", "O'Brien"), Person("Maria", "Garcia-Molina")
+        index = one_work_each((obrien, 2024, "Ranking Flaky Test Failures."), (garcia, 2023, "Test Smells in CI."))
+        found = citations.check_reviews(
+            [review("Please cite O'Brien et al. (2024).", paper_id=1, reviewer=obrien, review_id="A"),
+             review("Please also discuss Garcia-Molina et al. (2023).", paper_id=2, reviewer=garcia, review_id="B")],
+            {"dblp_index": index},
+        )
+        assert [f.message for rid in "AB" for f in checks(found[rid], "citations.self-citation-request")] == [
+            "The review asks for 1 work by its own reviewer Liam O'Brien.",
+            "The review asks for 1 work by its own reviewer Maria Garcia-Molina.",
+        ]
+
+    def test_reviewers_named_in_a_non_latin_script_stay_apart(self):
+        zhang, li = Person("伟", "张", dblp="11/1111"), Person("娜", "李", dblp="22/2222")
+        index = one_work_each((zhang, 2024, "Ranking Flaky Test Failures."), (li, 2023, "Test Smells in CI."))
+        found = citations.check_reviews(
+            [review("A careful study.", reviewer=zhang, review_id="A"),
+             review("Please cite doi:10.5555/1.", reviewer=li, review_id="B")],
+            {"dblp_index": index},
+        )
+        own = checks(found["B"], "citations.self-citation-request")
+        assert [f.message for f in own] == ["The review asks for 1 work by its own reviewer 娜 李."]
+        assert own[0].evidence.endswith("this reviewer asks for own works in 1 of 1 reviews")

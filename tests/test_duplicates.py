@@ -63,6 +63,15 @@ class TestFixtureReviews:
         assert fixture_findings["R5"] == fixture_findings["R6"] == []
 
 
+class TestReviewers:
+    def test_reviewers_named_in_a_non_latin_script_are_told_apart_by_their_names(self):
+        zhang, li = Person("伟", "张"), Person("娜", "李")
+        other = duplicates.check_reviews([review("A", TEMPLATE, reviewer=zhang), review("B", TEMPLATE, 2, li)], {})
+        same = duplicates.check_reviews([review("A", TEMPLATE, reviewer=zhang), review("B", TEMPLATE, 2, zhang)], {})
+        assert other["A"][0].message.endswith("by another reviewer")
+        assert same["A"][0].message.endswith("by the same reviewer")
+
+
 class TestThresholds:
     def test_paragraphs_of_one_review_are_never_compared(self):
         found = duplicates.check_reviews([review("A", TEMPLATE + "\n\n" + TEMPLATE)], {})
@@ -80,6 +89,23 @@ class TestThresholds:
         reviews = [review("A", TEMPLATE), review("B", edited, 2)]
         assert duplicates.check_reviews(reviews, {})["A"]
         assert duplicates.check_reviews(reviews, {"threshold": 0.95}) == {"A": [], "B": []}
+
+    def test_a_pair_just_above_the_threshold_is_found(self):
+        edited = (TEMPLATE.replace("addresses", "tackles").replace("generally well written", "mostly clear")
+                  .replace("easy to follow", "readable").replace("threats to validity", "limitations"))
+        found = duplicates.check_reviews([review("A", TEMPLATE), review("B", edited, 2)], {})
+        assert [f.evidence for f in found["A"]] == ["paragraph 1 here and paragraph 1 of review B, Jaccard 0.55"]
+
+    def test_a_paragraph_shared_in_a_non_latin_script_is_found(self):
+        russian = ("Статья посвящена актуальной проблеме программной инженерии, и рукопись в целом хорошо написана. "
+                   "Однако оценка ограничена, а угрозы валидности обсуждаются недостаточно подробно.")
+        found = duplicates.check_reviews([review("A", russian), review("B", russian, 2)], {})
+        assert [f.evidence for f in found["A"]] == ["paragraph 1 here and paragraph 1 of review B, Jaccard 1.00"]
+
+    def test_unrelated_paragraphs_in_chinese_never_match(self):
+        reviews = [review("A", "本文研究了不稳定测试的检测方法，实验覆盖十二个开源项目。"),
+                   review("B", "复现包缺少第二个研究问题的脚本，请补充运行说明。", 2)]
+        assert duplicates.check_reviews(reviews, {"min_chars": 0}) == {"A": [], "B": []}
 
     def test_min_chars_option_lets_short_paragraphs_in(self):
         reviews = [review("A", "Thank you for the opportunity to review this paper."),

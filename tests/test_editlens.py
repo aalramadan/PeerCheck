@@ -1,5 +1,7 @@
 """Tests of the EditLens detector with a small random model, offline."""
 
+import math
+
 import pytest
 
 torch = pytest.importorskip("torch")
@@ -8,6 +10,14 @@ tokenizers = pytest.importorskip("tokenizers")
 editlens = pytest.importorskip("peercheck.reviews.editlens")
 
 WORDS = ["[PAD]", "[UNK]", "the", "paper", "is", "clear", "results", "are", "strong"]
+
+
+def _logits_with_score(score: float, low: int) -> torch.Tensor:
+    """Return logits that split all weight between buckets low and low + 1 to give the score."""
+    share = 3 * score - low
+    logits = torch.full((4,), -100.0)
+    logits[low], logits[low + 1] = 0.0, math.log(share / (1 - share))
+    return logits
 
 
 @pytest.fixture
@@ -36,9 +46,16 @@ def test_score_of_logits_on_the_gpu_matches_the_score_on_the_cpu():
     assert editlens._verdict(logits, False, 100) == editlens.Verdict("ai", 1.0)
 
 
-def test_notes_name_a_cut_text_and_a_text_shorter_than_the_training_texts():
-    notes = editlens._verdict(torch.zeros(4), True, 20).notes
-    assert "longer than 512 tokens" in notes[0] and "20 words, fewer than the 75" in notes[1]
+def test_notes_name_a_cut_text_or_else_a_text_shorter_than_the_training_texts():
+    assert editlens._verdict(torch.zeros(4), True, 20).notes == (
+        "text longer than 512 tokens; only the start was read",)
+    assert editlens._verdict(torch.zeros(4), False, 20).notes == (
+        "20 words, fewer than the 75 of the shortest training texts",)
+
+
+def test_label_follows_the_score_that_the_report_shows():
+    assert editlens._verdict(_logits_with_score(0.99696, 2), False, 100) == editlens.Verdict("ai", 0.997)
+    assert editlens._verdict(_logits_with_score(0.09707, 0), False, 100) == editlens.Verdict("ai-edited", 0.0971)
 
 
 def test_text_is_lowercased_with_its_white_space_collapsed():
@@ -58,6 +75,12 @@ def test_gated_weights_give_the_steps_to_get_access(monkeypatch):
     monkeypatch.setattr(editlens, "snapshot_download", gated)
     with pytest.raises(editlens.ModelError, match="hf auth login"):
         editlens.files()
+
+
+@pytest.mark.usefixtures("small_model")
+def test_words_of_a_text_without_spaces_are_counted_as_editlens_counts_them():
+    (verdict,) = editlens.Detector(device="cpu").label(["，".join(["本文研究了不稳定的测试"] * 80)])
+    assert verdict.notes == ()
 
 
 @pytest.mark.usefixtures("small_model")

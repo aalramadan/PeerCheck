@@ -2,12 +2,13 @@
 
 The check follows the MinHash LSH search of Day (Scientometrics 2022, arXiv:2202.03310), which
 found referee comments copied across referee accounts of 19 SAGE journals. Each paragraph of
-Review.author_text becomes a set of character shingles. A MinHash LSH index of datasketch
-(github.com/ekzhu/datasketch, MIT) proposes candidate pairs, and the exact Jaccard similarity of
-the two shingle sets decides. A pair of paragraphs from two different reviews at or above the
-threshold gives duplicates.near-duplicate (WARNING) on both reviews, with the other review, the two
-paragraphs, and the similarity as evidence. A flag asks a person to read the two reviews, since a
-reviewer may reuse a personal template or two reviewers may quote the same passage of the paper.
+Review.author_text becomes a set of character shingles of its lowercase words, in any script. A
+MinHash LSH index of datasketch (github.com/ekzhu/datasketch, MIT) proposes candidate pairs from
+half the threshold, and the exact Jaccard similarity of the two shingle sets decides. A pair of
+paragraphs from two different reviews at or above the threshold gives duplicates.near-duplicate
+(WARNING) on both reviews, with the other review, the two paragraphs, and the similarity as
+evidence. A flag asks a person to read the two reviews, since a reviewer may reuse a personal
+template or two reviewers may quote the same passage of the paper.
 
 A paragraph is a block of text between blank lines. A list item inside a block starts a paragraph
 of its own, and the wrapped lines of a block join into one paragraph.
@@ -38,6 +39,7 @@ CHECK = "duplicates.near-duplicate"
 DEFAULTS = {"threshold": 0.5, "shingle": 5, "min_chars": 150, "num_perm": 128}
 _BLOCK = re.compile(r"\n\s*\n")
 _ITEM = re.compile(r"^\s*(?:[-*•●]|\d{1,2}[.)]|\([a-z0-9]{1,3}\))\s+")
+_WORD = re.compile(r"[^\W_]+")
 
 
 @dataclass(frozen=True)
@@ -57,7 +59,7 @@ def check_reviews(reviews: list[Review], options: dict) -> dict[str, list[Findin
         _Paragraph(r, n, _shingles(text, int(settings["shingle"])))
         for r, review in enumerate(reviews)
         for n, text in enumerate(paragraphs(review.author_text), start=1)
-        if len(fold(text)) >= int(settings["min_chars"])
+        if len(_words(text)) >= int(settings["min_chars"])
     ]
     matches: dict[tuple[int, int], list[tuple[int, int, float]]] = {}
     for a, b, similarity in _similar_pairs(items, threshold, int(settings["num_perm"])):
@@ -86,13 +88,19 @@ def paragraphs(text: str) -> list[str]:
     return found
 
 
+def _words(text: str) -> str:
+    # Unlike dblp.fold, which keeps ASCII letters only, this keeps the words of every script.
+    return " ".join(_WORD.findall(text.casefold()))
+
+
 def _shingles(text: str, size: int) -> frozenset[str]:
-    folded = fold(text)
+    folded = _words(text)
     return frozenset(folded[i:i + size] for i in range(max(len(folded) - size + 1, 1)))
 
 
 def _similar_pairs(items: list[_Paragraph], threshold: float, num_perm: int) -> list[tuple[int, int, float]]:
-    lsh = MinHashLSH(threshold=threshold, num_perm=num_perm)
+    # At the threshold itself, the index misses about half of the pairs at that similarity.
+    lsh = MinHashLSH(threshold=threshold / 2, num_perm=num_perm)
     hashes = []
     for key, item in enumerate(items):
         minhash = MinHash(num_perm=num_perm)
@@ -137,4 +145,5 @@ def _finding(review: Review, other: Review, pairs: list[tuple[int, int, float]])
 def _same(a: Person, b: Person) -> bool:
     if a.email and b.email:
         return a.email.strip().lower() == b.email.strip().lower()
-    return fold(a.name) == fold(b.name)
+    # A name in a non-Latin script folds to nothing, therefore it counts as written.
+    return (fold(a.name) or a.name.casefold()) == (fold(b.name) or b.name.casefold())

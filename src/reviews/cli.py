@@ -10,6 +10,8 @@ from __future__ import annotations
 
 import argparse
 import sys
+from collections import Counter
+from dataclasses import replace
 from pathlib import Path
 
 from peercheck import canary, conflicts, inputs, report, tools
@@ -52,7 +54,7 @@ def parser() -> argparse.ArgumentParser:
     top.add_argument("--checks", default="duplicates,citations", help="comma-separated subset of duplicates,citations")
     top.add_argument("--canaries", type=Path, help="key file of peercheck canary, to find reviews that contain the "
                                                    "citation hidden in their paper")
-    top.add_argument("--device", default=None, help="cpu or cuda (default: cuda when available)")
+    top.add_argument("--device", choices=("cpu", "cuda"), help="cpu or cuda (default: cuda when available)")
     top.add_argument("--dblp-index", type=Path, help="dblp index saved by peercheck conflicts, to match "
                                                      "requested citations against works of the reviewers")
     top.add_argument("--reviewer-csv", type=Path, help="EasyChair reviewer.csv, with --assignment-csv")
@@ -81,9 +83,8 @@ def run(args: argparse.Namespace) -> int:
     detectors = _choose(args.detectors, DETECTORS, "detectors")
     checks = _choose(args.checks, CHECKS, "checks")
     key = canary.read_key(args.canaries) if args.canaries else None
-    reviews = inputs.read_reviews(Path(args.folder))
+    reviews, found = _unique_ids(inputs.read_reviews(Path(args.folder)))
     rows = {r.review_id: _row(r) for r in reviews}
-    found: dict[str, list[Finding]] = {r.review_id: [] for r in reviews}
     texts = [r.author_text for r in reviews]
     labels = cocodet.Detector(args.device).label(texts) if "cocodet" in detectors else None
     lenses = editlens.Detector(args.device).label(texts) if "editlens" in detectors else None
@@ -92,10 +93,12 @@ def run(args: argparse.Namespace) -> int:
         lens = lenses[index] if lenses else None
         rows[review.review_id].update(_detector_columns(verdict, lens))
         found[review.review_id].extend(_detector_findings(verdict, lens))
+    canaries = [("Canaries", str(args.canaries) if args.canaries else "none")]
     if key is not None:
         for review_id, items in canary.check_reviews(reviews, key, venue.options("canary")).items():
             found[review_id].extend(items)
             rows[review_id]["Canary"] = _canary_state(items)
+        canaries.append(("Reviewed papers in the canary key", _key_coverage(reviews, key)))
     options = {"duplicates": venue.options("duplicates"),
                "citations": {"pages": venue.format.main_pages, **venue.options("citations"),
                              **_panel_options(args)}}
@@ -110,7 +113,7 @@ def run(args: argparse.Namespace) -> int:
     report.write_sheets(args.out, {"Reviews": list(rows.values())},
                         [(rid, f) for rid, items in found.items() for f in items],
                         [("Detectors", ", ".join(detectors) or "none"), ("Checks", ", ".join(checks) or "none"),
-                         ("Canaries", str(args.canaries) if args.canaries else "none"), ("Caution", CAUTION)])
+                         *canaries, ("Caution", CAUTION)])
     if args.json:
         report.write_json(args.json, {"reviews": list(rows.values()), "findings": found})
     if args.html:
@@ -118,6 +121,39 @@ def run(args: argparse.Namespace) -> int:
     flagged = sum(1 for items in found.values() if needs_review(items))
     print(f"{len(reviews)} reviews checked, {flagged} need review. Report: {args.out}")
     return 0
+
+
+def _unique_ids(reviews: list[Review]) -> tuple[list[Review], dict[str, list[Finding]]]:
+    """Number each repeat of a review ID from #2; return the reviews and a note on each review that shares an ID."""
+    counts = Counter(review.review_id for review in reviews)
+    notes = {review_id: f"{count} reviews share the ID {review_id}; the report numbers the repeats from #2"
+             for review_id, count in counts.items() if count > 1}
+    for note in notes.values():
+        print(f"peercheck reviews: {note}", file=sys.stderr)
+    taken = set(counts)
+    numbers: Counter[str] = Counter()
+    unique: list[Review] = []
+    found: dict[str, list[Finding]] = {}
+    for review in reviews:
+        original = review_id = review.review_id
+        numbers[original] += 1
+        if numbers[original] > 1:
+            while f"{original}#{numbers[original]}" in taken:
+                numbers[original] += 1
+            review_id = f"{original}#{numbers[original]}"
+            taken.add(review_id)
+        unique.append(replace(review, review_id=review_id))
+        found[review_id] = [Finding("input.repeated-id", Severity.INFO, notes[original])] if original in notes else []
+    return unique, found
+
+
+def _key_coverage(reviews: list[Review], key: dict[int, str]) -> str:
+    papers = {review.paper_id for review in reviews if review.paper_id is not None}
+    covered = papers & set(key)
+    if not covered:
+        print("peercheck reviews: the canary key holds none of the reviewed papers; check that the key belongs to "
+              "these reviews", file=sys.stderr)
+    return f"{len(covered)} of {len(papers)}"
 
 
 def _panel_options(args: argparse.Namespace) -> dict[str, object]:
@@ -146,7 +182,7 @@ def _row(review: Review) -> dict[str, object]:
             # EasyChair and HotCRP name the two common scores differently.
             "Overall Evaluation": scores.get("Overall evaluation") or scores.get("Overall merit"),
             "Reviewer's Confidence": scores.get("Reviewer's confidence") or scores.get("Reviewer expertise"),
-            "Words for Authors": len(review.author_text.split())}
+            "Words for Authors": editlens.count_words(review.author_text)}
 
 
 def _detector_columns(verdict, lens) -> dict[str, object]:

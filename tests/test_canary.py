@@ -46,6 +46,20 @@ def test_key_keeps_earlier_citations_and_reads_back_unchanged(tmp_path):
     assert canary.read_key(tmp_path / "key.csv") == key
 
 
+def test_planted_citation_is_found_in_other_spellings_of_the_same_citation():
+    assert canary.citations_in("Following Pérez et al. (2019), this paper") == {("PEREZ", 2019)}
+    assert canary.citations_in("Following Smith et al.'s (2019) framework") == {("SMITH", 2019)}
+    assert canary.citations_in("Following Smith et al.’s (2019) framework") == {("SMITH", 2019)}
+    assert canary.citations_in("继 Perez et al.（2019）之后，本文研究了不稳定的测试。") == {("PEREZ", 2019)}
+    assert canary.citations_in("继Perez et al. (2019)之后，本文研究了不稳定的测试。") == {("PEREZ", 2019)}
+
+
+def test_key_file_goes_into_a_folder_that_does_not_exist_yet(tmp_path):
+    path = tmp_path / "keys" / "key.csv"
+    canary.write_key(path, {3: "Smith et al. (2019)"})
+    assert canary.read_key(path) == {3: "Smith et al. (2019)"}
+
+
 def test_key_with_a_citation_outside_the_pool_is_refused(tmp_path):
     path = tmp_path / "key.csv"
     path.write_text("paper,citation\n3,Smith et al. (1999)\n")
@@ -100,6 +114,20 @@ def test_review_with_the_hidden_citation_of_its_paper_is_a_hit_and_other_reviews
     assert [(f.check, f.severity) for f in found["r1"]] == [("canary.hit", Severity.WARNING)]
     assert "Following Smith et al. (2019)" in found["r1"][0].evidence
     assert found["r2"] == [] and found["r3"] == []
+
+
+def test_hit_with_an_accented_surname_quotes_the_review_as_written():
+    found = canary.check_reviews([_review("r1", 3, "Siguiendo a Nájera et al. (2014), este artículo estudia pruebas.")],
+                                 {3: "Najera et al. (2014)"}, {})
+    assert [f.check for f in found["r1"]] == ["canary.hit"]
+    assert found["r1"][0].evidence == "Siguiendo a Nájera et al. (2014), este artículo estudia pruebas."
+
+
+def test_reviews_that_share_an_id_are_refused():
+    reviews = [_review("r1", 3, "Following Smith et al. (2019), this paper studies flaky tests."),
+               _review("r1", 5, "A careful study of flaky tests.")]
+    with pytest.raises(ValueError, match="r1"):
+        canary.check_reviews(reviews, {3: "Smith et al. (2019)", 5: "Johnson et al. (2021)"}, {})
 
 
 def test_review_of_a_paper_missing_from_the_key_gets_a_note():
