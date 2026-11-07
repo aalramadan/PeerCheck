@@ -27,3 +27,9 @@ def test_child_manifests_of_a_tagged_index_stay():
 
 def test_a_single_image_lists_no_child_manifests():
     assert prune.listed_digests({"config": {}, "layers": []}) == set()
+
+
+def test_images_of_a_removed_release_go_and_latest_stays():
+    versions = [_version(1, "sha256:new", ["latest"]), _version(2, "sha256:kept", ["1.0.0"]),
+                _version(3, "sha256:removed", ["1.1.0"]), _version(4, "sha256:shared", ["latest", "1.1.0"])]
+    assert [v["id"] for v in prune.stale_releases(versions, {"1.0.0"})] == [3]
