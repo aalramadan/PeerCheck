@@ -8,7 +8,16 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from peercheck import inputs
-from peercheck.checks import hidden_text, layout, references, sigsoft
+from peercheck.checks import (
+    embedded_identity,
+    fonts,
+    hidden_text,
+    layout,
+    pdf_integrity,
+    references,
+    sigsoft,
+    unresolved_references,
+)
 from peercheck.findings import Finding, Severity, count
 from peercheck.models import Paper
 from peercheck.profile import Profile
@@ -17,6 +26,13 @@ PAPER_CHECKS = ("layout", "sigsoft", "hidden-text", "references")
 # Profile keys of the checks that a profile can turn off with enabled: false.
 PROFILE_KEYS = {"sigsoft": "sigsoft", "hidden-text": "hidden_text", "references": "references"}
 SINGLE_CHECKS = {"hidden-text": hidden_text.check, "references": references.check}
+# Checks of PeerCheck that run with a check of an external tool and share its switch, under their own code prefix.
+COMPANION_CHECKS = {
+    "layout": (("pdf", pdf_integrity.check), ("fonts", fonts.check), ("unresolved", unresolved_references.check)),
+    "sigsoft": (("identity", embedded_identity.check),),
+}
+# A PDF that cannot open makes every other check fail, and these failures repeat the cause.
+UNOPENED = {"pdf.password", "pdf.unreadable"}
 
 
 @dataclass
@@ -78,11 +94,23 @@ def run_papers(pdf_folder: Path, profile: Profile, submissions: Path | None = No
                 result.layout = inspected.layout
                 result.findings[:0] = inspected.findings
             for name in names:
+                for prefix, companion in COMPANION_CHECKS.get(name, ()):
+                    result.findings.extend(_guarded(prefix, companion, paper, profile, folder))
                 if name in SINGLE_CHECKS:
                     result.findings.extend(_guarded(name, SINGLE_CHECKS[name], paper, profile, folder))
+            result.findings = _without_repeats(result.findings)
             _progress(number, len(papers), paper, result.findings)
     return PapersRun(list(results.values()), titles, found.unmatched, found.duplicates, names,
                      sorted(set(titles) - set(found.papers)))
+
+
+def _without_repeats(findings: list[Finding]) -> list[Finding]:
+    """Drop the failures that a PDF which cannot open causes in the other checks, and a second note of a repair."""
+    codes = {f.check for f in findings}
+    unopened = codes & UNOPENED
+    return [f for f in findings
+            if not (unopened and f.check.endswith(".error"))
+            and not (f.check == "hidden-text.damaged-pdf" and "pdf.damaged" in codes)]
 
 
 def _guarded(name: str, check, paper: Paper, profile: Profile, workdir: Path) -> list[Finding]:

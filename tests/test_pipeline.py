@@ -6,9 +6,11 @@ from pathlib import Path
 import yaml
 
 from peercheck import pipeline, profile
-from peercheck.findings import Severity
+from peercheck.checks import layout, sigsoft
+from peercheck.findings import Finding, Severity
 
-HIDDEN = Path(__file__).parent / "fixtures" / "hidden"
+FIXTURES = Path(__file__).parent / "fixtures"
+HIDDEN = FIXTURES / "hidden"
 
 
 def _icse_with_hidden_text(tmp_path, options):
@@ -33,3 +35,32 @@ def test_requested_check_runs_although_the_profile_turns_it_off(tmp_path):
     run = pipeline.run_papers(pdfs, _icse_with_hidden_text(tmp_path, {"enabled": False}), checks=["hidden-text"])
     assert run.checks == ("hidden-text",)
     assert ("hidden-text.white-text", Severity.ERROR) in {(f.check, f.severity) for f in run.results[0].findings}
+
+
+def _run(tmp_path, monkeypatch, fixture, checks, banal_findings=()):
+    """Run the pipeline on one fixture PDF with banal and the SIGSOFT jar replaced by fixed answers."""
+    pdfs = tmp_path / "pdfs"
+    pdfs.mkdir(parents=True)
+    shutil.copyfile(FIXTURES / fixture, pdfs / "icse2027-paper1.pdf")
+    monkeypatch.setattr(layout, "inspect", lambda paper, venue: layout.LayoutResult(None, list(banal_findings)))
+    monkeypatch.setattr(sigsoft, "check_batch", lambda papers, venue, folder: {})
+    run = pipeline.run_papers(pdfs, profile.load("icse-2027"), checks=checks)
+    return {f.check for f in run.results[0].findings}
+
+
+def test_format_check_runs_the_font_integrity_and_unresolved_checks_of_peercheck(tmp_path, monkeypatch):
+    assert "pdf.permissions" in _run(tmp_path, monkeypatch, "integrity/owner-password.pdf", ["layout"])
+    assert "fonts.not-embedded" in _run(tmp_path / "b", monkeypatch, "fonts/ieee-unembedded.pdf", ["layout"])
+
+
+def test_anonymity_check_runs_the_identity_check_of_peercheck(tmp_path, monkeypatch):
+    assert "identity.home-folder" in _run(tmp_path, monkeypatch, "identity/figure-author-home.pdf", ["sigsoft"])
+    assert "identity.home-folder" not in _run(tmp_path / "b", monkeypatch, "identity/figure-author-home.pdf",
+                                              ["layout"])
+
+
+def test_pdf_that_needs_a_password_keeps_only_that_finding_of_its_errors(tmp_path, monkeypatch):
+    banal = [Finding("layout.error", Severity.WARNING, "banal could not read the PDF")]
+    codes = _run(tmp_path, monkeypatch, "integrity/user-password.pdf", ["layout", "hidden-text"], banal)
+    assert "pdf.password" in codes
+    assert not {code for code in codes if code.endswith(".error")}

@@ -32,6 +32,9 @@ format:
   require_abstract: true
 
 checks:
+  fonts:
+    # The call asks for the "title in 24pt font and full text in 10pt type".
+    title_size: 24
   sigsoft:
     enabled: true
   anonymity:
