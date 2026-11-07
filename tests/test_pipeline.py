@@ -48,9 +48,10 @@ def _run(tmp_path, monkeypatch, fixture, checks, banal_findings=()):
     return {f.check for f in run.results[0].findings}
 
 
-def test_format_check_runs_the_font_integrity_and_unresolved_checks_of_peercheck(tmp_path, monkeypatch):
+def test_format_check_runs_the_font_margin_integrity_and_unresolved_checks_of_peercheck(tmp_path, monkeypatch):
     assert "pdf.permissions" in _run(tmp_path, monkeypatch, "integrity/owner-password.pdf", ["layout"])
     assert "fonts.not-embedded" in _run(tmp_path / "b", monkeypatch, "fonts/ieee-unembedded.pdf", ["layout"])
+    assert "margins.overflow" in _run(tmp_path / "c", monkeypatch, "margins/ieee-wide-table.pdf", ["layout"])
 
 
 def test_anonymity_check_runs_the_identity_check_of_peercheck(tmp_path, monkeypatch):

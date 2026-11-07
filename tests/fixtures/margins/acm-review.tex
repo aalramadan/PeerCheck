@@ -1,0 +1,30 @@
+% An acmart acmsmall paper with the review and anonymous options, as FSE 2027 asks, with running heads and line
+% numbers in the margins. Every page follows the template except the last, where a figure runs past the line numbers
+% into the left margin.
+\pdftrailerid{}
+\pdfinfoomitdate=1
+\pdfsuppressptexinfo=-1
+\documentclass[acmsmall,screen,review,anonymous]{acmart}
+\usepackage{listings}
+\usepackage{tikz}
+\usepackage{lipsum}
+\lstset{basicstyle=\ttfamily\footnotesize, frame=single, breaklines=true, columns=fullflexible}
+\begin{document}
+\title{Ranking Flaky Test Failures with Build Histories and Change Distance}
+\author{Anonymous Author}
+\affiliation{\institution{Anonymous Institution}\city{City}\country{Country}}
+\input{acm-body}
+
+\appendix
+\clearpage
+\section{Build Pages}
+\lipsum[8]
+
+\begin{figure}[h]
+\makebox[\linewidth][l]{\hspace*{-32pt}\includegraphics[width=\linewidth]{example-image-16x9.png}}
+\caption{A build page placed 32 pt to the left of the text block.}
+\Description{A gray placeholder image.}
+\end{figure}
+
+\lipsum[9]
+\end{document}

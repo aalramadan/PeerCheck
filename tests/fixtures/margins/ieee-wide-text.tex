@@ -1,0 +1,20 @@
+% An IEEEtran conference paper whose text block grows on page 1. A paragraph of the left column starts 24 pt left
+% of the text block, and the left column runs two lines into the bottom margin. Page 2 follows the template.
+\pdftrailerid{}
+\pdfinfoomitdate=1
+\pdfsuppressptexinfo=-1
+\documentclass[10pt,conference,letterpaper]{IEEEtran}
+\usepackage{changepage}
+\usepackage{lipsum}
+\begin{document}
+\title{Ranking Flaky Test Failures}
+\author{\IEEEauthorblockN{Anonymous Author(s)}}
+\maketitle
+\enlargethispage{2\baselineskip}
+\section{Introduction}
+\lipsum[1]
+\begin{adjustwidth}{-24pt}{0pt}
+\lipsum[2]
+\end{adjustwidth}
+\lipsum[3-14]
+\end{document}
