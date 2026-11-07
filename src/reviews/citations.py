@@ -34,7 +34,8 @@ Options (profile key "citations"):
 - pages (10): the page count of the papers, one number for all or a mapping from paper ID to pages.
   The default is the main page limit of the ICSE 2027 research track.
 - title_min (90): the rapidfuzz partial ratio at or above which a publication title counts as
-  present in an item. Titles shorter than 20 characters never match this way.
+  present in an item, or the plain ratio for an item shorter than the title. Titles shorter than
+  20 characters never match this way.
 """
 
 from __future__ import annotations
@@ -209,11 +210,15 @@ def _match(item: Item, publication: Publication, title_min: int) -> str:
         return "DOI"
     if item.surname:
         first = fold(base_name(publication.authors[0])).split() if publication.authors else []
-        if first and first[-1] == fold(item.surname) and publication.year == item.year:
+        # A surname such as O'Brien or Garcia-Molina folds to several words.
+        surname = fold(item.surname).split()
+        if surname and first[-len(surname):] == surname and publication.year == item.year:
             return "first author and year"
         return ""
-    title = fold(publication.title)
-    if len(title) >= TITLE_MIN_CHARS and fuzz.partial_ratio(title, fold(item.text)) >= title_min:
+    title, text = fold(publication.title), fold(item.text)
+    # The partial ratio finds a title inside a longer item; a shorter item has to match the title as a whole.
+    ratio = fuzz.partial_ratio if len(title) <= len(text) else fuzz.ratio
+    if len(title) >= TITLE_MIN_CHARS and ratio(title, text) >= title_min:
         return "title"
     return ""
 
@@ -264,13 +269,18 @@ def _pages(pages, paper_id: int | None) -> int:
 
 
 def _key(person: Person) -> str:
-    return person.email.strip().lower() or fold(person.name)
+    return person.email.strip().lower() or _name(person)
 
 
 def _same(first: Person, second: Person) -> bool:
     if first.email and second.email:
         return first.email.strip().lower() == second.email.strip().lower()
-    return fold(first.name) == fold(second.name)
+    return _name(first) == _name(second)
+
+
+def _name(person: Person) -> str:
+    # A name in a non-Latin script folds to nothing, therefore it counts as written.
+    return fold(person.name) or person.name.casefold()
 
 
 def _trim_doi(doi: str) -> str:

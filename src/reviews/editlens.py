@@ -85,7 +85,7 @@ class Detector:
                 logits = self.model(**encoded).logits
             for row, (index, text) in enumerate(batch):
                 verdicts[index] = _verdict(logits[row], truncated=len(self.tokenizer(text, verbose=False)["input_ids"]) > MAX_TOKENS,
-                                           words=len(text.split()))
+                                           words=count_words(text))
         return verdicts
 
 
@@ -94,11 +94,23 @@ def normalize(text: str) -> str:
     return re.sub(r"\s+", " ", (text or "").lower()).strip()
 
 
+def count_words(text: str) -> int:
+    """Count the words of a text as count_words of scripts/preprocess.py in EditLens does."""
+    return len(re.findall(r"\b\w+\b", text))
+
+
 def _verdict(logits: torch.Tensor, truncated: bool, words: int) -> Verdict:
     # The score is computed on the CPU, since the logits stay on the device of the model, such as a GPU.
     probabilities = torch.softmax(logits.float().cpu(), dim=0)
-    score = float(probabilities @ torch.arange(len(probabilities), dtype=torch.float32)) / (len(probabilities) - 1)
+    expected = float(probabilities @ torch.arange(len(probabilities), dtype=torch.float32)) / (len(probabilities) - 1)
+    # The label follows the score as the report shows it, rounded to four places.
+    score = round(expected, 4)
     label = "human" if score < HUMAN_BELOW else "ai" if score >= AI_FROM else "ai-edited"
-    notes = ((f"text longer than {MAX_TOKENS} tokens; only the start was read",) if truncated else ()) + \
-        ((f"{words} words, fewer than the {MIN_WORDS} of the shortest training texts",) if words < MIN_WORDS else ())
-    return Verdict(label=label, score=round(score, 4), notes=notes)
+    # A cut text is long whatever its word count, such as a review in Chinese.
+    if truncated:
+        notes = (f"text longer than {MAX_TOKENS} tokens; only the start was read",)
+    elif words < MIN_WORDS:
+        notes = (f"{words} words, fewer than the {MIN_WORDS} of the shortest training texts",)
+    else:
+        notes = ()
+    return Verdict(label=label, score=score, notes=notes)
