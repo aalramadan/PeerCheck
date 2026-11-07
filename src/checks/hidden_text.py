@@ -9,8 +9,12 @@ leaves the machine.
 
 PeerCheck adds what pdfguardrail misses on the fixtures of tests/fixtures/hidden. First, text cut away by a clipping
 path that lies over visible text, found with the TEXT_CLIP flag of PyMuPDF. Second, instructions to a human reviewer,
-such as "Reviewers should rate ...", which pdfguardrail labels as unknown or harmless. Third, the reviewing phrases
-of PhantomLint and the phrases of the venue profile.
+such as "Reviewers should rate ...", which pdfguardrail labels as unknown or harmless in hidden text and leaves out
+of short metadata values. Third, the reviewing phrases of PhantomLint and the phrases of the venue profile.
+
+pdfguardrail keeps two renders of every page in memory. The scan therefore runs in a child process that stops at
+MAX_PAGES pages, SCAN_SECONDS seconds, and, on Linux, MEMORY_BYTES of added memory. A page that MuPDF cannot read gets a
+warning of its own, and the findings of the other pages stay.
 
 A hidden passage that holds an instruction to a model or a reviewer is an ERROR. Other hidden text is a WARNING.
 Fragments that pdfguardrail labels harmless, such as symbols, short figure labels, and copies of visible text, form
@@ -18,36 +22,49 @@ one INFO finding. Faint text that still leaves ink, such as a light gray waterma
 gives its page and an excerpt of at most 120 characters.
 
 Options under `hidden_text` in the profile:
-- enabled (default true): run the check.
+- enabled (default true): the pipeline leaves the check out when false, unless --checks names it.
 - min_font_size (default 2.0): text below this size in points counts as hidden. The default is TINY_FONT_PT of
   pdfguardrail 0.3.0 (pdfguard/checks.py), the same limit as the 2.0 pt of pdf-injection-scanner 0.2.1. A higher
   limit adds the text spans of pdfguardrail between the two sizes, and a lower one drops its tiny-text findings above
   the limit.
-- extra_phrases (default none): phrases that mark a hidden passage as an instruction, matched without regard to
-  case, spacing, or punctuation.
+- extra_phrases (default none): phrases that mark a hidden passage as an instruction, matched in any script without
+  regard to case, spacing, or punctuation. Each phrase needs a letter or a digit.
 """
 
 from __future__ import annotations
 
+import dataclasses
+import multiprocessing
 import re
+import tempfile
+from multiprocessing.connection import Connection
 from pathlib import Path
-from typing import Any
 
 import pymupdf
 from pdfguard import scan
 from pdfguard.checks import HIDING_REASONS, INVISIBLE_RE, TINY_FONT_PT
 from pdfguard.checks import Finding as GuardFinding
 from pdfguard.classify import classify
-from pdfguard.split import TextSpan, split_pdf
+from pdfguard.split import DocumentParts, TextSpan, open_pdf, split_pdf
 
 from peercheck.findings import Finding, Severity
 from peercheck.models import Paper
-from peercheck.profile import Profile
+from peercheck.profile import Profile, strings
+
+try:
+    import resource
+except ImportError:  # Windows, where the scan runs without a memory limit
+    resource = None
 
 CHECK = "hidden-text"
 EXCERPT_LIMIT = 120
 NEAR_WHITE = 0.9
 CLIPPED = "clipped"
+# A submission is far shorter, and the two renders of a Letter page take about 7 MB.
+MAX_PAGES = 100
+SCAN_SECONDS = 120
+MEMORY_BYTES = 2 << 30
+XMP_TEXT = re.compile(r">([^<>]{3,})<")
 
 # Reviewing phrases of PhantomLint (Toby Murray, BSD-3-Clause), DEFAULT_BADLIST of phantomlint/cli.py. Its two
 # phrases for resumes are left out.
@@ -114,14 +131,12 @@ METHODS = {
 def check(paper: Paper, profile: Profile, workdir: Path) -> list[Finding]:
     """Return a finding for each hidden passage of the PDF, an error for each hidden instruction."""
     options = profile.options("hidden_text")
-    if not options.get("enabled", True):
-        return []
     min_size = float(options.get("min_font_size", TINY_FONT_PT))
-    phrases = PHANTOMLINT_PHRASES + _listed(options.get("extra_phrases"))
-    try:
-        return _scan(Path(paper.pdf), min_size, phrases)
-    except Exception as exc:  # noqa: BLE001 - one bad PDF must not stop the run over all submissions
-        return [Finding(f"{CHECK}.error", Severity.WARNING, f"The hidden-text scan could not read the PDF ({exc}).")]
+    phrases = PHANTOMLINT_PHRASES + strings(options.get("extra_phrases"), "hidden_text.extra_phrases")
+    blank = next((phrase for phrase in phrases if not _words(phrase)), None)
+    if blank is not None:
+        raise ValueError(f"hidden_text.extra_phrases: {blank!r} holds no letter or digit")
+    return _scan_in_child(Path(paper.pdf), min_size, phrases)
 
 
 def holds_instruction(text: str, phrases: tuple[str, ...] = ()) -> bool:
@@ -140,6 +155,107 @@ def holds_instruction(text: str, phrases: tuple[str, ...] = ()) -> bool:
     return False
 
 
+def _scan_in_child(pdf: Path, min_size: float, phrases: tuple[str, ...]) -> list[Finding]:
+    """Scan the PDF in a child process with limits on its time and memory, so that no PDF can stop the run."""
+    # numpy starts threads at import, and a fork of a process with threads may deadlock.
+    context = multiprocessing.get_context("spawn")
+    receiver, sender = context.Pipe(duplex=False)
+    process = context.Process(target=_child, args=(sender, pdf, min_size, phrases, MEMORY_BYTES), daemon=True)
+    process.start()
+    sender.close()
+    try:
+        if receiver.poll(SCAN_SECONDS):
+            return receiver.recv()
+        return [_error(f"The hidden-text scan did not finish within {SCAN_SECONDS:g} seconds.")]
+    except EOFError:
+        process.join()
+        return [_error(f"The hidden-text scan stopped with exit code {process.exitcode}.")]
+    finally:
+        if process.is_alive():
+            process.kill()
+        process.join()
+        receiver.close()
+
+
+def _child(sender: Connection, pdf: Path, min_size: float, phrases: tuple[str, ...], memory: int) -> None:
+    """Scan the PDF within the memory limit and send the findings to the parent process."""
+    _limit_memory(memory)
+    try:
+        found = _scan_pages(pdf, min_size, phrases)
+    except Exception as exc:  # noqa: BLE001 - one bad PDF must not stop the run over all submissions
+        found = [_error(f"The hidden-text scan could not read the PDF ({_reason(exc, pdf)}).")]
+    sender.send(found)
+
+
+def _limit_memory(budget: int) -> None:
+    """Let the address space of the process grow by at most the budget, where Linux tells its current size."""
+    statm = Path("/proc/self/statm")
+    if resource is None or not statm.is_file():
+        return
+    size = int(statm.read_text().split()[0]) * resource.getpagesize()
+    hard = resource.getrlimit(resource.RLIMIT_AS)[1]
+    soft = size + budget if hard == resource.RLIM_INFINITY else min(size + budget, hard)
+    resource.setrlimit(resource.RLIMIT_AS, (soft, hard))
+
+
+def _scan_pages(pdf: Path, min_size: float, phrases: tuple[str, ...]) -> list[Finding]:
+    """Scan the PDF. If the scan fails, scan the pages whose scan alone succeeds and report the others."""
+    with open_pdf(pdf) as document:
+        count = document.page_count
+    if count > MAX_PAGES:
+        return [_error(f"The hidden-text scan reads PDFs of at most {MAX_PAGES} pages, and this PDF has {count}.")]
+    try:
+        return _scan(pdf, min_size, phrases)
+    except Exception:
+        found = _scan_without_failing_pages(pdf, count, min_size, phrases)
+        if found is None:
+            raise
+        return found
+
+
+def _scan_without_failing_pages(pdf: Path, count: int, min_size: float,
+                                phrases: tuple[str, ...]) -> list[Finding] | None:
+    """Scan the pages whose scan alone succeeds and report the others, or return None if none or all of them fail."""
+    with tempfile.TemporaryDirectory(prefix="peercheck-") as folder:
+        copy = Path(folder) / "pages.pdf"
+        failed = {}
+        for number in range(count):
+            try:
+                _scan(_pages(pdf, [number], copy), min_size, phrases)
+            except Exception as exc:  # noqa: BLE001 - each page that fails alone gets a warning
+                failed[number] = _reason(exc, copy)
+        if not failed or len(failed) == count:
+            return None
+        kept = [number for number in range(count) if number not in failed]
+        found = _scan(_pages(pdf, kept, copy), min_size, phrases)
+    moved = [dataclasses.replace(f, page=kept[f.page - 1] + 1) if f.page else f for f in found]
+    return moved + [_error(f"The hidden-text scan could not read this page ({reason}).", number + 1)
+                    for number, reason in failed.items()]
+
+
+def _pages(pdf: Path, numbers: list[int], target: Path) -> Path:
+    """Save the pages of the PDF with the given numbers, counted from 0, as a PDF of their own."""
+    with pymupdf.open(pdf) as document:
+        document.select(numbers)
+        document.save(target)
+    return target
+
+
+def _reason(exc: Exception, pdf: Path) -> str:
+    """Say in a few words why the scan of a PDF failed, naming no path or file."""
+    # MuPDF reports a failed allocation as "malloc (...) failed" and Python as a MemoryError without text.
+    if isinstance(exc, MemoryError) or "malloc" in str(exc):
+        return "out of memory"
+    text = str(exc)
+    for name in (str(pdf.absolute()), str(pdf), pdf.name):
+        text = text.replace(name, "the PDF")
+    return text
+
+
+def _error(message: str, page: int | None = None) -> Finding:
+    return Finding(f"{CHECK}.error", Severity.WARNING, message, page)
+
+
 def _scan(pdf: Path, min_size: float, phrases: tuple[str, ...]) -> list[Finding]:
     parts = split_pdf(pdf)
     # use_llm=False keeps pdfguardrail from calling a local model or a web service even when one is configured.
@@ -148,7 +264,27 @@ def _scan(pdf: Path, min_size: float, phrases: tuple[str, ...]) -> list[Finding]
     tiny = _uncovered(_tiny_text(parts.text_spans, min_size), found)
     clipped = _uncovered(_clipped_text(pdf), found + tiny)
     classify(tiny + clipped, report.clean_text, {}, use_llm=False)
-    return _findings(found + tiny + clipped, min_size, phrases)
+    metadata = _metadata_instructions(parts, report.clean_text, found, phrases)
+    return _findings(found + tiny + clipped + metadata, min_size, phrases)
+
+
+def _metadata_instructions(parts: DocumentParts, visible: str, found: list[GuardFinding],
+                           phrases: tuple[str, ...]) -> list[GuardFinding]:
+    """Metadata and XMP values that hold an instruction but that pdfguardrail leaves out, such as a short Subject.
+
+    As in pdfguardrail, a value that the pages show, such as the title, is no finding.
+    """
+    known = {_words(f.text) for f in found if f.source in ("metadata", "xmp")}
+    shown = f" {_words(visible)} "
+    values = [("metadata", str(value)) for value in parts.metadata.values() if value]
+    values += [("xmp", text) for text in XMP_TEXT.findall(parts.xmp)]
+    extra = []
+    for source, value in values:
+        words = _words(value)
+        if words and words not in known and f" {words} " not in shown and holds_instruction(value, phrases):
+            known.add(words)
+            extra.append(GuardFinding(source, value.strip(), [source]))
+    return extra
 
 
 def _kept(found: GuardFinding, min_size: float) -> bool:
@@ -312,12 +448,4 @@ def _excerpt(text: str) -> str:
 
 
 def _words(text: str) -> str:
-    return " ".join(re.sub(r"[^0-9a-z]+", " ", text.lower()).split())
-
-
-def _listed(value: Any) -> tuple[str, ...]:
-    if not value:
-        return ()
-    if isinstance(value, str):
-        return (value,)
-    return tuple(str(item) for item in value)
+    return " ".join(re.sub(r"[\W_]+", " ", text.casefold()).split())

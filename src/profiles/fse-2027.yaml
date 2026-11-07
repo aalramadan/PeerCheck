@@ -24,6 +24,10 @@ format:
   margin_tolerance: 18
   # acmsmall sets the body in 10 pt and the references in 8 pt, which banal reports as 10.3 and 8.3 pt.
   body_font_max: 10.5
+  # banal reports lines 12 pt apart for acmsmall, 9.3 pt type for the 9pt option, and lines 10.2 pt apart for
+  # \linespread{0.82}.
+  body_font_min: 9.8
+  leading_min: 11.0
   reference_font_min: 8.0
   # The review option of acmart prints page and line numbers.
   page_numbers: ignore

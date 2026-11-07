@@ -14,9 +14,12 @@ PAGE_NUMBER_POLICIES = ("ignore", "warning", "error")
 TOP_KEYS = {"name", "source", "submission_system", "file_pattern", "id_column", "format", "checks"}
 FORMAT_KEYS = {
     "style", "paper_size", "paper_size_tolerance", "columns", "main_pages", "reference_pages", "margins",
-    "margin_tolerance", "body_font_max", "reference_font_min", "page_numbers", "required_headings",
-    "require_abstract",
+    "margin_tolerance", "body_font_max", "body_font_min", "leading_min", "reference_font_min", "page_numbers",
+    "required_headings", "require_abstract",
 }
+OPTIONAL_FORMAT_KEYS = {"margins", "body_font_min", "leading_min", "require_abstract"}
+# Options of the checks that hold a list of strings.
+LIST_OPTIONS = {"anonymity": ("allowed_hosts",), "hidden_text": ("extra_phrases",)}
 
 
 class ProfileError(ValueError):
@@ -36,6 +39,8 @@ class FormatRules:
     margins: tuple[float, float, float, float] | None
     margin_tolerance: float
     body_font_max: float
+    body_font_min: float | None
+    leading_min: float | None
     reference_font_min: float
     page_numbers: str
     required_headings: tuple[str, ...]
@@ -90,7 +95,7 @@ def parse(data: Any, key: str) -> Profile:
     rules = data["format"]
     if not isinstance(rules, dict):
         raise ProfileError(f"profile {key}: format must be a mapping")
-    _keys(rules, FORMAT_KEYS, FORMAT_KEYS - {"margins", "require_abstract"}, f"profile {key}, format")
+    _keys(rules, FORMAT_KEYS, FORMAT_KEYS - OPTIONAL_FORMAT_KEYS, f"profile {key}, format")
     pattern = str(data["file_pattern"])
     try:
         groups = re.compile(pattern).groups
@@ -120,13 +125,43 @@ def parse(data: Any, key: str) -> Profile:
             margins=None if rules.get("margins") is None else _numbers(rules["margins"], 4, key, "margins"),
             margin_tolerance=float(rules["margin_tolerance"]),
             body_font_max=float(rules["body_font_max"]),
+            body_font_min=_optional_number(rules.get("body_font_min")),
+            leading_min=_optional_number(rules.get("leading_min")),
             reference_font_min=float(rules["reference_font_min"]),
             page_numbers=str(rules["page_numbers"]),
-            required_headings=tuple(str(h).lower() for h in rules["required_headings"] or ()),
+            required_headings=tuple(
+                h.lower() for h in strings(rules["required_headings"], f"profile {key}: required_headings")),
             require_abstract=bool(rules.get("require_abstract", True)),
         ),
-        checks={str(name): dict(options or {}) for name, options in checks.items()},
+        checks={str(name): _check_options(str(name), options, f"profile {key}: checks.{name}")
+                for name, options in checks.items()},
     )
+
+
+def strings(value: Any, where: str) -> tuple[str, ...]:
+    """Return a list of a profile as strings, where one string is a list of one and nothing an empty list."""
+    if value is None:
+        return ()
+    if isinstance(value, str):
+        return (value,)
+    if isinstance(value, (list, tuple)) and all(isinstance(item, (str, int, float)) for item in value):
+        return tuple(str(item) for item in value)
+    raise ProfileError(f"{where} must be a string or a list of strings")
+
+
+def _check_options(name: str, options: Any, where: str) -> dict[str, Any]:
+    """Return the options of one check, where true or false alone switches the check on or off."""
+    if options is None:
+        return {}
+    if isinstance(options, bool):
+        return {"enabled": options}
+    if not isinstance(options, dict):
+        raise ProfileError(f"{where} must be a mapping, true, or false")
+    if not isinstance(options.get("enabled", True), bool):
+        raise ProfileError(f"{where}.enabled must be true or false")
+    lists = {option: list(strings(options[option], f"{where}.{option}"))
+             for option in LIST_OPTIONS.get(name, ()) if option in options}
+    return {**options, **lists}
 
 
 def _keys(data: dict, allowed: set[str], required: set[str], where: str) -> None:
@@ -142,3 +177,7 @@ def _numbers(value: Any, size: int, key: str, name: str) -> tuple:
     if not isinstance(value, (list, tuple)) or len(value) != size:
         raise ProfileError(f"profile {key}: {name} must list {size} numbers")
     return tuple(float(v) for v in value)
+
+
+def _optional_number(value: Any) -> float | None:
+    return None if value is None else float(value)

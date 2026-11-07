@@ -201,6 +201,21 @@ def test_parse_report_finds_dois_in_the_reference_text():
     assert ref.dois == ("10.1000/abc(1)", "10.2000/X.Y")
 
 
+@pytest.mark.parametrize("wrapped", ["10.1109/ ASWEC.2008.4483193", "10.1109/ASWEC.2008. 4483193"])
+def test_doi_cut_by_a_line_break_still_finds_the_retraction_notice(tmp_path, cache, monkeypatch, wrapped):
+    # Hallucinator turns the line break inside a wrapped DOI into a space.
+    report = json.loads((FIXTURES / "offline-run.json").read_text(encoding="utf-8"))
+    entry = next(r for r in report[0]["references"] if r["original_number"] == 10)
+    entry["raw_citation"] = entry["raw_citation"].replace("10.1109/ASWEC.2008.4483193", wrapped)
+    findings = run(tmp_path, cache, FakeHallucinator(report), monkeypatch)
+    [retracted] = by_check(findings, "references.retracted")
+    assert retracted.evidence.startswith("DOI 10.1109/aswec.2008.4483193.")
+
+
+def test_doi_followed_by_a_year_is_read_without_the_year():
+    assert "10.1145/3377811.3380362" in references._dois("ICSE, 2020, doi: 10.1145/3377811.3380362. 2020.")
+
+
 def test_parse_report_finds_arxiv_ids_in_the_reference_text():
     entry = {"original_number": 1, "title": "T", "status": "not_found", "raw_citation": "arXiv preprint arXiv: 2401.01234v2"}
     assert references.parse_report([{"references": [entry]}])[0].arxiv_id == "2401.01234v2"

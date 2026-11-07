@@ -21,6 +21,11 @@ format:
   margin_tolerance: 18
   # The call warns that altered spacing or font size may lead to desk rejection.
   body_font_max: 10.5
+  # IEEEtran sets the body in 10 pt on lines 12 pt apart, which banal reports as 10.3 pt and 12 pt. banal reports
+  # 9.3 pt type for the 9pt option, lines 9.8 pt apart for \linespread{0.82}, and lines 11.6 pt apart for a Word
+  # paper in Times New Roman with single spacing.
+  body_font_min: 9.8
+  leading_min: 11.0
   reference_font_min: 8.0
   page_numbers: warning
   required_headings: [introduction, conclusion]

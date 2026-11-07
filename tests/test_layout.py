@@ -1,11 +1,14 @@
 """Tests of the banal format check: page counts, format rules, and unreadable PDFs."""
 
+import json
 import shutil
+import subprocess
 from pathlib import Path
 
+import pymupdf
 import pytest
 
-from peercheck import profile
+from peercheck import profile, tools
 from peercheck.checks import layout
 from peercheck.findings import Severity
 from peercheck.models import Paper
@@ -21,6 +24,10 @@ def _inspect(name):
 
 def _checks(result):
     return {f.check for f in result.findings}
+
+
+def _flagged(result):
+    return [(f.check, f.severity) for f in result.findings if f.severity is not Severity.INFO]
 
 
 @needs_banal
@@ -97,3 +104,73 @@ def test_acmart_review_paper_passes_the_fse_profile():
 def test_acmart_paper_breaks_the_ieee_profile():
     checks = {f.check for f in _inspect("acm-small-review.pdf").findings}
     assert {"layout.paper-size", "layout.columns"} <= checks
+
+
+@needs_banal
+def test_nine_point_body_font_breaks_the_lower_limit():
+    assert _flagged(_inspect("ieee-9pt-option.pdf")) == [("layout.body-font", Severity.ERROR)]
+
+
+@needs_banal
+def test_squeezed_line_spacing_breaks_the_lower_limit():
+    assert _flagged(_inspect("ieee-linespread.pdf")) == [("layout.line-spacing", Severity.ERROR)]
+
+
+def test_line_spacing_comes_from_the_pages_of_the_main_text():
+    # banal gives the whole PDF the spacing of the reference pages when these win a tie with the body pages.
+    pages = [{"leading": 12}, {"leading": 12, "headings": ["REFERENCES"]}, {"type": "bib"}, {"type": "bib"}]
+    measured = layout.measure({"pages": pages, "leading": 9.1, "w": 2000})
+    assert measured.leading == 12
+    rules = profile.load("example-easychair").format
+    assert not [f for f in layout.evaluate(measured, rules, "Abstract") if f.check == "layout.line-spacing"]
+
+
+def test_page_turned_for_reading_keeps_the_paper_size():
+    turned = layout.measure({"papersize": [792, 612], "pages": [{}, {"papersize": [612, 792]}], "w": 1800})
+    a4 = layout.measure({"papersize": [792, 612], "pages": [{}, {"papersize": [842, 595]}], "w": 1800})
+    assert (turned.mixed_paper_sizes, a4.mixed_paper_sizes) == (False, True)
+
+
+@needs_banal
+def test_pdf_with_a_page_turned_for_reading_has_no_mixed_paper_sizes(tmp_path):
+    with pymupdf.open(PAPERS / "ieee-refs-start-p10.pdf") as document:
+        document[4].set_rotation(90)
+        document.save(tmp_path / "turned.pdf")
+    result = layout.inspect(Paper(1, tmp_path / "turned.pdf"), profile.load("example-easychair"))
+    assert "layout.mixed-paper-sizes" not in _checks(result)
+
+
+def test_pdf_of_which_poppler_reads_no_pages_gives_a_warning(monkeypatch):
+    empty = json.dumps({"papersize": [0, 0], "margin": [0, 0, 0, 0], "w": 0, "pages": []})
+    monkeypatch.setattr(tools, "program", lambda name: name)
+    monkeypatch.setattr(layout.subprocess, "run",
+                        lambda command, **kwargs: subprocess.CompletedProcess(command, 0, empty, ""))
+    result = _inspect("ieee-over-page-limit.pdf")
+    assert result.layout is None
+    assert [f.check for f in result.findings] == ["layout.error"]
+
+
+@needs_banal
+def test_copy_protected_pdf_gets_the_page_limit_check(tmp_path):
+    with pymupdf.open(PAPERS / "ieee-over-page-limit.pdf") as document:
+        document.save(tmp_path / "protected.pdf", encryption=pymupdf.PDF_ENCRYPT_AES_256, owner_pw="secret",
+                      user_pw="", permissions=pymupdf.PDF_PERM_PRINT)
+    checks = _checks(layout.inspect(Paper(1, tmp_path / "protected.pdf"), profile.load("example-easychair")))
+    assert "layout.main-pages" in checks
+    assert "layout.error" not in checks
+
+
+@needs_banal
+def test_pdf_whose_name_starts_with_a_dash_reaches_banal_as_a_file(tmp_path, monkeypatch):
+    shutil.copyfile(PAPERS / "ieee-refs-start-p10.pdf", tmp_path / "-paper2.pdf")
+    monkeypatch.chdir(tmp_path)
+    result = layout.inspect(Paper(2, Path("-paper2.pdf")), profile.load("example-easychair"))
+    assert result.layout is not None
+
+
+@needs_banal
+def test_banal_error_names_no_path_or_file_of_the_pdf(tmp_path):
+    shutil.copyfile(PAPERS / "corrupt.pdf", tmp_path / "icse2027-paper9.pdf")
+    (finding,) = layout.inspect(Paper(9, tmp_path / "icse2027-paper9.pdf"), profile.load("icse-2027")).findings
+    assert finding.check == "layout.error"
+    assert str(tmp_path) not in finding.message and "icse2027-paper9" not in finding.message

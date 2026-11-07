@@ -21,6 +21,10 @@ format:
   margin_tolerance: 18
   # IEEEtran sets the body in 10 pt, which banal reports as 10.3 pt.
   body_font_max: 10.5
+  # banal reports lines 12 pt apart for IEEEtran, 9.3 pt type for the 9pt option, lines 9.8 pt apart for
+  # \linespread{0.82}, and lines 11.6 pt apart for a Word paper in Times New Roman with single spacing.
+  body_font_min: 9.8
+  leading_min: 11.0
   reference_font_min: 8.0
   page_numbers: warning
   required_headings: [introduction, conclusion]

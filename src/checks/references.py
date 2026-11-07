@@ -95,6 +95,8 @@ KEY_VARIABLES = ("CROSSREF_MAILTO", "S2_API_KEY", "OPENALEX_KEY")
 PROXY_VARIABLES = ("HTTPS_PROXY", "HTTP_PROXY", "ALL_PROXY", "NO_PROXY", "https_proxy", "http_proxy", "no_proxy")
 EVIDENCE_LIMIT = 200
 DOI_IN_TEXT = re.compile(r"10\.\d{4,9}/[^\s\"]+")
+# Hallucinator turns a line break inside a DOI into a space, such as after the slash or before digits after a period.
+DOI_BREAK = re.compile(r"(10\.\d{4,9}/)\s+|(?<=\.)\s+(?=\d)")
 ARXIV_IN_TEXT = re.compile(
     r"(?:arxiv:?\s*|arxiv\.org/(?:abs|pdf)/)(\d{4}\.\d{4,5}(?:v\d+)?|[a-z-]+(?:\.[a-z]{2})?/\d{7}(?:v\d+)?)",
     re.IGNORECASE,
@@ -379,7 +381,9 @@ def _summary(refs: list[Reference], settings: Settings) -> Finding:
 
 def _dois(text: str) -> list[str]:
     found = []
-    for raw in DOI_IN_TEXT.findall(text):
+    # The text with its breaks joined adds a DOI that a line end cut, and the text as it is keeps one that ends a
+    # sentence before a number, such as a year.
+    for raw in DOI_IN_TEXT.findall(text) + DOI_IN_TEXT.findall(DOI_BREAK.sub(r"\1", text)):
         doi = raw.rstrip(".,;\"'\u201d\u2019")
         # A closing bracket belongs to the DOI only when the DOI also opens one, as in SICI DOIs.
         while doi and doi[-1] in ")]" and doi.count(doi[-1]) > doi.count("(" if doi[-1] == ")" else "["):
