@@ -10,6 +10,12 @@ def _shipped(key):
     return yaml.safe_load((profile.resources.files("peercheck") / "profiles" / f"{key}.yaml").read_text())
 
 
+def _load(tmp_path, data):
+    path = tmp_path / "venue.yaml"
+    path.write_text(yaml.safe_dump(data))
+    return profile.load(str(path))
+
+
 def test_shipped_profiles_load():
     assert profile.available() == ["example-easychair", "fse-2027", "icse-2027"]
     for key in profile.available():
@@ -41,20 +47,68 @@ def test_unknown_profile_names_the_shipped_ones():
 def test_profile_file_with_an_unknown_key_is_rejected(tmp_path):
     data = _shipped("example-easychair")
     data["format"]["page_limit"] = 10
-    path = tmp_path / "venue.yaml"
-    path.write_text(yaml.safe_dump(data))
     with pytest.raises(profile.ProfileError, match="page_limit"):
-        profile.load(str(path))
+        _load(tmp_path, data)
 
 
 def test_file_pattern_needs_one_group(tmp_path):
     data = _shipped("example-easychair")
     data["file_pattern"] = r"paper\d+\.pdf"
-    path = tmp_path / "venue.yaml"
-    path.write_text(yaml.safe_dump(data))
     with pytest.raises(profile.ProfileError, match="one group"):
-        profile.load(str(path))
+        _load(tmp_path, data)
 
 
 def test_options_of_an_unset_check_are_empty():
     assert profile.load("example-easychair").options("no-such-check") == {}
+
+
+def test_shipped_profiles_set_lower_limits_for_the_body_font_and_the_line_spacing():
+    for key in profile.available():
+        rules = profile.load(key).format
+        assert rules.body_font_min < 10.3 and rules.leading_min < 12
+
+
+def test_lower_limits_for_the_body_font_and_the_line_spacing_are_optional(tmp_path):
+    data = _shipped("icse-2027")
+    del data["format"]["body_font_min"], data["format"]["leading_min"]
+    rules = _load(tmp_path, data).format
+    assert (rules.body_font_min, rules.leading_min) == (None, None)
+
+
+def test_false_in_place_of_the_options_turns_a_check_off(tmp_path):
+    data = _shipped("icse-2027")
+    data["checks"]["hidden_text"] = False
+    assert _load(tmp_path, data).options("hidden_text") == {"enabled": False}
+
+
+def test_enabled_must_be_true_or_false(tmp_path):
+    data = _shipped("icse-2027")
+    data["checks"]["references"]["enabled"] = "no"
+    with pytest.raises(profile.ProfileError, match="enabled"):
+        _load(tmp_path, data)
+
+
+def test_options_of_a_check_must_be_a_mapping(tmp_path):
+    data = _shipped("icse-2027")
+    data["checks"]["references"] = ["online"]
+    with pytest.raises(profile.ProfileError, match="references"):
+        _load(tmp_path, data)
+
+
+def test_one_required_heading_given_as_a_string_stays_one_heading(tmp_path):
+    data = _shipped("icse-2027")
+    data["format"]["required_headings"] = "Introduction"
+    assert _load(tmp_path, data).format.required_headings == ("introduction",)
+
+
+def test_one_allowed_host_given_as_a_string_stays_one_host(tmp_path):
+    data = _shipped("icse-2027")
+    data["checks"]["anonymity"]["allowed_hosts"] = "zenodo.org"
+    assert _load(tmp_path, data).options("anonymity")["allowed_hosts"] == ["zenodo.org"]
+
+
+def test_a_list_option_that_holds_a_mapping_is_rejected(tmp_path):
+    data = _shipped("icse-2027")
+    data["checks"]["hidden_text"]["extra_phrases"] = [{"phrase": "accept"}]
+    with pytest.raises(profile.ProfileError, match="extra_phrases"):
+        _load(tmp_path, data)

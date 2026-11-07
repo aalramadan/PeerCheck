@@ -11,7 +11,9 @@ from __future__ import annotations
 
 import json
 import re
+import statistics
 import subprocess
+import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -87,18 +89,24 @@ class LayoutResult:
 
 def run_banal(pdf: Path) -> dict:
     """Run banal on a PDF and return its JSON report, or raise BanalError."""
-    command = [tools.program("perl"), str(tools.banal()), "-json", "-pagenum", "-no-time", str(pdf)]
-    try:
-        result = subprocess.run(command, capture_output=True, text=True, timeout=BANAL_TIMEOUT, check=False)
-    except subprocess.TimeoutExpired as exc:
-        raise BanalError(f"banal timed out after {BANAL_TIMEOUT} s") from exc
+    with tempfile.TemporaryDirectory(prefix="peercheck-") as folder:
+        source = _readable(pdf, Path(folder))
+        command = [tools.program("perl"), str(tools.banal()), "-json", "-pagenum", "-no-time", str(source)]
+        try:
+            result = subprocess.run(command, capture_output=True, text=True, timeout=BANAL_TIMEOUT, check=False)
+        except subprocess.TimeoutExpired as exc:
+            raise BanalError(f"banal timed out after {BANAL_TIMEOUT} s") from exc
     try:
         report = json.loads(result.stdout)
     except json.JSONDecodeError:
         report = None
     if result.returncode != 0 or not isinstance(report, dict) or report.get("error"):
         message = next((line.strip() for line in result.stderr.splitlines() if line.strip()), "no output")
-        raise BanalError(message.replace(str(pdf), pdf.name))
+        # The report leaves out file names, and banal opens its errors with the path of the PDF.
+        raise BanalError(message.replace(f"{source}: ", "").replace(str(source), "the PDF"))
+    if not report.get("pages"):
+        # poppler reads no page of some PDFs that other readers open, such as one with a broken page tree.
+        raise BanalError("poppler read no pages")
     return report
 
 
@@ -125,14 +133,16 @@ def measure(report: dict) -> Layout:
     layout.characters = sum(int(p.get("c", 0)) for p in pages)
     layout.body_font = report.get("bodyfontsize")
     layout.reference_font = next((p["reffontsize"] for p in pages if "reffontsize" in p), layout.body_font)
-    layout.leading = report.get("leading")
+    layout.leading = _main_text_leading(pages, start, report.get("leading"))
     margins = report.get("margin")
     layout.margins = tuple(margins) if margins and any(margins) else None
     layout.columns = report.get("columns") or None
     size = report.get("papersize")
     layout.paper_size = (float(size[0]), float(size[1])) if size and len(size) == 2 else None
     layout.page_number_margin = report.get("nummargin")
-    layout.mixed_paper_sizes = any("papersize" in p for p in pages)
+    # A page turned for reading, such as a wide table, keeps the paper size with height and width swapped.
+    turned = size[::-1] if size else None
+    layout.mixed_paper_sizes = any("papersize" in p and p["papersize"] != turned for p in pages)
     return layout
 
 
@@ -163,6 +173,10 @@ def evaluate(layout: Layout, rules: FormatRules, first_page_text: str | None) ->
         add("no-references", Severity.WARNING, "no references section found")
     if layout.body_font and layout.body_font > rules.body_font_max:
         add("body-font", Severity.ERROR, f"body font {layout.body_font:g} pt, limit {rules.body_font_max:g} pt")
+    if layout.body_font and rules.body_font_min and layout.body_font < rules.body_font_min:
+        add("body-font", Severity.ERROR, f"body font {layout.body_font:g} pt, minimum {rules.body_font_min:g} pt")
+    if layout.leading and rules.leading_min and layout.leading < rules.leading_min:
+        add("line-spacing", Severity.ERROR, f"line spacing {layout.leading:g} pt, minimum {rules.leading_min:g} pt")
     if layout.reference_font and layout.reference_font < rules.reference_font_min:
         add("reference-font", Severity.ERROR,
             f"reference font {layout.reference_font:g} pt, minimum {rules.reference_font_min:g} pt")
@@ -205,6 +219,34 @@ def inspect(paper: Paper, profile: Profile) -> LayoutResult:
 def check(paper: Paper, profile: Profile, workdir: Path) -> list[Finding]:
     """Return the format findings of a paper."""
     return inspect(paper, profile).findings
+
+
+def _readable(pdf: Path, folder: Path) -> Path:
+    """Return the absolute path of the PDF, or of a copy without encryption in the folder if the PDF is encrypted.
+
+    pdftohtml refuses the text of a PDF whose owner forbids copying, which every viewer opens without a password.
+    """
+    path = pdf.absolute()
+    try:
+        with pymupdf.open(path) as document:
+            if not document.metadata.get("encryption") or document.needs_pass:
+                return path
+            copy = folder / "unencrypted.pdf"
+            document.save(copy, encryption=pymupdf.PDF_ENCRYPT_NONE)
+            return copy
+    except (RuntimeError, pymupdf.mupdf.FzErrorBase):
+        return path
+
+
+def _main_text_leading(pages: list[dict], start: int, leading: float | None) -> float | None:
+    """Return the most common line spacing of the pages that count toward the main text.
+
+    banal gives a page its own line spacing only where it differs from the most common one of the whole PDF, which
+    the reference-only pages, set in a smaller font, may decide in a short paper.
+    """
+    values = [page.get("leading", leading) for number, page in enumerate(pages, 1)
+              if number < start or page.get("type") != "bib"]
+    return statistics.mode(values) if values else leading
 
 
 def _first_page_text(pdf: Path) -> str | None:

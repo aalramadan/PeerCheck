@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import csv
 import json
+import re
 import subprocess
 from pathlib import Path
 
@@ -20,6 +21,9 @@ from peercheck.models import Paper
 from peercheck.profile import Profile
 
 SECONDS_PER_PAPER = 60
+# The exit status of the checker when it rejects its arguments, such as a file it cannot find.
+USAGE_ERROR = 2
+JAVA_EXCEPTION = re.compile(r'Exception in thread "[^"]*" ([\w.$]+)')
 SEVERITY = {
     "wrong-template": Severity.ERROR,
     "author-revealing-email": Severity.ERROR,
@@ -53,25 +57,23 @@ MESSAGES = {
 
 
 def check_batch(papers: list[Paper], profile: Profile, workdir: Path) -> dict[int, list[Finding]]:
-    """Run the checker once over all papers and return the findings of each paper."""
+    """Run the checker once over all papers and return the findings of each paper.
+
+    A PDF that stops the checker, such as one that exhausts its memory, leaves the papers after it without a record.
+    Each paper without a record then runs again alone, with a time limit of its own.
+    """
     if not papers:
         return {}
     command = _command(papers, profile, workdir)
-    by_name = {paper.pdf.name: paper.paper_id for paper in papers}
-    results = {paper.paper_id: [] for paper in papers}
     try:
-        output = _run(command + [str(paper.pdf) for paper in papers], len(papers))
-    except (subprocess.SubprocessError, OSError, tools.ToolError) as exc:
-        return {paper.paper_id: [_error(str(exc))] for paper in papers}
-    seen = set()
-    for record in output:
-        paper_id = by_name.get(Path(str(record.get("file", ""))).name)
-        if paper_id is None:
-            continue
-        seen.add(paper_id)
-        results[paper_id] = findings(record)
-    for paper_id in set(results) - seen:
-        results[paper_id] = [_error("no result from the SIGSOFT checker")]
+        results, missing = _check(command, papers, SECONDS_PER_PAPER * len(papers))
+        if len(papers) > 1:
+            for paper in missing:
+                alone, _ = _check(command, [paper], SECONDS_PER_PAPER)
+                results.update(alone)
+    except OSError as exc:
+        reason = exc.strerror or type(exc).__name__
+        return {paper.paper_id: [_error(f"the SIGSOFT checker did not start ({reason})")] for paper in papers}
     return results
 
 
@@ -84,7 +86,12 @@ def findings(record: dict) -> list[Finding]:
     """Turn one JSON record of the checker into findings, keeping the issues of a PDF that opened."""
     found = []
     if record.get("error"):
-        found.append(_error(f"the SIGSOFT checker could not read the PDF: {record['error']}"))
+        error = str(record["error"])
+        file = str(record.get("file") or "")
+        # The report leaves out file names, and the checker names the PDF in some of its errors.
+        for name in filter(None, (file, Path(file).name)):
+            error = error.replace(name, "the PDF")
+        found.append(_error(f"the SIGSOFT checker could not read the PDF: {error}"))
         if not record.get("pages"):
             return found
     for issue in record.get("issues") or []:
@@ -129,21 +136,56 @@ def _write_authors(papers: list[Paper], workdir: Path) -> Path | None:
     return path
 
 
-def _run(command: list[str], count: int) -> list[dict]:
-    result = subprocess.run(command, capture_output=True, text=True, check=False,
-                            timeout=SECONDS_PER_PAPER * max(count, 1))
+def _check(command: list[str], papers: list[Paper], timeout: float) -> tuple[dict[int, list[Finding]], list[Paper]]:
+    """Run the checker on papers and return the findings of each paper and the papers that got no record."""
+    records, reason = _run(command, papers, timeout)
+    by_name = {paper.pdf.name: paper.paper_id for paper in papers}
+    results = {}
+    for record in records:
+        paper_id = by_name.get(Path(str(record.get("file", ""))).name)
+        if paper_id is not None:
+            results[paper_id] = findings(record)
+    missing = [paper for paper in papers if paper.paper_id not in results]
+    message = f"no result from the SIGSOFT checker: {reason}" if reason else "no result from the SIGSOFT checker"
+    results.update({paper.paper_id: [_error(message)] for paper in missing})
+    return results, missing
+
+
+def _run(command: list[str], papers: list[Paper], timeout: float) -> tuple[list[dict], str]:
+    """Run the checker on the PDFs of papers and return its records and, if it stopped early, the reason."""
+    # An absolute path keeps a file name that starts with a dash from reading as an option.
+    pdfs = [str(paper.pdf.absolute()) for paper in papers]
+    try:
+        result = subprocess.run(command + pdfs, capture_output=True, text=True, encoding="utf-8", errors="replace",
+                                check=False, timeout=timeout)
+    except subprocess.TimeoutExpired as exc:
+        output = exc.stdout.decode("utf-8", "replace") if isinstance(exc.stdout, bytes) else exc.stdout or ""
+        return _records(output), f"it did not finish within {timeout:g} seconds"
+    if result.returncode == 0:
+        return _records(result.stdout), ""
+    return _records(result.stdout), _reason(result.stderr, result.returncode)
+
+
+def _records(output: str) -> list[dict]:
     records = []
-    for line in result.stdout.splitlines():
+    for line in output.splitlines():
         line = line.strip()
         if line.startswith("{"):
             try:
                 records.append(json.loads(line))
             except json.JSONDecodeError:
                 continue
-    if result.returncode != 0 and not records:
-        detail = next((x for x in result.stderr.splitlines() if x.strip()), f"exit code {result.returncode}")
-        raise subprocess.SubprocessError(f"the SIGSOFT checker failed: {detail}")
     return records
+
+
+def _reason(stderr: str, returncode: int) -> str:
+    """Say in a few words why the checker stopped, naming no path or file, which its messages may hold."""
+    if "OutOfMemoryError" in stderr:
+        return "it ran out of memory"
+    if returncode == USAGE_ERROR:
+        return "it rejected its arguments"
+    thrown = JAVA_EXCEPTION.search(stderr)
+    return f"it stopped with {thrown.group(1)}" if thrown else f"it stopped with exit code {returncode}"
 
 
 def _error(message: str) -> Finding:
