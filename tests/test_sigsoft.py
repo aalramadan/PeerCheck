@@ -166,7 +166,7 @@ def test_bundled_jar_reads_a_pdf_whose_name_starts_with_a_dash(tmp_path, monkeyp
 
 def test_one_allowed_host_given_as_a_string_reaches_the_checker_whole(tmp_path, monkeypatch):
     monkeypatch.setattr(tools, "program", lambda name: name)
-    data = yaml.safe_load((profile.resources.files("peercheck") / "profiles" / "icse-2027.yaml").read_text())
+    data = yaml.safe_load((profile.PROFILES / "icse-2027.yaml").read_text())
     data["checks"]["anonymity"]["allowed_hosts"] = "zenodo.org"
     (tmp_path / "venue.yaml").write_text(yaml.safe_dump(data))
     command = sigsoft._command([], profile.load(str(tmp_path / "venue.yaml")), tmp_path)

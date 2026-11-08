@@ -32,13 +32,15 @@ dev = ["pytest>=8", "ruff>=0.6"]
 peercheck = "peercheck.cli:main"
 
 [tool.setuptools]
-# The package peercheck is the folder src/ itself. The tools and data of other authors stay in external/, and a wheel
-# holds the files of external/ that the checks need, with their licenses, in peercheck/external/.
-package-dir = {"peercheck" = "src", "peercheck.external" = "external"}
-packages = ["peercheck", "peercheck.checks", "peercheck.reviews", "peercheck.external"]
+# The package peercheck is the folder src/ itself. The venue profiles stay in profiles/ and the tools and data of other
+# authors in external/. A wheel holds the profiles in peercheck/profiles/ and the files of external/ that the checks
+# need, with their licenses, in peercheck/external/.
+package-dir = {"peercheck" = "src", "peercheck.profiles" = "profiles", "peercheck.external" = "external"}
+packages = ["peercheck", "peercheck.checks", "peercheck.reviews", "peercheck.profiles", "peercheck.external"]
 
 [tool.setuptools.package-data]
-peercheck = ["profiles/*.yaml", "gui.html"]
+peercheck = ["gui.html"]
+"peercheck.profiles" = ["*.yaml"]
 "peercheck.external" = ["hotcrp/banal", "hotcrp/LICENSE", "hotcrp/affiliationmatchers.json",
                         "submission-checker/submission-checker.jar", "submission-checker/LICENSE",
                         "census-surnames/census_surnames.txt", "publicsuffix/public_suffix_list.dat",

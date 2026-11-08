@@ -1,5 +1,10 @@
 """Tests of loading and validating venue profiles."""
 
+import importlib.util
+import shutil
+import sys
+from pathlib import Path
+
 import pytest
 import yaml
 
@@ -7,7 +12,24 @@ from peercheck import profile
 
 
 def _shipped(key):
-    return yaml.safe_load((profile.resources.files("peercheck") / "profiles" / f"{key}.yaml").read_text())
+    return yaml.safe_load((profile.PROFILES / f"{key}.yaml").read_text())
+
+
+def test_source_checkout_reads_the_profiles_from_the_folder_beside_src():
+    assert profile.PROFILES == Path(profile.__file__).resolve().parent.parent / "profiles"
+
+
+def test_installed_package_finds_the_profiles_that_its_wheel_holds(tmp_path, monkeypatch):
+    package = tmp_path / "site-packages" / "peercheck"
+    (package / "profiles").mkdir(parents=True)
+    shutil.copy(profile.PROFILES / "fse-2027.yaml", package / "profiles" / "fse-2027.yaml")
+    shutil.copy(profile.__file__, package / "profile.py")
+    spec = importlib.util.spec_from_file_location("installed_profile", package / "profile.py")
+    installed = importlib.util.module_from_spec(spec)
+    # The dataclasses of the module look themselves up in sys.modules.
+    monkeypatch.setitem(sys.modules, spec.name, installed)
+    spec.loader.exec_module(installed)
+    assert installed.available() == ["fse-2027"] and installed.load("fse-2027").key == "fse-2027"
 
 
 def _load(tmp_path, data):

@@ -14,7 +14,7 @@ HIDDEN = FIXTURES / "hidden"
 
 
 def _icse_with_hidden_text(tmp_path, options):
-    data = yaml.safe_load((profile.resources.files("peercheck") / "profiles" / "icse-2027.yaml").read_text())
+    data = yaml.safe_load((profile.PROFILES / "icse-2027.yaml").read_text())
     data["checks"]["hidden_text"] = options
     path = tmp_path / "venue.yaml"
     path.write_text(yaml.safe_dump(data))

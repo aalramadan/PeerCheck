@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
-from importlib import resources
 from pathlib import Path
 from typing import Any
 
@@ -19,6 +18,9 @@ FORMAT_KEYS = {
 }
 OPTIONAL_FORMAT_KEYS = {"margins", "body_font_min", "leading_min", "require_abstract", "exempt_sections",
                         "exempt_pages_max"}
+# A wheel holds the shipped profiles in peercheck/profiles/, and a source checkout keeps them in profiles/ beside src/.
+_PACKAGE = Path(__file__).resolve().parent
+PROFILES = _PACKAGE / "profiles" if (_PACKAGE / "profiles").is_dir() else _PACKAGE.parent / "profiles"
 # Options of the checks that hold a list of strings.
 LIST_OPTIONS = {"anonymity": ("allowed_hosts",), "hidden_text": ("extra_phrases",)}
 
@@ -75,8 +77,7 @@ class Profile:
 
 def available() -> list[str]:
     """Return the keys of the profiles that ship with PeerCheck."""
-    folder = resources.files("peercheck") / "profiles"
-    return sorted(item.name[: -len(".yaml")] for item in folder.iterdir() if item.name.endswith(".yaml"))
+    return sorted(item.stem for item in PROFILES.glob("*.yaml"))
 
 
 def load(name_or_path: str) -> Profile:
@@ -84,7 +85,7 @@ def load(name_or_path: str) -> Profile:
     path = Path(name_or_path)
     if path.suffix in (".yaml", ".yml") and path.is_file():
         return parse(yaml.safe_load(path.read_text(encoding="utf-8")), path.stem)
-    resource = resources.files("peercheck") / "profiles" / f"{name_or_path}.yaml"
+    resource = PROFILES / f"{name_or_path}.yaml"
     if not resource.is_file():
         raise ProfileError(f"unknown profile {name_or_path!r}; shipped profiles: {', '.join(available())}")
     return parse(yaml.safe_load(resource.read_text(encoding="utf-8")), name_or_path)

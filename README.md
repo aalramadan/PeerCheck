@@ -210,7 +210,7 @@ PeerCheck is tuned for software engineering venues and ships with these profiles
 
 Any other venue gets a profile in three steps.
 
-1. Copy a file of `src/profiles/`, such as `example-easychair.yaml` for a venue on EasyChair.
+1. Copy a file of `profiles/`, such as `example-easychair.yaml` for a venue on EasyChair.
 2. Change its values.
 3. Pass the copy by path, such as `peercheck --profile myvenue.yaml papers submissions/`.
 
