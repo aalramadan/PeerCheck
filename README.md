@@ -134,26 +134,56 @@ peercheck setup editlens                # downloads the EditLens model, about 1.
 
 ## 🚀 Usage
 
-```bash
-peercheck papers submissions/ --authors authors.csv --html report.html   # checks the submission PDFs
-peercheck reviews reviews/ --html reviews.html                           # checks the reviews
-peercheck conflicts --authors authors.csv --pc pc.csv --dblp-dump dblp.xml.gz
-peercheck canary submissions/ --out marked/ --key canaries.csv           # plants a citation in each PDF
-peercheck reviews reviews/ --canaries canaries.csv                       # finds the planted citations
-peercheck --profile fse-2027 papers submissions/                         # uses the rules of FSE 2027
-peercheck gui                                                            # opens the checks as a page in the browser
-peercheck menu                                                           # opens an interactive menu
-```
+#### ▶️ First run
 
-- Each command writes an Excel workbook.
+1. Put the exports of the conference system in one folder.
+
+   ```text
+   my-conference/
+     submissions/       the submission PDFs
+     submissions.xlsx   the submission sheet
+     reviews/           the reviews
+   ```
+
+2. Run the checks from that folder. The option `--profile` picks the rules of the venue, such as its page limit.
+   Use `example-easychair` for a venue on EasyChair, `icse-2027` or `fse-2027` for these two venues on HotCRP, or a
+   profile of your own, as Venue profiles below describes.
+
+   ```bash
+   cd my-conference
+   peercheck --profile example-easychair papers submissions/ --submissions submissions.xlsx --html report.html
+   peercheck --profile example-easychair reviews reviews/ --html reviews.html
+   ```
+
+3. Open `report.html` and `reviews.html` in a browser. The Excel workbooks `report.xlsx` and `reviews.xlsx` beside
+   them hold every detail.
+
+- With Docker, write `docker run --rm -v "$PWD:/data" -v peercheck-cache:/cache -e HF_TOKEN ghcr.io/aalramadan/peercheck`
+  in place of `peercheck`.
+- `peercheck gui` runs the same checks from a page in the browser.
+- `peercheck menu` asks for each file in turn.
+
+#### 📂 Inputs
+
 - The commands read the unchanged exports of EasyChair and HotCRP, the two conference systems, and plain CSV or
   Excel lists.
-  - PDFs named with their paper ID, as EasyChair and HotCRP name them, such as `conf2027-paper12.pdf`.
-  - An author list, a CSV or Excel file with the columns paper, first, last, email, and affiliation.
-  - Reviews, as the XML files of EasyChair, the review CSV file of HotCRP, or any CSV file with the columns paper
-    and review and one column per field of the review form.
-  - A committee list with first, last, email, and affiliation, or the EasyChair file `reviewer.csv`. An optional
-    column dblp with the DBLP person ID settles a name that several DBLP authors share.
+- PDFs named with their paper ID, as the two systems name them, such as `CONF_2027_paper_12.pdf` from EasyChair or
+  `conf2027-paper12.pdf` from HotCRP.
+- A submission sheet, the export that lists the ID and the title of each paper.
+- An author list, a CSV or Excel file with the columns paper, first, last, email, and affiliation.
+- Reviews, as the XML files of EasyChair, the review CSV file of HotCRP, or any CSV file with the columns paper and
+  review and one column per field of the review form.
+- A committee list with first, last, email, and affiliation, or the EasyChair file `reviewer.csv`. An optional column
+  dblp with the DBLP person ID settles a name that several DBLP authors share.
+
+#### 🧰 More commands
+
+```bash
+peercheck papers submissions/ --authors authors.csv                     # also finds the names of the authors in the PDFs
+peercheck conflicts --authors authors.csv --pc pc.csv --dblp-dump dblp.xml.gz   # finds conflicts of interest
+peercheck canary submissions/ --out marked/ --key canaries.csv          # plants a citation in each PDF
+peercheck reviews reviews/ --canaries canaries.csv                      # finds the planted citations
+```
 
 > [!TIP]
 > Check the original PDFs with `peercheck papers` before `peercheck canary`, since the hidden-text check reports the
