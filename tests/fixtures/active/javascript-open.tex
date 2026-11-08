@@ -1,0 +1,6 @@
+% A document-level script that runs when the PDF opens.
+\input{common}
+\pdfcatalog{/OpenAction << /S /JavaScript /JS (app.alert('Thank you for reviewing this paper.');) >>}
+\begin{document}
+\paperintro
+\end{document}

@@ -68,6 +68,9 @@ class Layout:
     page_number_margin: float | None = None
     mixed_paper_sizes: bool = False
     headings: list[str] = field(default_factory=list)
+    # The banal type of each page (body, bib, appendix, figure, cover, or blank) and its characters in the body size.
+    page_types: list[str] = field(default_factory=list)
+    page_characters: list[int] = field(default_factory=list)
 
     def row(self) -> dict[str, object]:
         """Return the measures under the report column names."""
@@ -138,7 +141,9 @@ def measure(report: dict, exempt: tuple[str, ...] = ()) -> Layout:
     layout.appendix_pages = sum(1 for p in pages if p.get("type") == "appendix")
     layout.figure_pages = sum(1 for p in pages if p.get("type") == "figure")
     layout.words = int(report.get("w") or 0)
-    layout.characters = sum(int(p.get("c", 0)) for p in pages)
+    layout.page_types = [str(p.get("type", "body")) for p in pages]
+    layout.page_characters = [int(p.get("c", 0)) for p in pages]
+    layout.characters = sum(layout.page_characters)
     layout.body_font = report.get("bodyfontsize")
     layout.reference_font = next((p["reffontsize"] for p in pages if "reffontsize" in p), layout.body_font)
     layout.leading = _main_text_leading(pages, start, report.get("leading"))

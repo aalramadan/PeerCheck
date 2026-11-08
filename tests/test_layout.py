@@ -89,6 +89,13 @@ def test_reference_pages_count_only_bib_pages_from_the_references_heading_on():
     assert (measured.references_start, measured.reference_pages, measured.main_pages) == (3, 1, 4)
 
 
+def test_measure_keeps_the_type_and_the_characters_of_each_page():
+    pages = [{"c": 4900}, {"c": 6400}, {"type": "figure", "c": 500}, {"type": "blank"}, {"type": "bib", "c": 8100}]
+    measured = layout.measure({"pages": pages, "w": 5000})
+    assert measured.page_types == ["body", "body", "figure", "blank", "bib"]
+    assert (measured.page_characters, measured.characters) == ([4900, 6400, 500, 0, 8100], 19900)
+
+
 def test_landscape_pages_read_as_slides():
     findings = layout.evaluate(layout.measure({"pages": [{}], "papersize": [612, 792], "w": 900}),
                                profile.load("example-easychair").format, None)

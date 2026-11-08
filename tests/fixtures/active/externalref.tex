@@ -1,0 +1,9 @@
+% A reference XObject, which draws a page of another PDF file in place of its own content.
+\input{common}
+\begin{document}
+\paperintro
+
+\setbox0=\hbox{\fbox{Pipeline figure}}
+\pdfxform attr {/Ref << /F (pipeline-figure.pdf) /Page 0 >>} 0
+\noindent\pdfrefxform\pdflastxform
+\end{document}

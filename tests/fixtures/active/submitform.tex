@@ -1,0 +1,10 @@
+% A form of hyperref that sends its field to a web address.
+\input{common}
+\usepackage{hyperref}
+\begin{document}
+\paperintro
+
+\begin{Form}[action=https://reviewer-tracking.example.org/collect]
+\TextField{Reviewer} \Submit{Send}
+\end{Form}
+\end{document}

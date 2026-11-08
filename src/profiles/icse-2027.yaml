@@ -35,6 +35,10 @@ checks:
   fonts:
     # The call asks for the "title in 24pt font and full text in 10pt type".
     title_size: 24
+  density:
+    # banal counts 6,422 characters per text page on the full pages of an IEEEtran conference paper of continuous
+    # text (tests/fixtures/density/template-ieee.pdf).
+    template_characters: 6422
   sigsoft:
     enabled: true
   anonymity:

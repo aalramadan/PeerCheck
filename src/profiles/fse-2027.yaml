@@ -43,6 +43,10 @@ checks:
     # The call states "We also strongly encourage the use of the review, screen, and anonymous options as well." The
     # review option of acmart prints line numbers.
     missing: info
+  density:
+    # banal counts 4,234 characters per text page on the full pages of an acmsmall paper with the review and anonymous
+    # options and continuous text (tests/fixtures/density/template-acmsmall.pdf).
+    template_characters: 4234
   sigsoft:
     enabled: true
   anonymity:

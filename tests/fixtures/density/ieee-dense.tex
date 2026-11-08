@@ -1,0 +1,30 @@
+% The clean paper squeezed in ways that each stay within the limits of the format check: body type of 9.7 pt on lines
+% 11 pt apart, and less space around the floats, captions, headings, and equations.
+\pdftrailerid{}
+\pdfinfoomitdate=1
+\pdfsuppressptexinfo=-1
+\documentclass[10pt,conference]{IEEEtran}
+\usepackage{amsmath,booktabs,listings,tikz,lipsum}
+\newcommand{\sizeofcaptions}{}
+\newcommand{\sizeoftables}{\footnotesize}
+\newcommand{\sizeoflisting}{\footnotesize}
+\newcommand{\sizeoffigures}{\footnotesize}
+\newcommand{\sizeofsections}{}
+\setlength{\textfloatsep}{4pt plus 1pt minus 1pt}
+\setlength{\floatsep}{4pt plus 1pt minus 1pt}
+\setlength{\abovecaptionskip}{1pt}
+\setlength{\belowcaptionskip}{-2pt}
+\makeatletter
+\renewcommand\section{\@startsection{section}{1}{\z@}{1ex plus 0.5ex minus 0.5ex}{0.5ex}%
+  {\normalfont\normalsize\centering\scshape}}
+\renewcommand\normalsize{\@setfontsize\normalsize{9.7pt}{11pt}%
+  \abovedisplayskip 2pt \belowdisplayskip 2pt \abovedisplayshortskip 0pt \belowdisplayshortskip 2pt}
+\makeatother
+\begin{document}
+\normalsize
+\title{Predicting Merge Conflicts from Build Histories}
+\author{\IEEEauthorblockN{Anonymous Author(s)}\IEEEauthorblockA{Anonymous Institution}}
+\maketitle
+\input{abstract}
+\input{body}
+\end{document}

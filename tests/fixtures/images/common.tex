@@ -1,0 +1,13 @@
+% Shared preamble of the image fixtures. The pdfTeX settings keep builds reproducible and keep the build path out of
+% the PDF.
+\pdftrailerid{}
+\pdfinfoomitdate=1
+\pdfsuppressptexinfo=-1
+\documentclass[letterpaper,11pt]{article}
+\usepackage[margin=1in]{geometry}
+\usepackage{graphicx}
+\pagestyle{empty}
+\newcommand{\paperintro}{%
+Flaky tests pass and fail on the same code without any change to the program under test.
+This study reruns each test of 26 open-source Java projects in shuffled orders and records
+every outcome together with the order in which the tests ran.}

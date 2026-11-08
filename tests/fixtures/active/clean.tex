@@ -1,0 +1,18 @@
+% A clean paper with what hyperref writes for links, bookmarks, and the start view, and an attached data file.
+\input{common}
+\usepackage{embedfile}
+\usepackage{hyperref}
+\embedfile{tests.csv}
+\begin{document}
+\section{Introduction}\label{sec:intro}
+\paperintro{} The data and the scripts are available at
+\url{https://anonymous.4open.science/r/flaky-1234}, as Section~\ref{sec:results} and
+prior work~\cite{luo} describe.
+
+\section{Results}\label{sec:results}
+\paperresults{} The definition of flakiness follows \href{https://example.org/flaky-tests}{prior work}.
+
+\begin{thebibliography}{1}
+\bibitem{luo} A. Author and B. Author, ``A study of flaky tests,'' in \emph{Proc. Conf.}, 2020, pp. 1--10.
+\end{thebibliography}
+\end{document}

@@ -16,6 +16,7 @@
 | `editlens/` | github.com/pangramlabs/EditLens | commit `05a588f` | CC BY-NC-SA 4.0 | keeps the code of Open Pangram, the release of EditLens, without its data and runs its own version in `src/reviews/editlens.py` |
 | `hallucinator/` | github.com/gianlucasb/hallucinator | release v0.2.4 | AGPL-3.0-or-later | keeps the Rust source of the reference checker, whose built program `peercheck setup references` downloads |
 | `hotcrp/` | github.com/kohler/hotcrp | commit `4c1ef77` | GPL-2.0-or-later for `banal`, Click license for the rest | runs `banal` in the format check and reads the affiliation word lists of `affiliationmatchers.json` in the conflict check |
+| `mubanal/` | github.com/kohler/mubanal | commit `f185559` | AGPL-3.0 | keeps `src/extract.cc` and `src/mubanal.hh` of the PDF analyzer that HotCRP reads, whose nine categories of active content `src/checks/active_content.py` follows with a scan of its own in pikepdf |
 | `openreview-py/` | github.com/openreview/openreview-py | commit `9e8ba8e` | MIT | copies the webmail list of `openreview/tools.py` into `src/conflicts.py` |
 | `phantomlint/` | github.com/tobycmurray/phantom-lint | commit `7f62001` | BSD-3-Clause | copies the warning phrases of PhantomLint into `src/checks/hidden_text.py` |
 | `publicsuffix/` | publicsuffix.org, the Public Suffix List | version `2026-11-06_09-01-47_UTC`, commit `94ec5df` | MPL-2.0 | reads the public suffixes, such as `ac.uk` and `re.kr`, to find the domain of the organization behind each email address in the conflict check |
