@@ -35,6 +35,7 @@ review_*.xml
 .cache/
 
 # Python, Java, and LaTeX build files.
+.venv/
 __pycache__/
 *.egg-info/
 build/

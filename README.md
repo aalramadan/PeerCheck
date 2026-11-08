@@ -78,17 +78,15 @@ We tested the two AI detectors on 1,409 reviews.
 #### 🐳 Docker
 
 ```bash
-docker run --rm -v "$PWD:/data" -v peercheck-cache:/cache -e HF_TOKEN ghcr.io/aalramadan/peercheck \
-  reviews reviews/ --html reviews.html
-docker run --rm -p 127.0.0.1:8765:8765 -v peercheck-cache:/cache -e HF_TOKEN ghcr.io/aalramadan/peercheck gui
+docker pull ghcr.io/aalramadan/peercheck
+docker run --rm -v peercheck-cache:/cache ghcr.io/aalramadan/peercheck setup references   # once, about 1.1 GB
 ```
 
 - The image holds PeerCheck with Python, Java, Perl, and poppler. GitHub Actions rebuilds it at every change.
-- `-v "$PWD:/data"` gives the container the current folder.
-- `-v peercheck-cache:/cache` keeps the models between runs.
-- `-e HF_TOKEN` passes the token of EditLens, as EditLens access below describes.
-- The second command serves the page of `peercheck gui` at the address it prints, through the port that
-  `-p 127.0.0.1:8765:8765` opens.
+- The second command downloads Hallucinator, the reference checker, with the DBLP database and the Retraction Watch
+  list, and builds the database, which takes a while.
+- `-v peercheck-cache:/cache` keeps the databases and the models between runs. The first review run downloads the
+  models of the AI detectors into the same place.
 
 #### 🐍 Python
 
@@ -99,23 +97,22 @@ PeerCheck needs these programs.
 - Java 11 or newer, for the anonymity and template check
 
 ```bash
-sudo apt install perl poppler-utils default-jre   # Debian or Ubuntu
-brew install poppler openjdk                      # macOS, which already has Perl
+sudo apt install python3-venv perl poppler-utils default-jre   # Debian or Ubuntu
+brew install poppler openjdk                                  # macOS, then the Java link command that brew prints
 ```
 
 ```bash
 git clone https://github.com/aalramadan/PeerCheck.git
 cd PeerCheck
-python -m pip install -e ".[reviews]"   # installs every check
-peercheck doctor                        # lists missing programs
-peercheck setup references              # downloads Hallucinator, the DBLP database, and the Retraction Watch list
-peercheck setup cocodet                 # downloads the CoCoDet model, about 600 MB
-peercheck setup editlens                # downloads the EditLens model, about 1.4 GB, after the steps below
+python3 -m venv .venv && . .venv/bin/activate   # a Python environment of its own for PeerCheck
+pip install -e ".[reviews]"                     # installs every check
+peercheck doctor                                # lists missing programs
+peercheck setup references                      # downloads Hallucinator and the DBLP database, about 1.1 GB
+peercheck setup cocodet                         # downloads the CoCoDet model, about 600 MB
 ```
 
-> [!TIP]
-> To check only submissions and conflicts, `python -m pip install -e .` installs PeerCheck without the review
-> checks.
+- `peercheck setup references` builds the database after the download, which takes a while.
+- To check only submissions and conflicts, `pip install -e .` installs PeerCheck without the review checks.
 
 #### 🔑 EditLens access
 
@@ -125,9 +122,11 @@ peercheck setup editlens                # downloads the EditLens model, about 1.
 
 1. Create a free account at huggingface.co.
 2. Accept the license at huggingface.co/pangram/editlens_roberta-large.
-3. Create a token with read access at huggingface.co/settings/tokens. Then run `hf auth login` or set the
-   variable `HF_TOKEN` to the token.
-4. Run `peercheck setup editlens`.
+3. Create a token with read access at huggingface.co/settings/tokens.
+4. Run `export HF_TOKEN=<token>` in the shell before PeerCheck or `docker run`. With the Python install,
+   `hf auth login` stores the token instead.
+5. With the Python install, run `peercheck setup editlens` to download the model, about 1.4 GB. With Docker, the
+   first review run downloads the model.
 
 > [!TIP]
 > To skip EditLens, check the reviews with `--detectors cocodet`.
@@ -140,28 +139,35 @@ peercheck setup editlens                # downloads the EditLens model, about 1.
 
    ```text
    my-conference/
-     submissions/       the submission PDFs
-     submissions.xlsx   the submission sheet
-     reviews/           the reviews
+     submissions/       the PDFs of the submissions
+     submissions.xlsx   the submission sheet, with the ID and the title of each paper
+     reviews/           the reviews, as the XML files of EasyChair or the review CSV file of HotCRP
    ```
 
-2. Run the checks from that folder. The option `--profile` picks the rules of the venue, such as its page limit.
-   Use `example-easychair` for a venue on EasyChair, `icse-2027` or `fse-2027` for these two venues on HotCRP, or a
-   profile of your own, as Venue profiles below describes.
+2. Pick the rules of the venue. The profiles `icse-2027` and `fse-2027` ship with PeerCheck. For another venue, copy
+   `profiles/example-easychair.yaml` (a venue on EasyChair) or `profiles/icse-2027.yaml` (a venue on HotCRP) of this
+   repository into the folder as `venue.yaml` and set its page limit and template, as Venue profiles below
+   describes.
+
+3. Run the checks from that folder, with `--profile` before the command.
 
    ```bash
    cd my-conference
-   peercheck --profile example-easychair papers submissions/ --submissions submissions.xlsx --html report.html
-   peercheck --profile example-easychair reviews reviews/ --html reviews.html
+   peercheck --profile venue.yaml papers submissions/ --submissions submissions.xlsx --html report.html
+   peercheck --profile venue.yaml reviews reviews/ --html reviews.html
    ```
 
-3. Open `report.html` and `reviews.html` in a browser. The Excel workbooks `report.xlsx` and `reviews.xlsx` beside
+   - With Docker, write `docker run --rm -v "$PWD:/data" -v peercheck-cache:/cache -e HF_TOKEN
+     ghcr.io/aalramadan/peercheck` in place of `peercheck`.
+   - Without EditLens access, add `--detectors cocodet` to the second command.
+
+4. Open `report.html` and `reviews.html` in a browser. The Excel workbooks `report.xlsx` and `reviews.xlsx` beside
    them hold every detail.
 
-- With Docker, write `docker run --rm -v "$PWD:/data" -v peercheck-cache:/cache -e HF_TOKEN ghcr.io/aalramadan/peercheck`
-  in place of `peercheck`.
-- `peercheck gui` runs the same checks from a page in the browser.
-- `peercheck menu` asks for each file in turn.
+- `peercheck gui` runs the same checks from a page in the browser. With Docker, run `docker run --rm -p
+  127.0.0.1:8765:8765 -v peercheck-cache:/cache -e HF_TOKEN ghcr.io/aalramadan/peercheck gui` and open the address it
+  prints.
+- `peercheck menu` asks for each file in turn. With Docker, add `-it` after `docker run`.
 
 #### 📂 Inputs
 
@@ -172,17 +178,19 @@ peercheck setup editlens                # downloads the EditLens model, about 1.
 - A submission sheet, the export that lists the ID and the title of each paper.
 - An author list, a CSV or Excel file with the columns paper, first, last, email, and affiliation.
 - Reviews, as the XML files of EasyChair, the review CSV file of HotCRP, or any CSV file with the columns paper and
-  review and one column per field of the review form.
+  review (the review ID, such as A) and one column per field of the review form, such as the text of the review.
 - A committee list with first, last, email, and affiliation, or the EasyChair file `reviewer.csv`. An optional column
   dblp with the DBLP person ID settles a name that several DBLP authors share.
 
 #### 🧰 More commands
 
+Each command takes the `--profile` of the first run before its name, such as `peercheck --profile venue.yaml canary`.
+
 ```bash
-peercheck papers submissions/ --authors authors.csv                     # also finds the names of the authors in the PDFs
-peercheck conflicts --authors authors.csv --pc pc.csv --dblp-dump dblp.xml.gz   # finds conflicts of interest
-peercheck canary submissions/ --out marked/ --key canaries.csv          # plants a citation in each PDF
-peercheck reviews reviews/ --canaries canaries.csv                      # finds the planted citations
+peercheck papers submissions/ --authors authors.csv           # also finds the names of the authors in the PDFs
+peercheck conflicts --authors authors.csv --pc pc.csv --dblp-dump dblp.xml.gz   # dblp.xml.gz comes from dblp.org/xml
+peercheck canary submissions/ --out marked/ --key canaries.csv   # plants a citation in each PDF
+peercheck reviews reviews/ --canaries canaries.csv              # finds the planted citations
 ```
 
 > [!TIP]
@@ -242,7 +250,7 @@ Any other venue gets a profile in three steps.
 
 1. Copy a file of `profiles/`, such as `example-easychair.yaml` for a venue on EasyChair.
 2. Change its values.
-3. Pass the copy by path, such as `peercheck --profile myvenue.yaml papers submissions/`.
+3. Pass the copy by path, such as `peercheck --profile venue.yaml papers submissions/`.
 
 ## 🧪 Tests
 
