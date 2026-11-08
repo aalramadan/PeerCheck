@@ -95,7 +95,7 @@ def read_submissions(path: Path, profile: Profile) -> dict[int, str]:
     rows = read_rows(path)
     id_key = profile.id_column.lower()
     if rows and id_key not in rows[0]:
-        raise InputError(f"{path.name} has no column {profile.id_column!r}; set id_column in the profile")
+        raise InputError(f"{path.name} has no column {profile.id_column!r}; {_id_column_hint(rows[0])}")
     titles = {}
     for row in rows:
         paper_id = _paper_id(row.get(id_key, ""))
@@ -200,6 +200,14 @@ def parse_review(element, source: str, position: int) -> Review:
         author_text=author_text,
         reviewer=_reviewer(element.find("reviewer")),
     )
+
+
+def _id_column_hint(row: dict[str, str]) -> str:
+    if "#" in row:
+        return "it looks like an EasyChair sheet, so run with --profile example-easychair or set id_column: '#' in the profile"
+    if "id" in row:
+        return "it looks like a HotCRP sheet, so run with --profile icse-2027 or set id_column: 'ID' in the profile"
+    return "set id_column in the profile to the column that holds the paper ID"
 
 
 def _columns(rows: list[dict[str, str]], path: Path, with_paper: bool) -> dict[str, str]:

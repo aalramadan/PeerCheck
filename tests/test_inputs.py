@@ -55,6 +55,20 @@ def test_submission_sheet_without_the_id_column_names_the_column(tmp_path):
         inputs.read_submissions(path, profile.load("example-easychair"))
 
 
+def test_easychair_sheet_under_a_hotcrp_profile_names_the_easychair_profile(tmp_path):
+    path = tmp_path / "submissions.csv"
+    path.write_text("#,Title\n1,A\n")
+    with pytest.raises(inputs.InputError, match="--profile example-easychair"):
+        inputs.read_submissions(path, profile.load("icse-2027"))
+
+
+def test_hotcrp_sheet_under_an_easychair_profile_names_a_hotcrp_profile(tmp_path):
+    path = tmp_path / "submissions.csv"
+    path.write_text("ID,Title\n1,A\n")
+    with pytest.raises(inputs.InputError, match="--profile icse-2027"):
+        inputs.read_submissions(path, profile.load("example-easychair"))
+
+
 def test_easychair_author_headers_are_understood():
     authors = inputs.read_people(EASYCHAIR / "authors.csv", with_paper=True)
     assert [a.name for a in authors[7]] == ["Maria Lindqvist", "Wei Zhang"]
