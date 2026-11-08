@@ -31,6 +31,12 @@ format:
   require_abstract: true
 
 checks:
+  # Settings of other checks, off or at their defaults until set.
+  # accessibility: true          # notes on tags, language, title, and figure descriptions; {required: true} gives errors
+  # images:
+  #   max_file_mb: 20            # the upload limit of the venue
+  # line_numbers:
+  #   missing: warning           # ignore, info, warning, or error for a paper without line numbers
   density:
     # banal counts 6,422 characters per text page on the full pages of an IEEEtran conference paper of continuous
     # text (tests/fixtures/density/template-ieee.pdf).

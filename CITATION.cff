@@ -7,6 +7,6 @@ authors:
   - family-names: "Al-Ramadan"
     given-names: "Ali"
 version: "1.0.0"
-date-released: "2026-11-07"
+date-released: "2026-11-08"
 license: GPL-3.0-only
 repository-code: "https://github.com/aalramadan/PeerCheck"
