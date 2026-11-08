@@ -95,6 +95,21 @@ class TestAffiliations:
         assert conflicts.affiliation_match(first, second) == ""
 
     @pytest.mark.parametrize("first, second", [
+        ("Technical University of Munich", "University of Munich"),
+        ("Toronto Metropolitan University", "University of Toronto"),
+        ("Politecnico di Milano", "Università degli Studi di Milano"),
+    ])
+    def test_a_shared_city_word_never_joins_institutions_of_different_kinds(self, first, second):
+        assert conflicts.affiliation_match(first, second) == ""
+
+    @pytest.mark.parametrize("first, second, words", [
+        ("University of Toronto", "Univ. of Toronto, Canada", "toronto"),
+        ("Technical University of Munich", "TU Munich", "munich"),
+    ])
+    def test_one_institution_written_two_ways_still_matches(self, first, second, words):
+        assert conflicts.affiliation_match(first, second) == words
+
+    @pytest.mark.parametrize("first, second", [
         ("Universty of Toronto", "Stanford University"),
         ("German Aerospace Center", "Technical University of Munich, Germany"),
         ("Karolinska Institutet", "Massachusetts Institute of Technology"),

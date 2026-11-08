@@ -60,6 +60,7 @@ import csv
 import datetime
 import functools
 import json
+import re
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -120,6 +121,42 @@ GENERIC_WORDS = frozenset([
     "universitaria", "universitario", "universitas", "universitatea", "universitet", "universiteti", "universiti",
     "univerza", "univerzita", "uniwersytet"
 ])
+# Kinds of institution and the words that name each kind in the languages of the generic words. Two affiliations
+# that share a word, such as munich, name one institution only when they agree on these kinds, such as technical.
+KINDS = {
+    "university": frozenset([
+        "tu", "uni", "univ", "universidad", "universidade", "universita", "universitaet", "universitas", "universitat",
+        "universitatea", "universite", "universitesi", "universitet", "universiteit", "universiteti", "universiti",
+        "university", "univerza", "univerzita", "uniwersytet",
+    ]),
+    "institute": frozenset([
+        "inst", "institut", "institute", "institutet", "instituto", "institutt", "instituut", "instytut", "istituto",
+    ]),
+    "college": frozenset(["college"]),
+    "academy": frozenset(["academia", "academie", "academy", "akademi", "akademia", "akademie"]),
+    "technical": frozenset([
+        "politecnica", "politecnico", "politechnika", "politehnica", "politeknik", "polytechnic", "polytechnical",
+        "polytechnique", "tech", "technical", "technicka", "technicke", "technik", "technische", "technological",
+        "technologie", "technology", "tecnica", "tecnico", "tecnologia", "tecnologica", "tecnologico", "tehnica",
+        "teknik", "teknisk", "tekniska", "tekniske", "teknologi", "teknoloji", "tu",
+    ]),
+    "applied": frozenset(["angewandte", "applied", "fachhochschule", "fh", "hogeschool"]),
+    "state": frozenset(["estadual", "estatal", "negeri", "state"]),
+    "federal": frozenset(["federal", "federale"]),
+    "national": frozenset(["kebangsaan", "nacional", "nasional", "national", "nationale", "nazionale"]),
+    "metropolitan": frozenset(["metropolitan", "metropolitana", "metropolitano"]),
+    "city": frozenset(["city"]),
+    "free": frozenset(["free", "freie", "libera", "libre", "livre", "vrije"]),
+    "catholic": frozenset([
+        "catholic", "catholique", "catolica", "cattolica", "katholieke", "katholische", "katolicki", "katolik",
+        "papstliche", "pontifical", "pontificale", "pontificia",
+    ]),
+    "normal": frozenset(["normal", "normale"]),
+}
+# The kinds that state what an institution is, as against the kinds that qualify it, such as technical.
+BASE_KINDS = frozenset(["academy", "college", "institute", "university"])
+# Commas, parentheses, slashes, and spaced dashes part an affiliation, such as a department from its university.
+PART_BREAK = re.compile(r"[,;()\[\]/|]|\s[-\u2013\u2014]\s")
 # The common domains of OpenReview's conflict code, then further webmail providers.
 WEBMAIL = frozenset([
     "gmail.com", "qq.com", "126.com", "163.com", "outlook.com", "hotmail.com", "yahoo.com", "foxmail.com", "aol.com",
@@ -358,19 +395,22 @@ def _unsupported(authors: list[Person], member: Person, works: _Works) -> str:
 
 
 def _shared_words(text: str, subject: str, minimum: int) -> str:
-    words, found = _words(text), _words(subject)
-    seen = [_seen(word, words, found, minimum) for word in words]
+    seen = [_seen(word, text, subject, minimum) for word in _words(text)]
     strong = sorted(label for label, weak in seen if label and not weak)
     if strong:
         return " ".join(strong)
     return " ".join(sorted(label for label, _ in seen)) if seen and all(label for label, _ in seen) else ""
 
 
-def _seen(word: str, words: frozenset[str], found: frozenset[str], minimum: int) -> tuple[str, bool]:
+def _seen(word: str, text: str, subject: str, minimum: int) -> tuple[str, bool]:
+    words, found = _words(text), _words(subject)
     rule = _rules().get(word, {})
     weak = _weak(word)
-    label = word if word in found or (not weak and _similar(word, found, minimum)) else ""
-    if not label:
+    same = found & {word} or (frozenset() if weak else _similar(word, found, minimum))
+    if same:
+        label = word if _same_kind(_scope(text, frozenset([word])), _scope(subject, same)) else ""
+    else:
+        label = ""
         for alternate in rule.get("alternate", ()):
             if isinstance(alternate, dict):
                 if not _applies(alternate, words):
@@ -384,13 +424,50 @@ def _seen(word: str, words: frozenset[str], found: frozenset[str], minimum: int)
     return (label, weak) if label and _synced(rule.get("sync", ()), words, found) else ("", weak)
 
 
-def _similar(word: str, found: frozenset[str], minimum: int) -> bool:
+def _similar(word: str, found: frozenset[str], minimum: int) -> frozenset[str]:
     # Only strong words of letters match by spelling, since Place12 and Place123 name different places and a
     # misspelled Universty would otherwise match every University.
-    return len(word) >= FUZZY_WORD_MIN and word.isalpha() and any(
-        len(other) >= FUZZY_WORD_MIN and other.isalpha() and not _weak(other) and fuzz.ratio(word, other) >= minimum
-        for other in found
+    if len(word) < FUZZY_WORD_MIN or not word.isalpha():
+        return frozenset()
+    return frozenset(
+        other for other in found
+        if len(other) >= FUZZY_WORD_MIN and other.isalpha() and not _weak(other) and fuzz.ratio(word, other) >= minimum
     )
+
+
+def _same_kind(mine: frozenset[str], theirs: frozenset[str]) -> bool:
+    # A qualifier that one side lacks, such as technical, parts the two where that side states a base kind, since
+    # KTH and Stanford state none and may stand for KTH Royal Institute of Technology and Stanford University. Base
+    # kinds part the two where each side states one that the other lacks, as college and university do.
+    one, other = _kinds(mine), _kinds(theirs)
+    base_one, base_other = one & BASE_KINDS, other & BASE_KINDS
+    qualified = one - other - BASE_KINDS and base_other or other - one - BASE_KINDS and base_one
+    return not (qualified or base_one - base_other and base_other - base_one)
+
+
+@functools.cache
+def _scope(text: str, held: frozenset[str]) -> frozenset[str]:
+    # Kinds come from the parts that hold the word and state a base kind, such as Tsinghua University and not
+    # Department of Computer Science and Technology. A word in an address, such as Gothenburg after Chalmers
+    # University of Technology, takes the kinds of the nearest part that states one, the later part on a tie.
+    parts = _parts(text)
+    holding = [i for i, part in enumerate(parts) if part & held]
+    named = [i for i in holding if _kinds(parts[i]) & BASE_KINDS]
+    if not named and holding:
+        stated = [i for i, part in enumerate(parts) if _kinds(part) & BASE_KINDS]
+        nearest = min(stated, key=lambda i: (abs(i - holding[0]), i < holding[0]), default=None)
+        named = holding if nearest is None else [*holding, nearest]
+    return frozenset().union(*(parts[i] for i in named))
+
+
+@functools.cache
+def _parts(text: str) -> tuple[frozenset[str], ...]:
+    return tuple(words for words in map(_words, PART_BREAK.split(text)) if words)
+
+
+@functools.cache
+def _kinds(words: frozenset[str]) -> frozenset[str]:
+    return frozenset(kind for kind, names in KINDS.items() if words & names)
 
 
 def _applies(alternate: dict, words: frozenset[str]) -> bool:
