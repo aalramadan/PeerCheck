@@ -19,6 +19,8 @@ report*.json
 !samples/**/*.csv
 !samples/**/review_*.xml
 !samples/*.csv
+# The reports of the samples, which the live demo serves.
+!examples/*.xlsx
 # Test resources of the revised SIGSOFT checker, from its upstream repository.
 !external/submission-checker/src/test/resources/*
 

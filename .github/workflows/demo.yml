@@ -1,8 +1,10 @@
 name: demo
 
+# PeerCheck makes the reports in examples/ locally, since EditLens needs a Hugging Face token.
 on:
   push:
     branches: [main]
+    paths: [examples/**, .github/workflows/demo.yml]
   workflow_dispatch:
 
 permissions:
@@ -15,54 +17,15 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  build:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-      - uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: "17"
-      - name: Install poppler
-        run: sudo apt-get update && sudo apt-get install -y poppler-utils
-      - name: Install PeerCheck
-        run: |
-          python -m pip install torch --index-url https://download.pytorch.org/whl/cpu
-          python -m pip install -e ".[reviews]"
-      - name: Keep the models between runs
-        uses: actions/cache@v4
-        with:
-          path: ~/.cache/huggingface
-          key: huggingface-models-1
-      - name: Check the samples
-        env:
-          # EditLens needs a Hugging Face token with access to its model. Without one, CoCoDet runs alone.
-          HF_TOKEN: ${{ secrets.HF_TOKEN }}
-        run: |
-          mkdir -p site
-          check="peercheck --profile samples/venue.yaml"
-          $check papers samples/papers --authors samples/authors.csv --checks layout,sigsoft,hidden-text \
-            --out site/report.xlsx --html site/report.html
-          detectors=cocodet
-          if [ -n "$HF_TOKEN" ]; then detectors=cocodet,editlens; fi
-          $check reviews samples/reviews --canaries samples/canaries.csv --detectors "$detectors" \
-            --out site/reviews.xlsx --html site/reviews.html
-          $check reviews samples/hotcrp-reviews.csv --detectors "$detectors" --out site/hotcrp.xlsx --html site/hotcrp.html
-          $check conflicts --authors samples/authors.csv --pc samples/committee.csv --out site/conflicts.xlsx
-          cp docs/demo-index.html site/index.html
-      - uses: actions/upload-pages-artifact@v3
-        with:
-          path: site
-
   deploy:
-    needs: build
     runs-on: ubuntu-latest
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
+      - uses: actions/checkout@v4
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: examples
       - id: deployment
         uses: actions/deploy-pages@v4

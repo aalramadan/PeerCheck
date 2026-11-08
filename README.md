@@ -29,8 +29,7 @@ peercheck --profile samples/venue.yaml reviews samples/reviews --canaries sample
 
 > [!TIP]
 > The [live demo](https://aalramadan.github.io/PeerCheck/) shows the full reports with their Excel workbooks,
-> together with a review export of HotCRP and the conflict check. GitHub Actions rebuilds the reports at every
-> change.
+> together with a review export of HotCRP and the conflict check. The reports sit in [`examples/`](examples/).
 
 #### Papers
 

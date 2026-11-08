@@ -1,7 +1,9 @@
 # Samples
 
-Made-up submissions and public reviews to try PeerCheck on. Every name, email address, and affiliation in these
-files is made up.
+- Made-up submissions and public reviews to try PeerCheck on.
+- Every name, email address, and affiliation in these files is made up.
+- The review texts come from the public test set of CoCoNUTS (MIT license).
+- The review of submission 106 holds a made-up planted citation.
 
 | Path | Holds | Shows |
 |---|---|---|
@@ -18,13 +20,16 @@ files is made up.
 | `hotcrp-reviews.csv` | three reviews as a HotCRP export | the HotCRP reader |
 | `venue.yaml` | the profile of a made-up venue, with the rules of the default profile | a venue profile |
 
+- The commands below write the reports of the samples to [`examples/`](../examples/), which the
+  [live demo](https://aalramadan.github.io/PeerCheck/) serves.
+
 ```bash
 peercheck --profile samples/venue.yaml papers samples/papers --authors samples/authors.csv \
-  --checks layout,sigsoft,hidden-text --html report.html
-peercheck --profile samples/venue.yaml reviews samples/reviews --canaries samples/canaries.csv --html reviews.html
-peercheck --profile samples/venue.yaml reviews samples/hotcrp-reviews.csv --html hotcrp.html
-peercheck --profile samples/venue.yaml conflicts --authors samples/authors.csv --pc samples/committee.csv
+  --checks layout,sigsoft,hidden-text --out examples/report.xlsx --html examples/report.html
+peercheck --profile samples/venue.yaml reviews samples/reviews --canaries samples/canaries.csv \
+  --out examples/reviews.xlsx --html examples/reviews.html
+peercheck --profile samples/venue.yaml reviews samples/hotcrp-reviews.csv \
+  --out examples/hotcrp.xlsx --html examples/hotcrp.html
+peercheck --profile samples/venue.yaml conflicts --authors samples/authors.csv --pc samples/committee.csv \
+  --out examples/conflicts.xlsx
 ```
-
-The review texts come from the public test set of CoCoNUTS (MIT license). The review of submission 106 holds a
-made-up planted citation.

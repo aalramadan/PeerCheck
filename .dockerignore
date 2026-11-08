@@ -1,6 +1,7 @@
 .git
 .github
 docs
+examples
 samples
 tests
 **/__pycache__
