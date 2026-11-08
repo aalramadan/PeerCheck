@@ -9,11 +9,17 @@ review_*.xml
 *.xls
 *.csv
 *.jsonl
-report*.json
+*.json
+*.html
 !tests/fixtures/**/*.pdf
 !tests/fixtures/**/review_*.xml
 !tests/fixtures/**/*.csv
 !tests/fixtures/**/*.xlsx
+!tests/fixtures/**/*.json
+# The page of peercheck gui and the data files of the external tools.
+!src/gui.html
+!external/**/*.json
+!external/**/*.html
 # The made-up samples that the README and the live demo use.
 !samples/**/*.pdf
 !samples/**/*.csv
@@ -21,6 +27,7 @@ report*.json
 !samples/*.csv
 # The reports of the samples, which the live demo serves.
 !examples/*.xlsx
+!examples/*.html
 # Test resources of the revised SIGSOFT checker, from its upstream repository.
 !external/submission-checker/src/test/resources/*
 
