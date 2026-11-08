@@ -1,0 +1,13 @@
+% The paper of clean.tex in the article class without the map line of cmr10, therefore pdfTeX sets the body in
+% the bitmap font of cmr10, a Type 3 font without a ToUnicode map whose glyph names, such as a65, give the codes
+% of the characters.
+\input{settings}
+\pdfmapline{-cmr10}
+\documentclass[10pt]{article}
+\begin{document}
+\title{Detecting Order-Dependent Flaky Tests}
+\author{Anonymous Author(s)}
+\maketitle
+\input{body}
+\input{body}
+\end{document}

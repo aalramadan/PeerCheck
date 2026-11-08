@@ -1,0 +1,30 @@
+% A tagged paper that passes the structure test, built twice with lualatex under
+% SOURCE_DATE_EPOCH=1767225600 and FORCE_SOURCE_DATE=1. \DocumentMetadata writes the tags, /MarkInfo,
+% and the language, hyperref writes the title, and the alt key of \includegraphics gives each figure
+% its alternative text.
+\DocumentMetadata{lang=en-US, pdfstandard=ua-2, tagging=on}
+\documentclass[10pt]{article}
+\usepackage{graphicx}
+\usepackage{hyperref}
+\hypersetup{pdftitle={Detecting Order-Dependent Flaky Tests}}
+\title{Detecting Order-Dependent Flaky Tests}
+\author{Anonymous Author(s)}
+\begin{document}
+\maketitle
+\section{Introduction}
+Flaky tests pass and fail on the same version of the code. A developer who sees such a failure cannot tell whether
+the change under review broke the program or whether the test fails at random. The detector reruns each test in
+shuffled orders and reports the tests whose outcome depends on the order.
+\begin{figure}[ht]
+\centering
+\includegraphics[width=0.4\linewidth,
+  alt={A bar chart of the flaky tests in each of the twelve projects.}]{example-image-a}
+\caption{Flaky tests per project}
+\end{figure}
+\begin{figure}[ht]
+\centering
+\includegraphics[width=0.4\linewidth,
+  alt={A line chart of the orders that the detector tries for each test.}]{example-image-b}
+\caption{Orders tried per test}
+\end{figure}
+\end{document}

@@ -1,0 +1,27 @@
+% The paper of tagged.tex without the alt key on its second figure, built the same way. tagpdf then
+% writes the file name example-image-b.pdf as the /Alt of that figure.
+\DocumentMetadata{lang=en-US, pdfstandard=ua-2, tagging=on}
+\documentclass[10pt]{article}
+\usepackage{graphicx}
+\usepackage{hyperref}
+\hypersetup{pdftitle={Detecting Order-Dependent Flaky Tests}}
+\title{Detecting Order-Dependent Flaky Tests}
+\author{Anonymous Author(s)}
+\begin{document}
+\maketitle
+\section{Introduction}
+Flaky tests pass and fail on the same version of the code. A developer who sees such a failure cannot tell whether
+the change under review broke the program or whether the test fails at random. The detector reruns each test in
+shuffled orders and reports the tests whose outcome depends on the order.
+\begin{figure}[ht]
+\centering
+\includegraphics[width=0.4\linewidth,
+  alt={A bar chart of the flaky tests in each of the twelve projects.}]{example-image-a}
+\caption{Flaky tests per project}
+\end{figure}
+\begin{figure}[ht]
+\centering
+\includegraphics[width=0.4\linewidth]{example-image-b}
+\caption{Orders tried per test}
+\end{figure}
+\end{document}

@@ -1,0 +1,19 @@
+% An acmart acmsmall paper whose subtitle stands below its title in a smaller size.
+\pdftrailerid{}
+\pdfinfoomitdate=1
+\pdfsuppressptexinfo=-1
+\documentclass[acmsmall,screen]{acmart}
+\usepackage{lipsum}
+\begin{document}
+\title{FlakeScope}
+\subtitle{Ranking Flaky Test Failures with Build Histories}
+\author{Anonymous Author}
+\affiliation{\institution{Anonymous Institution}\country{Country}}
+\begin{abstract}
+Flaky tests pass and fail on the same code. FlakeScope ranks the failures of a build by the chance that each failure
+is flaky.
+\end{abstract}
+\maketitle
+\section{Introduction}
+\lipsum[1-2]
+\end{document}

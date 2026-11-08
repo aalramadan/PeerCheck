@@ -1,0 +1,17 @@
+% The paper of clean.tex with a second page that holds only scan.png, a picture of a text page that covers the
+% whole page, as a scanned page without a text layer. scan.png is page 1 of clean.pdf in black and white at
+% 100 dpi, rendered by gs -sDEVICE=pngmono -r100 -dFirstPage=1 -dLastPage=1 -o scan.png clean.pdf.
+\input{settings}
+\documentclass[10pt,conference]{IEEEtran}
+\usepackage{graphicx,eso-pic}
+\begin{document}
+\title{Detecting Order-Dependent Flaky Tests}
+\author{\IEEEauthorblockN{Anonymous Author(s)}}
+\maketitle
+\input{body}
+\clearpage
+\AddToShipoutPictureFG*{\includegraphics[width=\paperwidth,height=\paperheight]{scan.png}}
+\thispagestyle{empty}\null
+\clearpage
+\input{body}
+\end{document}

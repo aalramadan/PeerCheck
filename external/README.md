@@ -10,7 +10,7 @@
 
 | Folder | Origin | Version | License | What PeerCheck does with it |
 |---|---|---|---|---|
-| `aclpubcheck/` | github.com/acl-org/aclpubcheck | commit `fb584f3` | MIT | keeps `formatchecker.py`, the format checker of ACL venues, whose list of Times fonts `src/checks/fonts.py` takes and whose scan of the margins `src/checks/margins.py` follows |
+| `aclpubcheck/` | github.com/acl-org/aclpubcheck | commit `fb584f3` | MIT | keeps `formatchecker.py`, the format checker of ACL venues, whose list of Times fonts `src/checks/fonts.py` takes and whose scan of the margins `src/checks/margins.py` follows, and `metadatachecker.py`, whose comparison of the PDF title with the submission sheet `src/checks/title_match.py` follows |
 | `census-surnames/` | U.S. Census Bureau, Frequently Occurring Surnames from the 2010 Census | 2010 census | public domain | reads the 9,999 most common surnames for the made-up citations of the canary check |
 | `coconuts/` | github.com/icip-cas/CoCoNUTS | commit `25df608` | MIT, per the CoCoDet model card | keeps `infer.py`, the original of CoCoDet, and runs its own version in `src/reviews/cocodet.py` |
 | `editlens/` | github.com/pangramlabs/EditLens | commit `05a588f` | CC BY-NC-SA 4.0 | keeps the code of Open Pangram, the release of EditLens, without its data and runs its own version in `src/reviews/editlens.py` |
@@ -19,7 +19,9 @@
 | `openreview-py/` | github.com/openreview/openreview-py | commit `9e8ba8e` | MIT | copies the webmail list of `openreview/tools.py` into `src/conflicts.py` |
 | `phantomlint/` | github.com/tobycmurray/phantom-lint | commit `7f62001` | BSD-3-Clause | copies the warning phrases of PhantomLint into `src/checks/hidden_text.py` |
 | `publicsuffix/` | publicsuffix.org, the Public Suffix List | version `2026-11-06_09-01-47_UTC`, commit `94ec5df` | MPL-2.0 | reads the public suffixes, such as `ac.uk` and `re.kr`, to find the domain of the organization behind each email address in the conflict check |
-| `submission-checker/` | github.com/acmsigsoft/submission-checker | release v0.4.3, commit `3ffa1eb` | Apache-2.0 | runs the jar, built from the revised source in this folder, in the anonymity and template check |
+| `snowball/` | github.com/snowballstem/snowball-website, the English stop word list of Snowball | commit `dc14fb4` | BSD-3-Clause | reads the 174 English stop words of `stop.txt` as the common words of the text check in `src/checks/unreadable_text.py` |
+| `submission-checker/` | github.com/acmsigsoft/submission-checker | release v0.4.3, commit `3ffa1eb` | Apache-2.0 | runs the jar, built from the revised source in this folder, in the anonymity and template check; `src/checks/line_numbers.py` follows the line count of `PdfChecker.java`, which finds the line numbers of the review version of acmart |
+| `verapdf/` | github.com/veraPDF/veraPDF-validation-profiles | commit `fc5a92f` | CC BY 4.0 | keeps `PDFUA-1.xml`, the PDF/UA-1 profile of veraPDF, whose rules 6.2-1, 7.1-9, 7.1-11, 7.2-29, and 7.3-1 the accessibility check in `src/checks/accessibility.py` follows |
 
 ## Checks
 

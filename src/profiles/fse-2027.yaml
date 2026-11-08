@@ -39,6 +39,10 @@ format:
   require_abstract: false
 
 checks:
+  line_numbers:
+    # The call states "We also strongly encourage the use of the review, screen, and anonymous options as well." The
+    # review option of acmart prints line numbers.
+    missing: info
   sigsoft:
     enabled: true
   anonymity:

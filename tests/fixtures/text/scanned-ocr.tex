@@ -1,0 +1,29 @@
+% A one-page scan with the text layer of a poor optical character recognition. scan.png covers the page, and
+% invisible text in render mode 3 holds three copies of the misread first paragraph of body.tex.
+\input{settings}
+\documentclass[10pt]{article}
+\usepackage[margin=1in]{geometry}
+\usepackage{graphicx,eso-pic}
+\pagestyle{empty}
+\begin{document}
+\AddToShipoutPictureBG*{\includegraphics[width=\paperwidth,height=\paperheight]{scan.png}}
+\pdfliteral direct{3 Tr}
+Elokv fc5f5 po55 oud foll 0u fbc 5omc vcr5l0u 0f fbc c0dc. 4 dcvcl0pcr vvb0 5cc5 5ucb o follurc couu0f fcll vvbcfbcr
+fbc cbougc uudcr rcvlcvv br0kc fbc pr0grom 0r vvbcfbcr fbc fc5f foll5 of roud0m. 45 o rc5ulf, mouv fcom5 rcruu cvcrv
+follcd fc5f 5cvcrol flmc5 bcf0rc fbcv l00k of fbc follurc, vvblcb vvo5fc5 fbc flmc 0f fbc bulld 5crvcr5 oud dclov5
+fbc rcvlcvv 0f cocb cbougc. 1u fbl5 popcr vvc 5fudv fbc fc5f5 fbof dcpcud 0u fbc 0rdcr lu vvblcb fbc bulld ruu5
+fbcm.
+
+Elokv fc5f5 po55 oud foll 0u fbc 5omc vcr5l0u 0f fbc c0dc. 4 dcvcl0pcr vvb0 5cc5 5ucb o follurc couu0f fcll vvbcfbcr
+fbc cbougc uudcr rcvlcvv br0kc fbc pr0grom 0r vvbcfbcr fbc fc5f foll5 of roud0m. 45 o rc5ulf, mouv fcom5 rcruu cvcrv
+follcd fc5f 5cvcrol flmc5 bcf0rc fbcv l00k of fbc follurc, vvblcb vvo5fc5 fbc flmc 0f fbc bulld 5crvcr5 oud dclov5
+fbc rcvlcvv 0f cocb cbougc. 1u fbl5 popcr vvc 5fudv fbc fc5f5 fbof dcpcud 0u fbc 0rdcr lu vvblcb fbc bulld ruu5
+fbcm.
+
+Elokv fc5f5 po55 oud foll 0u fbc 5omc vcr5l0u 0f fbc c0dc. 4 dcvcl0pcr vvb0 5cc5 5ucb o follurc couu0f fcll vvbcfbcr
+fbc cbougc uudcr rcvlcvv br0kc fbc pr0grom 0r vvbcfbcr fbc fc5f foll5 of roud0m. 45 o rc5ulf, mouv fcom5 rcruu cvcrv
+follcd fc5f 5cvcrol flmc5 bcf0rc fbcv l00k of fbc follurc, vvblcb vvo5fc5 fbc flmc 0f fbc bulld 5crvcr5 oud dclov5
+fbc rcvlcvv 0f cocb cbougc. 1u fbl5 popcr vvc 5fudv fbc fc5f5 fbof dcpcud 0u fbc 0rdcr lu vvblcb fbc bulld ruu5
+fbcm.
+\pdfliteral direct{0 Tr}
+\end{document}

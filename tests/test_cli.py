@@ -114,6 +114,12 @@ def test_doctor_reports_missing_data_of_the_conflict_check(monkeypatch, tmp_path
     assert "missing affiliationmatchers.json" in printed and "missing public_suffix_list.dat" in printed
 
 
+def test_doctor_reports_a_missing_stop_word_list_of_the_text_check(monkeypatch, tmp_path, capsys):
+    monkeypatch.setattr(tools, "EXTERNAL", tmp_path)
+    cli.main(["doctor"])
+    assert "missing stop.txt" in capsys.readouterr().out
+
+
 def test_installed_package_finds_the_external_files_that_its_wheel_holds(tmp_path):
     package = tmp_path / "site-packages" / "peercheck"
     for relative in ("hotcrp/banal", "submission-checker/submission-checker.jar", "census-surnames/census_surnames.txt"):
