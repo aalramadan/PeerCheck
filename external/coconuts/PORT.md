@@ -2,8 +2,9 @@
 
 `infer.py` in this folder is the original inference script of CoCoNUTS (Chen et al., ACL 2026), copied
 unchanged from `github.com/icip-cas/CoCoNUTS` at commit `25df60884f` (2025-09-11), the only commit of
-that repository. The repository has no license file. The model card of the weights
-(`huggingface.co/khaaaaaan/CoCoDet`) states the MIT license.
+that repository. The repository has no license file. PeerCheck uses the script under the MIT license,
+which the model card of the weights (`huggingface.co/khaaaaaan/CoCoDet`) states. `LICENSE` in this folder holds
+the text of that license.
 
 PeerCheck runs the port in `src/reviews/cocodet.py`. Each change from `infer.py` follows.
 
