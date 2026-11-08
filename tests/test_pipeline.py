@@ -65,3 +65,26 @@ def test_pdf_that_needs_a_password_keeps_only_that_finding_of_its_errors(tmp_pat
     codes = _run(tmp_path, monkeypatch, "integrity/user-password.pdf", ["layout", "hidden-text"], banal)
     assert "pdf.password" in codes
     assert not {code for code in codes if code.endswith(".error")}
+
+
+def test_format_check_runs_the_image_check_of_peercheck(tmp_path, monkeypatch):
+    assert "images.low-resolution" in _run(tmp_path, monkeypatch, "images/low-resolution.pdf", ["layout"])
+
+
+def test_hidden_text_check_runs_the_active_content_check_and_reports_each_script_once(tmp_path, monkeypatch):
+    codes = _run(tmp_path, monkeypatch, "active/javascript-animation.pdf", ["hidden-text"])
+    assert "active-content.javascript" in codes and "hidden-text.javascript" not in codes
+
+
+def test_format_check_compares_the_density_of_each_paper_with_the_whole_batch(tmp_path, monkeypatch):
+    batches = []
+
+    def check_batch(measures, venue):
+        batches.append(sorted(measures))
+        return {paper_id: [Finding("density.characters", Severity.WARNING, "dense")] for paper_id in measures}
+
+    monkeypatch.setattr(pipeline.density, "measure", lambda paper, measured: paper.paper_id)
+    monkeypatch.setattr(pipeline.density, "check_batch", check_batch)
+    assert "density.characters" in _run(tmp_path, monkeypatch, "images/clean.pdf", ["layout"])
+    assert batches == [[1]]
+    assert "density.characters" not in _run(tmp_path / "b", monkeypatch, "images/clean.pdf", ["hidden-text"])

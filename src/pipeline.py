@@ -10,9 +10,12 @@ from pathlib import Path
 from peercheck import inputs
 from peercheck.checks import (
     accessibility,
+    active_content,
+    density,
     embedded_identity,
     fonts,
     hidden_text,
+    images,
     layout,
     line_numbers,
     margins,
@@ -36,8 +39,9 @@ COMPANION_CHECKS = {
     "layout": (("pdf", pdf_integrity.check), ("fonts", fonts.check), ("margins", margins.check),
                ("unresolved", unresolved_references.check), ("text", unreadable_text.check),
                ("accessibility", accessibility.check), ("title", title_match.check),
-               ("line-numbers", line_numbers.check)),
+               ("line-numbers", line_numbers.check), ("images", images.check)),
     "sigsoft": (("identity", embedded_identity.check),),
+    "hidden-text": (("active-content", active_content.check),),
 }
 # A PDF that cannot open makes every other check fail, and these failures repeat the cause.
 UNOPENED = {"pdf.password", "pdf.unreadable"}
@@ -108,17 +112,36 @@ def run_papers(pdf_folder: Path, profile: Profile, submissions: Path | None = No
                     result.findings.extend(_guarded(name, SINGLE_CHECKS[name], paper, profile, folder))
             result.findings = _without_repeats(result.findings)
             _progress(number, len(papers), paper, result.findings)
+        if "layout" in names:
+            for paper_id, found_issues in _density(results, profile).items():
+                results[paper_id].findings.extend(found_issues)
     return PapersRun(list(results.values()), titles, found.unmatched, found.duplicates, names,
                      sorted(set(titles) - set(found.papers)))
 
 
 def _without_repeats(findings: list[Finding]) -> list[Finding]:
-    """Drop the failures that a PDF which cannot open causes in the other checks, and a second note of a repair."""
+    """Drop the failures that a PDF which cannot open causes, a second note of a repair, and a second note of a script."""
     codes = {f.check for f in findings}
     unopened = codes & UNOPENED
     return [f for f in findings
             if not (unopened and f.check.endswith(".error"))
-            and not (f.check == "hidden-text.damaged-pdf" and "pdf.damaged" in codes)]
+            and not (f.check == "hidden-text.damaged-pdf" and "pdf.damaged" in codes)
+            and not (f.check == "hidden-text.javascript" and "active-content.javascript" in codes)]
+
+
+def _density(results: dict[int, PaperResult], profile: Profile) -> dict[int, list[Finding]]:
+    # The density check compares each paper with the whole batch, therefore it runs once every paper is measured.
+    measures = {}
+    for paper_id, result in results.items():
+        try:
+            measures[paper_id] = density.measure(result.paper, result.layout)
+        except Exception:  # noqa: BLE001
+            measures[paper_id] = None
+    try:
+        return density.check_batch(measures, profile)
+    except Exception as exc:  # noqa: BLE001
+        return {paper_id: [Finding("density.error", Severity.WARNING, f"{type(exc).__name__}: {exc}")]
+                for paper_id in results}
 
 
 def _guarded(name: str, check, paper: Paper, profile: Profile, workdir: Path) -> list[Finding]:
