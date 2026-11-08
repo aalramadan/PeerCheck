@@ -9,14 +9,18 @@ from pathlib import Path
 
 from peercheck import inputs
 from peercheck.checks import (
+    accessibility,
     embedded_identity,
     fonts,
     hidden_text,
     layout,
+    line_numbers,
     margins,
     pdf_integrity,
     references,
     sigsoft,
+    title_match,
+    unreadable_text,
     unresolved_references,
 )
 from peercheck.findings import Finding, Severity, count
@@ -30,7 +34,9 @@ SINGLE_CHECKS = {"hidden-text": hidden_text.check, "references": references.chec
 # Checks of PeerCheck that run with a check of an external tool and share its switch, under their own code prefix.
 COMPANION_CHECKS = {
     "layout": (("pdf", pdf_integrity.check), ("fonts", fonts.check), ("margins", margins.check),
-               ("unresolved", unresolved_references.check)),
+               ("unresolved", unresolved_references.check), ("text", unreadable_text.check),
+               ("accessibility", accessibility.check), ("title", title_match.check),
+               ("line-numbers", line_numbers.check)),
     "sigsoft": (("identity", embedded_identity.check),),
 }
 # A PDF that cannot open makes every other check fail, and these failures repeat the cause.
