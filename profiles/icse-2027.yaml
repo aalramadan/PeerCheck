@@ -1,11 +1,7 @@
-# ICSE 2027 Research Track.
+# An example: profiles/template.yaml filled with the rules of the ICSE 2027 Research Track.
 # Rules: https://conf.researchr.org/track/icse-2027/icse-2027-research-track
 name: ICSE 2027 Research Track
 source: https://conf.researchr.org/track/icse-2027/icse-2027-research-track
-submission_system: hotcrp
-# HotCRP names the downloaded PDFs such as icse2027-paper123.pdf.
-file_pattern: '-paper(\d+)\.pdf$'
-id_column: 'ID'
 
 format:
   # "IEEE format is being used this year", with \documentclass[10pt,conference]{IEEEtran}.

@@ -49,7 +49,7 @@ def parser() -> argparse.ArgumentParser:
                                   description="Check reviews exported from EasyChair (XML) or HotCRP (CSV).")
     top.add_argument("folder", help="folder or file of review exports, or setup to download the models")
     top.add_argument("extra", nargs="*", help="after setup: cocodet or editlens")
-    top.add_argument("--profile", default="icse-2027", help="venue profile key or YAML file")
+    top.add_argument("--profile", help="the rules of the venue, which set the page count of the citation check")
     top.add_argument("--detectors", default="cocodet,editlens", help="comma-separated subset of cocodet,editlens")
     top.add_argument("--checks", default="duplicates,citations", help="comma-separated subset of duplicates,citations")
     top.add_argument("--canaries", type=Path, help="key file of peercheck canary, to find reviews that contain the "
@@ -79,7 +79,7 @@ def setup(what: str, device: str | None) -> int:
 
 def run(args: argparse.Namespace) -> int:
     """Check every review of a folder and write the report."""
-    venue = profiles.load(args.profile)
+    venue = profiles.load(args.profile) if args.profile else None
     detectors = _choose(args.detectors, DETECTORS, "detectors")
     checks = _choose(args.checks, CHECKS, "checks")
     key = canary.read_key(args.canaries) if args.canaries else None
@@ -95,12 +95,13 @@ def run(args: argparse.Namespace) -> int:
         found[review.review_id].extend(_detector_findings(verdict, lens))
     canaries = [("Canaries", str(args.canaries) if args.canaries else "none")]
     if key is not None:
-        for review_id, items in canary.check_reviews(reviews, key, venue.options("canary")).items():
+        for review_id, items in canary.check_reviews(reviews, key, _options(venue, "canary")).items():
             found[review_id].extend(items)
             rows[review_id]["Canary"] = _canary_state(items)
         canaries.append(("Reviewed papers in the canary key", _key_coverage(reviews, key)))
-    options = {"duplicates": venue.options("duplicates"),
-               "citations": {"pages": venue.format.main_pages, **venue.options("citations"),
+    pages = {"pages": venue.format.main_pages} if venue else {}
+    options = {"duplicates": _options(venue, "duplicates"),
+               "citations": {**pages, **_options(venue, "citations"),
                              **_panel_options(args)}}
     for name, module in (("duplicates", duplicates), ("citations", citations)):
         if name in checks:
@@ -220,3 +221,7 @@ def _detector_findings(verdict, lens) -> list[Finding]:
 def _canary_state(items: list[Finding]) -> str:
     codes = {f.check for f in items}
     return next((state for code, state in CANARY_STATES if code in codes), "no")
+
+
+def _options(venue, check: str) -> dict:
+    return venue.options(check) if venue else {}

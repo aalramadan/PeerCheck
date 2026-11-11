@@ -68,6 +68,21 @@ def test_papers_command_needs_at_least_one_check(tmp_path):
         gui.command("papers", {"profile": "icse-2027", "checks": []}, tmp_path)
 
 
+def test_papers_command_without_venue_rules_is_refused(tmp_path):
+    with pytest.raises(gui.RequestError, match="venue rules"):
+        gui.command("papers", {"profile": "", "checks": ["layout"]}, tmp_path)
+
+
+def test_reviews_command_without_venue_rules_runs_without_a_profile(tmp_path):
+    arguments = gui.command("reviews", {"profile": "", "detectors": [], "checks": []}, tmp_path)
+    assert arguments[0] == "reviews"
+
+
+def test_page_offers_no_venue_rules_before_the_shipped_examples(tmp_path):
+    keys = [choice["key"] for choice in gui.Server(0, None, tmp_path).profiles()]
+    assert keys == ["", "fse-2027", "icse-2027"]
+
+
 def test_reviews_command_keeps_only_the_detectors_and_checks_it_knows(tmp_path):
     arguments = gui.command("reviews", {"profile": "icse-2027", "detectors": ["editlens", "other"], "checks": []},
                             tmp_path)

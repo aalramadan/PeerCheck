@@ -19,7 +19,7 @@ def _run():
                PaperResult(Paper(9, Path("CONF_2026_paper_9.pdf")),
                            findings=[Finding("input.not-in-sheet", Severity.WARNING,
                                              "PDF has no row in the submission sheet")])]
-    return PapersRun(results, {}, ["odd name.pdf"], [], ("layout",))
+    return PapersRun(results, {}, {10: "odd name.pdf"}, [], ("layout",))
 
 
 def _submissions(tmp_path):
@@ -39,7 +39,7 @@ def _sheet(path, title):
 
 def test_report_extends_the_submission_sheet_and_flags_missing_and_extra_pdfs(tmp_path):
     out = tmp_path / "report.xlsx"
-    report.write_papers(out, _run(), profile.load("example-easychair"), _submissions(tmp_path))
+    report.write_papers(out, _run(), profile.load("icse-2027"), _submissions(tmp_path))
     rows = {row[0]: row for row in _sheet(out, None).iter_rows(min_row=2, values_only=True)}
     header = [c.value for c in _sheet(out, None)[1]]
     findings = header.index("Findings")
@@ -74,10 +74,11 @@ def test_submission_sheet_with_a_control_character_in_a_title_extends_into_the_r
     assert _sheet(out, None).cell(row=2, column=2).value == "Repair ofBuild Scripts"
 
 
-def test_unmatched_files_get_their_own_sheet(tmp_path):
+def test_files_without_a_paper_number_get_their_own_sheet(tmp_path):
     out = tmp_path / "report.xlsx"
-    report.write_papers(out, _run(), profile.load("example-easychair"))
-    assert [row[0] for row in _sheet(out, "Files").iter_rows(min_row=2, values_only=True)] == ["odd name.pdf"]
+    report.write_papers(out, _run(), profile.load("icse-2027"))
+    rows = list(_sheet(out, "Files").iter_rows(min_row=2, values_only=True))
+    assert [row[0] for row in rows] == ["odd name.pdf"] and "paper 10" in rows[0][1]
 
 
 def test_json_report_holds_plain_values(tmp_path):
@@ -91,16 +92,16 @@ def test_json_report_holds_plain_values(tmp_path):
 def test_json_report_goes_into_a_folder_that_does_not_exist_yet(tmp_path):
     out = tmp_path / "new" / "r.json"
     report.write_json(out, _run())
-    assert json.loads(out.read_text(encoding="utf-8"))["unmatched"] == ["odd name.pdf"]
+    assert json.loads(out.read_text(encoding="utf-8"))["numbered"] == {"10": "odd name.pdf"}
 
 
 def test_json_report_keeps_a_file_name_that_is_not_valid_utf8(tmp_path):
     out = tmp_path / "r.json"
     run = _run()
     # Python reads the byte 0xE9 of a Latin-1 file name as the lone surrogate U+DCE9.
-    run.unmatched.append("caf\udce9-paper2.pdf")
+    run.numbered[11] = "caf\udce9.pdf"
     report.write_json(out, run)
-    assert json.loads(out.read_text(encoding="utf-8"))["unmatched"] == ["odd name.pdf", "caf\udce9-paper2.pdf"]
+    assert json.loads(out.read_text(encoding="utf-8"))["numbered"] == {"10": "odd name.pdf", "11": "caf\udce9.pdf"}
 
 
 def test_html_page_escapes_text_from_pdfs_and_loads_nothing_from_the_web(tmp_path):
@@ -139,7 +140,8 @@ def test_html_page_counts_the_skipped_pdfs_without_naming_them(tmp_path):
     report.write_papers_html(out, run)
     page = out.read_text()
     assert "odd name.pdf" not in page and "(1).pdf" not in page
-    assert "Skipped 1 PDF(s) that hold no paper ID" in page and "Skipped 2 PDF(s) that repeat a paper ID" in page
+    assert "Numbered 1 PDF(s) whose names hold no paper number" in page
+    assert "Skipped 2 PDF(s) that repeat a paper number" in page
 
 
 def test_html_page_of_papers_is_titled_papers_without_the_venue(tmp_path):

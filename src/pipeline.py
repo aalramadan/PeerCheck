@@ -62,7 +62,7 @@ class PapersRun:
 
     results: list[PaperResult]
     titles: dict[int, str]
-    unmatched: list[str]
+    numbered: dict[int, str]
     duplicates: list[str]
     checks: tuple[str, ...]
     missing_pdfs: list[int] = field(default_factory=list)
@@ -115,7 +115,7 @@ def run_papers(pdf_folder: Path, profile: Profile, submissions: Path | None = No
         if "layout" in names:
             for paper_id, found_issues in _density(results, profile).items():
                 results[paper_id].findings.extend(found_issues)
-    return PapersRun(list(results.values()), titles, found.unmatched, found.duplicates, names,
+    return PapersRun(list(results.values()), titles, found.numbered, found.duplicates, names,
                      sorted(set(titles) - set(found.papers)))
 
 

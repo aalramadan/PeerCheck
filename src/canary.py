@@ -120,15 +120,17 @@ def mark(source: Path, target: Path, citation: str) -> None:
         document.save(target, garbage=3, deflate=True)
 
 
-def mark_folder(folder: Path, out: Path, key_path: Path, profile: Profile) -> tuple[int, list[str]]:
+def mark_folder(folder: Path, out: Path, key_path: Path, profile: Profile | None = None) -> tuple[int, list[str]]:
     """Mark every PDF of a folder into another folder and update the key; return the count and each skipped PDF."""
     if out.resolve() == folder.resolve():
         raise inputs.InputError("the marked PDFs need a folder of their own, apart from the originals")
     pdfs = inputs.find_pdfs(folder, profile)
+    # A PDF without a paper number in its name cannot be matched to its reviews, which name the paper number.
+    numbered = {paper_id: pdfs.papers.pop(paper_id) for paper_id in pdfs.numbered}
     key = make_key(list(pdfs.papers), read_key(key_path) if key_path.exists() else None)
     write_key(key_path, key)
     out.mkdir(parents=True, exist_ok=True)
-    skipped = [f"{name} (no paper ID in the name)" for name in pdfs.unmatched]
+    skipped = [f"{path.name} (no paper number in the name)" for path in numbered.values()]
     skipped += [f"{name} (another PDF has the same paper ID)" for name in pdfs.duplicates]
     marked = 0
     for paper_id, path in sorted(pdfs.papers.items()):

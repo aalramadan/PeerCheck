@@ -1,10 +1,6 @@
 # A made-up venue for the samples, with the rules of the default profile.
 name: Example Conference 2027
 source: https://example.org/call-for-papers
-submission_system: hotcrp
-# HotCRP names the downloaded PDFs such as conf2027-paper1.pdf.
-file_pattern: '-paper(\d+)\.pdf$'
-id_column: 'ID'
 
 format:
   style: IEEE

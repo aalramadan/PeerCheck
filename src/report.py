@@ -13,7 +13,7 @@ import openpyxl
 from openpyxl.cell.cell import ILLEGAL_CHARACTERS_RE
 from openpyxl.utils import get_column_letter
 
-from peercheck import __version__
+from peercheck import __version__, inputs
 from peercheck.checks.layout import REPORT_COLUMNS
 from peercheck.findings import Finding, Severity, count, needs_review
 from peercheck.pipeline import PapersRun
@@ -91,8 +91,8 @@ def write_papers(out: Path, run: PapersRun, profile: Profile, submissions: Path 
                     [(r.paper.paper_id, f) for r in run.results for f in r.findings])
     files = workbook.create_sheet("Files")
     _append(files, ("File", "Problem"))
-    for name in run.unmatched:
-        _append(files, (name, "the name holds no paper ID for this profile"))
+    for paper_id, name in sorted(run.numbered.items()):
+        _append(files, (name, f"the name holds no paper number; PeerCheck checked the PDF as paper {paper_id}"))
     for name in run.duplicates:
         _append(files, (name, "another PDF has the same paper ID; this one was skipped"))
     _about(workbook, profile, [("Checks run", ", ".join(run.checks))])
@@ -127,10 +127,13 @@ def write_papers_html(out: Path, run: PapersRun) -> None:
                          metrics.get("Reference-only Pages"), metrics.get("Paper Size (height x width, pt)"),
                          count(result.findings, Severity.ERROR), count(result.findings, Severity.WARNING)],
                         result.findings))
-    skipped = ((len(run.unmatched), "hold no paper ID"), (len(run.duplicates), "repeat a paper ID"))
-    notes = ([f"Paper {paper_id} has no PDF." for paper_id in run.missing_pdfs]
-             + [f"Skipped {number} PDF(s) that {reason}; the Files sheet of the workbook names them."
-                for number, reason in skipped if number])
+    notes = [f"Paper {paper_id} has no PDF." for paper_id in run.missing_pdfs]
+    if run.numbered:
+        notes.append(f"Numbered {len(run.numbered)} PDF(s) whose names hold no paper number; the Files sheet of the "
+                     "workbook names them.")
+    if run.duplicates:
+        notes.append(f"Skipped {len(run.duplicates)} PDF(s) that repeat a paper number; the Files sheet of the "
+                     "workbook names them.")
     _write_html(out, "PeerCheck, Papers", columns, records, notes + [f"Checks run: {', '.join(run.checks)}."])
 
 
@@ -188,12 +191,12 @@ def _e(value) -> str:
 
 
 def _papers_sheet(submissions: Path | None, profile: Profile):
-    id_name = profile.id_column.lower()
+    id_name = inputs.id_column(inputs.read_rows(submissions), profile.id_column) if submissions else None
     if submissions and submissions.suffix.lower() in (".xlsx", ".xlsm"):
         workbook = openpyxl.load_workbook(submissions)
         sheet = workbook.worksheets[0]
         header = [str(cell.value or "").strip().lower() for cell in sheet[1]]
-        if id_name in header:
+        if id_name and id_name in header:
             workbook.active = 0
             return workbook, sheet, header.index(id_name) + 1
     workbook = openpyxl.Workbook()
@@ -203,7 +206,7 @@ def _papers_sheet(submissions: Path | None, profile: Profile):
         with submissions.open(encoding="utf-8-sig", newline="") as handle:
             rows = list(csv.reader(handle))
         header = [name.strip().lower() for name in rows[0]] if rows else []
-        if id_name in header:
+        if id_name and id_name in header:
             for row in rows:
                 _append(sheet, row)
             return workbook, sheet, header.index(id_name) + 1

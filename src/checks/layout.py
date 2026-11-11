@@ -188,13 +188,13 @@ def evaluate(layout: Layout, rules: FormatRules, first_page_text: str | None) ->
             f"{layout.reference_pages} reference-only pages, limit {rules.reference_pages}")
     if layout.references_start is None and layout.main_pages > MIN_PAGES_WITH_REFERENCES:
         add("no-references", Severity.WARNING, "no references section found")
-    if layout.body_font and layout.body_font > rules.body_font_max:
+    if layout.body_font and rules.body_font_max and layout.body_font > rules.body_font_max:
         add("body-font", Severity.ERROR, f"body font {layout.body_font:g} pt, limit {rules.body_font_max:g} pt")
     if layout.body_font and rules.body_font_min and layout.body_font < rules.body_font_min:
         add("body-font", Severity.ERROR, f"body font {layout.body_font:g} pt, minimum {rules.body_font_min:g} pt")
     if layout.leading and rules.leading_min and layout.leading < rules.leading_min:
         add("line-spacing", Severity.ERROR, f"line spacing {layout.leading:g} pt, minimum {rules.leading_min:g} pt")
-    if layout.reference_font and layout.reference_font < rules.reference_font_min:
+    if layout.reference_font and rules.reference_font_min and layout.reference_font < rules.reference_font_min:
         add("reference-font", Severity.ERROR,
             f"reference font {layout.reference_font:g} pt, minimum {rules.reference_font_min:g} pt")
     if layout.columns and layout.columns != rules.columns:

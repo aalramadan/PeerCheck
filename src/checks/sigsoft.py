@@ -10,8 +10,10 @@ rules, and allowed_hosts and flag_acknowledgments under checks.anonymity.
 from __future__ import annotations
 
 import csv
+import dataclasses
 import json
 import re
+import shutil
 import subprocess
 from pathlib import Path
 
@@ -21,6 +23,8 @@ from peercheck.models import Paper
 from peercheck.profile import Profile
 
 SECONDS_PER_PAPER = 60
+# The checker reads the paper number from the file name of each PDF, as the names of its links give it.
+LINK_PATTERN = r"paper(\d+)\.pdf$"
 # The exit status of the checker when it rejects its arguments, such as a file it cannot find.
 USAGE_ERROR = 2
 JAVA_EXCEPTION = re.compile(r'Exception in thread "[^"]*" ([\w.$]+)')
@@ -64,6 +68,7 @@ def check_batch(papers: list[Paper], profile: Profile, workdir: Path) -> dict[in
     """
     if not papers:
         return {}
+    papers = _linked(papers, workdir)
     command = _command(papers, profile, workdir)
     try:
         results, missing = _check(command, papers, SECONDS_PER_PAPER * len(papers))
@@ -109,8 +114,7 @@ def _command(papers: list[Paper], profile: Profile, workdir: Path) -> list[str]:
     rules, anonymity = profile.format, profile.options("anonymity")
     command = [tools.program("java"), "-jar", str(tools.submission_checker()), "--json",
                "--style", rules.style, "--mainpages", str(rules.main_pages),
-               # The joined form keeps a pattern that starts with a dash, such as -paper(\d+), from reading as an option.
-               "--refpages", str(rules.reference_pages), f"--id-pattern={profile.file_pattern}"]
+               "--refpages", str(rules.reference_pages), f"--id-pattern={LINK_PATTERN}"]
     authors = _write_authors(papers, workdir)
     if authors:
         command += ["--meta", str(authors)]
@@ -120,6 +124,23 @@ def _command(papers: list[Paper], profile: Profile, workdir: Path) -> list[str]:
     if anonymity.get("flag_acknowledgments", True):
         command.append("--flag-acknowledgments")
     return command
+
+
+def _linked(papers: list[Paper], workdir: Path) -> list[Paper]:
+    """Return the papers with a link to each PDF that is named for the paper number, the name the checker reads."""
+    folder = workdir / "sigsoft-pdfs"
+    folder.mkdir(parents=True, exist_ok=True)
+    linked = []
+    for paper in papers:
+        link = folder / f"paper{paper.paper_id}.pdf"
+        link.unlink(missing_ok=True)
+        try:
+            link.symlink_to(paper.pdf.absolute())
+        except OSError:
+            # A file system without symbolic links, such as one of Windows, gets a copy.
+            shutil.copyfile(paper.pdf, link)
+        linked.append(dataclasses.replace(paper, pdf=link))
+    return linked
 
 
 def _write_authors(papers: list[Paper], workdir: Path) -> Path | None:

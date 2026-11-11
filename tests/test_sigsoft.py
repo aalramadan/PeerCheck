@@ -54,7 +54,7 @@ def _batch(tmp_path, monkeypatch, jar, count=3):
     monkeypatch.setattr(tools, "program", lambda name: name)
     monkeypatch.setattr(sigsoft.subprocess, "run", jar)
     papers = [Paper(n, tmp_path / f"conf_2026_paper_{n}.pdf") for n in range(1, count + 1)]
-    return sigsoft.check_batch(papers, profile.load("example-easychair"), tmp_path)
+    return sigsoft.check_batch(papers, profile.load("icse-2027"), tmp_path)
 
 
 def test_records_become_findings_with_mapped_severities():
@@ -76,8 +76,8 @@ def test_a_pdf_the_checker_cannot_open_is_a_warning_not_a_pass():
 
 def test_command_passes_the_profile_and_the_author_list(tmp_path, monkeypatch):
     monkeypatch.setattr(tools, "program", lambda name: name)
-    command = sigsoft._command(_papers(), profile.load("example-easychair"), tmp_path)
-    assert r"--id-pattern=_paper_(\d+)\.pdf$" in command
+    command = sigsoft._command(_papers(), profile.load("icse-2027"), tmp_path)
+    assert f"--id-pattern={sigsoft.LINK_PATTERN}" in command
     assert "--flag-acknowledgments" in command
     assert (tmp_path / "sigsoft-authors.csv").read_text().splitlines()[1].startswith("1,A,Maria,Lindqvist")
 
@@ -85,21 +85,21 @@ def test_command_passes_the_profile_and_the_author_list(tmp_path, monkeypatch):
 def test_papers_without_a_record_get_a_warning(tmp_path, monkeypatch):
     monkeypatch.setattr(tools, "program", lambda name: name)
     monkeypatch.setattr(sigsoft, "_run",
-                        lambda command, papers, timeout: ([{"file": "ieee-refs-start-p10.pdf", "issues": []}], ""))
-    results = sigsoft.check_batch(_papers(), profile.load("example-easychair"), tmp_path)
+                        lambda command, papers, timeout: ([{"file": "paper1.pdf", "issues": []}], ""))
+    results = sigsoft.check_batch(_papers(), profile.load("icse-2027"), tmp_path)
     assert results[1] == []
     assert [f.check for f in results[2]] == ["sigsoft.error"]
 
 
 @needs_jar
 def test_bundled_jar_reads_a_good_pdf_and_reports_a_corrupt_one(tmp_path):
-    results = sigsoft.check_batch(_papers(), profile.load("example-easychair"), tmp_path)
+    results = sigsoft.check_batch(_papers(), profile.load("icse-2027"), tmp_path)
     assert not [f for f in results[1] if f.check == "sigsoft.error"]
     assert [f.check for f in results[2]] == ["sigsoft.error"]
 
 
 @needs_jar
-def test_bundled_jar_takes_a_hotcrp_file_pattern_that_starts_with_a_dash(tmp_path):
+def test_bundled_jar_reads_a_paper_named_as_hotcrp_names_its_downloads(tmp_path):
     pdf = tmp_path / "conf2027-paper1.pdf"
     pdf.write_bytes((PAPERS / "ieee-refs-start-p10.pdf").read_bytes())
     results = sigsoft.check_batch([Paper(1, pdf)], profile.load("icse-2027"), tmp_path)
@@ -125,23 +125,23 @@ def test_batch_without_a_failure_runs_the_checker_once(tmp_path, monkeypatch):
 
 
 def test_papers_after_a_pdf_that_stops_the_checker_run_again_alone(tmp_path, monkeypatch):
-    jar = FakeJar(stopper="conf_2026_paper_2.pdf")
+    jar = FakeJar(stopper="paper2.pdf")
     results = _batch(tmp_path, monkeypatch, jar)
     assert results[1] == results[3] == []
     assert [f.message for f in results[2]] == ["no result from the SIGSOFT checker: it ran out of memory"]
     limit = sigsoft.SECONDS_PER_PAPER
-    assert jar.runs[1:] == [(["conf_2026_paper_2.pdf"], limit), (["conf_2026_paper_3.pdf"], limit)]
+    assert jar.runs[1:] == [(["paper2.pdf"], limit), (["paper3.pdf"], limit)]
 
 
 def test_timeout_keeps_the_records_that_finished_and_gives_a_short_reason(tmp_path, monkeypatch):
-    results = _batch(tmp_path, monkeypatch, FakeJar(stopper="conf_2026_paper_2.pdf", timeout=True), count=2)
+    results = _batch(tmp_path, monkeypatch, FakeJar(stopper="paper2.pdf", timeout=True), count=2)
     assert results[1] == []
     assert [f.message for f in results[2]] == [
         f"no result from the SIGSOFT checker: it did not finish within {sigsoft.SECONDS_PER_PAPER} seconds"]
 
 
 @needs_jar
-def test_bundled_jar_checks_the_other_papers_when_one_file_name_is_no_utf8(tmp_path):
+def test_bundled_jar_reads_a_paper_whose_file_name_is_no_utf8(tmp_path):
     good = tmp_path / "icse2027-paper1.pdf"
     good.write_bytes((PAPERS / "ieee-refs-start-p10.pdf").read_bytes())
     odd = os.path.join(os.fsencode(tmp_path), b"caf\xe9-icse2027-paper2.pdf")
@@ -152,8 +152,7 @@ def test_bundled_jar_checks_the_other_papers_when_one_file_name_is_no_utf8(tmp_p
         pytest.skip("the file system takes only UTF-8 file names")
     papers = [Paper(1, good), Paper(2, Path(os.fsdecode(odd)))]
     results = sigsoft.check_batch(papers, profile.load("icse-2027"), tmp_path / "work")
-    assert not [f for f in results[1] if f.check == "sigsoft.error"]
-    assert [f.check for f in results[2]] == ["sigsoft.error"]
+    assert not [f for f in results[1] + results[2] if f.check == "sigsoft.error"]
 
 
 @needs_jar
@@ -174,7 +173,7 @@ def test_one_allowed_host_given_as_a_string_reaches_the_checker_whole(tmp_path, 
 
 
 def test_errors_of_the_checker_name_no_path_or_file(tmp_path, monkeypatch):
-    results = _batch(tmp_path, monkeypatch, FakeJar(stopper="conf_2026_paper_2.pdf", rejects=True), count=2)
+    results = _batch(tmp_path, monkeypatch, FakeJar(stopper="paper2.pdf", rejects=True), count=2)
     assert [f.message for f in results[2]] == ["no result from the SIGSOFT checker: it rejected its arguments"]
     pdf = tmp_path / "conf_2026_paper_3.pdf"
     record = {"file": str(pdf), "error": f"FileNotFoundException: {pdf} (No such file or directory)"}

@@ -20,7 +20,7 @@ needs_banal = pytest.mark.skipif(not (shutil.which("perl") and shutil.which("pdf
 
 
 def _inspect(name):
-    return layout.inspect(Paper(1, PAPERS / name), profile.load("example-easychair"))
+    return layout.inspect(Paper(1, PAPERS / name), profile.load("icse-2027"))
 
 
 def _checks(result):
@@ -72,13 +72,13 @@ def test_unreadable_pdf_gives_a_warning_and_no_layout():
 def test_ieee_headings_with_roman_numerals_satisfy_the_required_headings():
     report = {"pages": [{"headings": ["A Title", "I. INTRODUCTION"]}, {"headings": ["VI. CONCLUSION", "REFERENCES"]}],
               "w": 2000, "papersize": [792, 612], "columns": 2}
-    findings = layout.evaluate(layout.measure(report), profile.load("example-easychair").format, "Abstract—We study")
+    findings = layout.evaluate(layout.measure(report), profile.load("icse-2027").format, "Abstract—We study")
     assert not [f for f in findings if f.check in ("layout.missing-heading", "layout.missing-abstract")]
 
 
 def test_missing_conclusion_and_abstract_are_warnings():
     report = {"pages": [{"headings": ["1 Introduction"]}, {"headings": ["2 Results"]}], "w": 2000}
-    findings = layout.evaluate(layout.measure(report), profile.load("example-easychair").format, "Summary text")
+    findings = layout.evaluate(layout.measure(report), profile.load("icse-2027").format, "Summary text")
     assert {(f.check, f.severity) for f in findings} >= {
         ("layout.missing-heading", Severity.WARNING), ("layout.missing-abstract", Severity.WARNING)}
 
@@ -98,7 +98,7 @@ def test_measure_keeps_the_type_and_the_characters_of_each_page():
 
 def test_landscape_pages_read_as_slides():
     findings = layout.evaluate(layout.measure({"pages": [{}], "papersize": [612, 792], "w": 900}),
-                               profile.load("example-easychair").format, None)
+                               profile.load("icse-2027").format, None)
     assert any("landscape" in f.message for f in findings)
 
 
@@ -129,7 +129,7 @@ def test_line_spacing_comes_from_the_pages_of_the_main_text():
     pages = [{"leading": 12}, {"leading": 12, "headings": ["REFERENCES"]}, {"type": "bib"}, {"type": "bib"}]
     measured = layout.measure({"pages": pages, "leading": 9.1, "w": 2000})
     assert measured.leading == 12
-    rules = profile.load("example-easychair").format
+    rules = profile.load("icse-2027").format
     assert not [f for f in layout.evaluate(measured, rules, "Abstract") if f.check == "layout.line-spacing"]
 
 
@@ -144,7 +144,7 @@ def test_pdf_with_a_page_turned_for_reading_has_no_mixed_paper_sizes(tmp_path):
     with pymupdf.open(PAPERS / "ieee-refs-start-p10.pdf") as document:
         document[4].set_rotation(90)
         document.save(tmp_path / "turned.pdf")
-    result = layout.inspect(Paper(1, tmp_path / "turned.pdf"), profile.load("example-easychair"))
+    result = layout.inspect(Paper(1, tmp_path / "turned.pdf"), profile.load("icse-2027"))
     assert "layout.mixed-paper-sizes" not in _checks(result)
 
 
@@ -163,7 +163,7 @@ def test_copy_protected_pdf_gets_the_page_limit_check(tmp_path):
     with pymupdf.open(PAPERS / "ieee-over-page-limit.pdf") as document:
         document.save(tmp_path / "protected.pdf", encryption=pymupdf.PDF_ENCRYPT_AES_256, owner_pw="secret",
                       user_pw="", permissions=pymupdf.PDF_PERM_PRINT)
-    checks = _checks(layout.inspect(Paper(1, tmp_path / "protected.pdf"), profile.load("example-easychair")))
+    checks = _checks(layout.inspect(Paper(1, tmp_path / "protected.pdf"), profile.load("icse-2027")))
     assert "layout.main-pages" in checks
     assert "layout.error" not in checks
 
@@ -172,7 +172,7 @@ def test_copy_protected_pdf_gets_the_page_limit_check(tmp_path):
 def test_pdf_whose_name_starts_with_a_dash_reaches_banal_as_a_file(tmp_path, monkeypatch):
     shutil.copyfile(PAPERS / "ieee-refs-start-p10.pdf", tmp_path / "-paper2.pdf")
     monkeypatch.chdir(tmp_path)
-    result = layout.inspect(Paper(2, Path("-paper2.pdf")), profile.load("example-easychair"))
+    result = layout.inspect(Paper(2, Path("-paper2.pdf")), profile.load("icse-2027"))
     assert result.layout is not None
 
 

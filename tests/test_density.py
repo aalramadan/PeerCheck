@@ -268,8 +268,7 @@ def test_clean_fixture_passes_and_squeezed_fixtures_get_warnings_in_a_batch_of_c
 
 
 @needs_banal
-@pytest.mark.parametrize(("venue", "name"), [("icse-2027", "template-ieee"), ("example-easychair", "template-ieee"),
-                                             ("fse-2027", "template-acmsmall")])
+@pytest.mark.parametrize(("venue", "name"), [("icse-2027", "template-ieee"), ("fse-2027", "template-acmsmall")])
 def test_template_measure_of_the_shipped_profile_comes_from_its_template_paper(venue, name):
     venue_profile = load(venue)
     paper = Paper(1, FIXTURES / f"{name}.pdf")

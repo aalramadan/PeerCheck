@@ -7,8 +7,13 @@ import pytest
 from peercheck import cli, pipeline, tools
 
 
-def test_command_line_applies_the_icse_2027_profile_by_default():
-    assert cli.parser().parse_args(["papers", "pdfs"]).profile == "icse-2027"
+def test_command_line_applies_no_venue_profile_by_default():
+    assert cli.parser().parse_args(["papers", "pdfs"]).profile is None
+
+
+def test_papers_command_without_a_profile_names_the_template(tmp_path, capsys):
+    assert cli.main(["papers", str(tmp_path)]) == 2
+    assert "profiles/template.yaml" in capsys.readouterr().err
 
 
 def _review_command(monkeypatch, argv):
@@ -21,7 +26,7 @@ def _review_command(monkeypatch, argv):
 
 
 def test_reviews_command_hands_help_to_the_review_checks(monkeypatch):
-    assert _review_command(monkeypatch, ["reviews", "--help"]) == ["--profile", "icse-2027", "--help"]
+    assert _review_command(monkeypatch, ["reviews", "--help"]) == ["--help"]
 
 
 def test_reviews_command_keeps_an_option_that_comes_before_the_folder(monkeypatch):
@@ -31,7 +36,7 @@ def test_reviews_command_keeps_an_option_that_comes_before_the_folder(monkeypatc
 
 def test_reviews_command_hands_a_double_dash_and_the_folder_after_it_to_the_review_checks(monkeypatch):
     argv = ["reviews", "--out", "reviews.xlsx", "--", "-exports"]
-    assert _review_command(monkeypatch, argv) == ["--profile", "icse-2027", "--out", "reviews.xlsx", "--", "-exports"]
+    assert _review_command(monkeypatch, argv) == ["--out", "reviews.xlsx", "--", "-exports"]
 
 
 def test_command_line_refuses_an_abbreviated_profile_option():
@@ -41,13 +46,14 @@ def test_command_line_refuses_an_abbreviated_profile_option():
 
 def _papers_run(*args):
     """Stand in for the paper checks with a run that found no PDF."""
-    return pipeline.PapersRun([], {}, [], [], ("layout",))
+    return pipeline.PapersRun([], {}, {}, [], ("layout",))
 
 
 def test_papers_command_runs_a_repeated_check_once(monkeypatch, tmp_path):
     requested = []
     monkeypatch.setattr(cli.pipeline, "run_papers", lambda *args: requested.append(args[4]) or _papers_run())
-    argv = ["papers", str(tmp_path), "--checks", "hidden-text, hidden-text,layout", "--out", str(tmp_path / "r.xlsx")]
+    argv = ["--profile", "icse-2027", "papers", str(tmp_path), "--checks", "hidden-text, hidden-text,layout",
+            "--out", str(tmp_path / "r.xlsx")]
     assert cli.main(argv) == 0
     assert requested == [["hidden-text", "layout"]]
 
@@ -58,8 +64,8 @@ def test_papers_command_writes_the_json_and_html_reports_when_the_workbook_fails
 
     monkeypatch.setattr(cli.pipeline, "run_papers", _papers_run)
     monkeypatch.setattr(cli.report, "write_papers", locked)
-    argv = ["papers", str(tmp_path), "--out", str(tmp_path / "report.xlsx"), "--json", str(tmp_path / "report.json"),
-            "--html", str(tmp_path / "report.html")]
+    argv = ["--profile", "icse-2027", "papers", str(tmp_path), "--out", str(tmp_path / "report.xlsx"),
+            "--json", str(tmp_path / "report.json"), "--html", str(tmp_path / "report.html")]
     assert cli.main(argv) == 2
     assert (tmp_path / "report.json").is_file() and (tmp_path / "report.html").is_file()
 
@@ -162,3 +168,12 @@ def test_menu_goes_on_after_an_answer_that_the_command_line_refuses(monkeypatch,
     monkeypatch.setattr("builtins.input", lambda prompt="": next(replies))
     assert cli.menu("icse-2027") == 0
     assert "Finished with exit code 2." in capsys.readouterr().out
+
+
+def test_menu_without_a_session_profile_asks_for_the_venue_rules_of_the_paper_checks(monkeypatch):
+    replies = iter(["1", "venue.yaml", "submissions", "none", "none", "report.xlsx", "4"])
+    commands = []
+    monkeypatch.setattr("builtins.input", lambda prompt="": next(replies))
+    monkeypatch.setattr(cli, "main", lambda argv: commands.append(argv) or 0)
+    assert cli.menu(None) == 0
+    assert commands == [["--profile", "venue.yaml", "papers", "submissions", "--out", "report.xlsx"]]

@@ -52,7 +52,7 @@ class RequestError(ValueError):
 
 def command(kind: str, options: dict, folder: Path) -> list[str]:
     """Return the arguments of peercheck for one run of the page, with the files uploaded to its folder."""
-    profile = options["profile"]
+    venue = ["--profile", options["profile"]] if options.get("profile") else []
 
     def single(field: str) -> list[str]:
         files = sorted((folder / field).iterdir()) if (folder / field).is_dir() else []
@@ -63,14 +63,16 @@ def command(kind: str, options: dict, folder: Path) -> list[str]:
         checks = _subset(options.get("checks"), pipeline.PAPER_CHECKS)
         if not checks:
             raise RequestError("choose at least one check")
-        return ["--profile", profile, "papers", str(folder / "pdfs"), *reports, *single("authors"),
+        if not venue:
+            raise RequestError("choose the venue rules, which the paper checks need")
+        return [*venue, "papers", str(folder / "pdfs"), *reports, *single("authors"),
                 *single("submissions"), "--checks", ",".join(checks)]
     if kind == "reviews":
-        return ["--profile", profile, "reviews", str(folder / "reviews"), *reports, *single("canaries"),
+        return [*venue, "reviews", str(folder / "reviews"), *reports, *single("canaries"),
                 "--detectors", ",".join(_subset(options.get("detectors"), DETECTORS)),
                 "--checks", ",".join(_subset(options.get("checks"), REVIEW_CHECKS))]
     if kind == "conflicts":
-        return ["--profile", profile, "conflicts", *single("authors"), *single("pc"), "--out", str(folder / "report.xlsx")]
+        return [*venue, "conflicts", *single("authors"), *single("pc"), "--out", str(folder / "report.xlsx")]
     raise RequestError(f"unknown kind of run: {kind}")
 
 
@@ -100,7 +102,7 @@ class Server(ThreadingHTTPServer):
 
     daemon_threads = True
 
-    def __init__(self, port: int, profile: str, root: Path, host: str = "127.0.0.1") -> None:
+    def __init__(self, port: int, profile: str | None, root: Path, host: str = "127.0.0.1") -> None:
         super().__init__((host, port), Handler)
         self.profile, self.root = profile, root
         self.token = secrets.token_urlsafe(24)
@@ -108,16 +110,21 @@ class Server(ThreadingHTTPServer):
         self.runs: set[str] = set()
 
     def profiles(self) -> list[dict[str, str]]:
-        """Return the profiles that the page offers: the profile of the session first, then the shipped ones."""
-        keys = [self.profile] + [key for key in profiles.available() if key != self.profile]
+        """Return the choices of the page: the profile of the session, no venue rules, then the shipped examples."""
+        examples = [key for key in profiles.available() if key != self.profile]
         # A profile given as a path shows only its file name.
-        return [{"key": key, "name": profiles.load(key).name, "label": Path(key).name} for key in keys]
+        offered = [{"key": key, "name": profiles.load(key).name, "label": Path(key).name} for key in examples]
+        none = {"key": "", "name": "No venue rules", "label": "the paper checks need a profile"}
+        if not self.profile:
+            return [none] + offered
+        session = {"key": self.profile, "name": profiles.load(self.profile).name, "label": Path(self.profile).name}
+        return [session, none] + offered
 
     def start(self, request: dict) -> dict:
         """Run one command on the files of a run and return its outcome for the page."""
         folder = self.run_folder(str(request.get("run", "")))
         kind = str(request.get("kind", ""))
-        if request.get("profile") not in {p["key"] for p in self.profiles()}:
+        if request.get("profile", "") not in {p["key"] for p in self.profiles()}:
             raise RequestError("unknown venue profile")
         arguments = command(kind, request, folder)
         if not self.running.acquire(blocking=False):
@@ -245,7 +252,7 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
 
-def serve(profile: str, port: int = 0, open_browser: bool = True, host: str = "127.0.0.1") -> int:
+def serve(profile: str | None, port: int = 0, open_browser: bool = True, host: str = "127.0.0.1") -> int:
     """Serve the page until Ctrl+C or a stop signal, then delete the uploaded files."""
     for number in STOP_SIGNALS:
         signal.signal(number, signal.default_int_handler)

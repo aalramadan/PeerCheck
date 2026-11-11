@@ -16,7 +16,7 @@ import defusedxml.ElementTree as SafeET
 import openpyxl
 
 from peercheck.models import Person, Review
-from peercheck.profile import Profile
+from peercheck.profile import Profile, paper_number
 
 # Header names that EasyChair, HotCRP, and the SIGSOFT author CSV use for the same column.
 HEADER_ALIASES = {
@@ -48,30 +48,35 @@ class InputError(ValueError):
 
 @dataclass
 class PdfSet:
-    """The PDFs of one folder matched to paper IDs, with the names that matched no ID or a taken ID."""
+    """The PDFs of one folder by paper ID, with the IDs that PeerCheck gave and the names of a taken ID."""
 
     papers: dict[int, Path] = field(default_factory=dict)
-    unmatched: list[str] = field(default_factory=list)
+    # The file name of each PDF whose name holds no paper number, by the ID that PeerCheck gave the PDF.
+    numbered: dict[int, str] = field(default_factory=dict)
     duplicates: list[str] = field(default_factory=list)
 
 
-def find_pdfs(folder: Path, profile: Profile) -> PdfSet:
-    """Match each PDF of a folder to a paper ID through the file pattern of the profile."""
+def find_pdfs(folder: Path, profile: Profile | None = None) -> PdfSet:
+    """Give each PDF of a folder its paper ID, the number in its name, or the next free ID for a name without one."""
     if not folder.is_dir():
         raise InputError(f"PDF folder not found: {folder}")
     found = PdfSet()
+    unnumbered = []
     # An absolute path keeps a name such as -paper2.pdf from reading as an option of an external tool.
     for path in sorted(folder.resolve().iterdir()):
         # A name that starts with a dot, such as a ._ file that macOS writes beside a copy, holds no paper.
         if not path.is_file() or path.suffix.lower() != ".pdf" or path.name.startswith("."):
             continue
-        paper_id = profile.paper_id(path.name)
+        paper_id = paper_number(path.name, profile.file_pattern if profile else None)
         if paper_id is None:
-            found.unmatched.append(path.name)
+            unnumbered.append(path)
         elif paper_id in found.papers:
             found.duplicates.append(path.name)
         else:
             found.papers[paper_id] = path
+    for paper_id, path in enumerate(unnumbered, start=max(found.papers, default=0) + 1):
+        found.papers[paper_id] = path
+        found.numbered[paper_id] = path.name
     return found
 
 
@@ -90,12 +95,14 @@ def read_rows(path: Path) -> list[dict[str, str]]:
     return [_keyed_row(header, row) for row in rows[1:]]
 
 
-def read_submissions(path: Path, profile: Profile) -> dict[int, str]:
-    """Return the title of each paper of a submission sheet, keyed by the ID column of the profile."""
+def read_submissions(path: Path, profile: Profile | None = None) -> dict[int, str]:
+    """Return the title of each paper of a submission sheet, keyed by the paper ID."""
     rows = read_rows(path)
-    id_key = profile.id_column.lower()
-    if rows and id_key not in rows[0]:
-        raise InputError(f"{path.name} has no column {profile.id_column!r}; {_id_column_hint(rows[0])}")
+    override = profile.id_column if profile else None
+    id_key = id_column(rows, override)
+    if rows and id_key is None:
+        wanted = repr(override) if override else "of paper IDs, such as # or ID"
+        raise InputError(f"{path.name} has no column {wanted}")
     titles = {}
     for row in rows:
         paper_id = _paper_id(row.get(id_key, ""))
@@ -202,12 +209,15 @@ def parse_review(element, source: str, position: int) -> Review:
     )
 
 
-def _id_column_hint(row: dict[str, str]) -> str:
-    if "#" in row:
-        return "it looks like an EasyChair sheet, so run with --profile example-easychair or set id_column: '#' in the profile"
-    if "id" in row:
-        return "it looks like a HotCRP sheet, so run with --profile icse-2027 or set id_column: 'ID' in the profile"
-    return "set id_column in the profile to the column that holds the paper ID"
+def id_column(rows: list[dict[str, str]], override: str | None = None) -> str | None:
+    """Return the lowercase name of the column that holds the paper IDs, or None if the sheet has none."""
+    header = list(rows[0]) if rows else []
+    if override:
+        return override.lower() if override.lower() in header else None
+    names = [alias for alias in HEADER_ALIASES["paper"] if alias in header]
+    # A title column may be named Paper beside the ID column, such as # in an export of EasyChair.
+    names.sort(key=lambda name: sum(_paper_id(row[name]) is None for row in rows))
+    return names[0] if names else None
 
 
 def _columns(rows: list[dict[str, str]], path: Path, with_paper: bool) -> dict[str, str]:

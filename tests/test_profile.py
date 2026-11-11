@@ -39,49 +39,73 @@ def _load(tmp_path, data):
 
 
 def test_shipped_profiles_load():
-    assert profile.available() == ["example-easychair", "fse-2027", "icse-2027"]
+    assert profile.available() == ["fse-2027", "icse-2027"]
     for key in profile.available():
         assert profile.load(key).key == key
 
 
 def test_example_profile_states_the_page_rule():
-    rules = profile.load("example-easychair").format
+    rules = profile.load("icse-2027").format
     assert (rules.main_pages, rules.reference_pages, rules.columns) == (10, 2, 2)
     assert rules.paper_size == (792.0, 612.0)
 
 
-def test_paper_id_matches_easychair_names_in_any_case():
-    venue = profile.load("example-easychair")
-    assert venue.paper_id("CONF_2026_paper_0108.pdf") == 108
-    assert venue.paper_id("conf_2026_PAPER_12.PDF") == 12
-    assert venue.paper_id("CONF_2026_paper_0041 (1).pdf") is None
+@pytest.mark.parametrize(("name", "number"), [
+    ("CONF_2026_paper_0108.pdf", 108), ("conf_2026_PAPER_12.PDF", 12), ("CONF_2026_paper_0041 (1).pdf", 41),
+    ("CONF27_paper__11.pdf", 11), ("icse2027-paper123.pdf", 123), ("submission-9.pdf", 9), ("12.pdf", 12),
+    ("Smith2025.pdf", None), ("notes.pdf", None)])
+def test_paper_number_comes_from_the_names_that_conference_systems_give(name, number):
+    assert profile.paper_number(name) == number
 
 
-def test_paper_id_matches_hotcrp_names():
-    assert profile.load("icse-2027").paper_id("icse2027-paper123.pdf") == 123
+def test_file_pattern_of_a_profile_reads_names_of_another_form(tmp_path):
+    data = _shipped("icse-2027")
+    data["file_pattern"] = r"sub-(\d+)\.pdf$"
+    assert _load(tmp_path, data).paper_id("sub-7.pdf") == 7
+
+
+def test_template_holds_no_values_and_loads_only_once_filled():
+    with pytest.raises(profile.ProfileError, match="fill in the rules"):
+        profile.load(str(profile.PROFILES / "template.yaml"))
+    assert "template" not in profile.available()
+
+
+def test_template_lines_alone_that_it_marks_required_make_a_profile(tmp_path):
+    data = {"name": "A venue", "source": "https://example.org", "format": {
+        "style": "ACM", "paper_size": [792, 612], "columns": 2, "main_pages": 10, "reference_pages": 2}}
+    rules = _load(tmp_path, data).format
+    assert (rules.page_numbers, rules.paper_size_tolerance, rules.body_font_max, rules.required_headings) == (
+        "ignore", 5.0, None, ())
+
+
+def test_profile_without_a_page_limit_is_rejected(tmp_path):
+    data = {"name": "A venue", "source": "https://example.org", "format": {
+        "style": "ACM", "paper_size": [792, 612], "columns": 2, "reference_pages": 2}}
+    with pytest.raises(profile.ProfileError, match="main_pages"):
+        _load(tmp_path, data)
 
 
 def test_unknown_profile_names_the_shipped_ones():
-    with pytest.raises(profile.ProfileError, match="example-easychair"):
+    with pytest.raises(profile.ProfileError, match="icse-2027"):
         profile.load("no-such-venue")
 
 
 def test_profile_file_with_an_unknown_key_is_rejected(tmp_path):
-    data = _shipped("example-easychair")
+    data = _shipped("icse-2027")
     data["format"]["page_limit"] = 10
     with pytest.raises(profile.ProfileError, match="page_limit"):
         _load(tmp_path, data)
 
 
 def test_file_pattern_needs_one_group(tmp_path):
-    data = _shipped("example-easychair")
+    data = _shipped("icse-2027")
     data["file_pattern"] = r"paper\d+\.pdf"
     with pytest.raises(profile.ProfileError, match="one group"):
         _load(tmp_path, data)
 
 
 def test_options_of_an_unset_check_are_empty():
-    assert profile.load("example-easychair").options("no-such-check") == {}
+    assert profile.load("icse-2027").options("no-such-check") == {}
 
 
 def test_shipped_profiles_set_lower_limits_for_the_body_font_and_the_line_spacing():

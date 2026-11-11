@@ -1,5 +1,6 @@
 """Tests of the readers for PDFs, submission sheets, people lists, and EasyChair review XML."""
 
+import dataclasses
 import re
 import shutil
 import zipfile
@@ -14,59 +15,67 @@ FIXTURES = Path(__file__).parent / "fixtures"
 EASYCHAIR = FIXTURES / "easychair"
 
 
-def test_pdfs_map_to_ids_and_odd_names_are_reported(tmp_path):
+def test_pdfs_take_the_paper_number_of_their_names_and_a_repeated_number_is_skipped(tmp_path):
     source = FIXTURES / "papers" / "corrupt.pdf"
     for name in ("CONF_2026_paper_0041.pdf", "CONF_2026_paper_41.pdf", "CONF_2026_paper_0042 (1).pdf",
                  "conf_2026_paper_0043.PDF", "notes.txt"):
         shutil.copy(source, tmp_path / name)
-    found = inputs.find_pdfs(tmp_path, profile.load("example-easychair"))
-    assert sorted(found.papers) == [41, 43]
-    assert found.unmatched == ["CONF_2026_paper_0042 (1).pdf"]
+    found = inputs.find_pdfs(tmp_path)
+    assert sorted(found.papers) == [41, 42, 43]
+    assert found.numbered == {}
     assert len(found.duplicates) == 1
+
+
+def test_pdfs_whose_names_hold_no_paper_number_get_the_next_free_numbers(tmp_path):
+    for name in ("CONF27_paper__3.pdf", "12.pdf", "smith-study.pdf", "notes.pdf"):
+        shutil.copy(FIXTURES / "papers" / "corrupt.pdf", tmp_path / name)
+    found = inputs.find_pdfs(tmp_path)
+    assert sorted(found.papers) == [3, 12, 13, 14]
+    assert found.numbered == {13: "notes.pdf", 14: "smith-study.pdf"}
 
 
 def test_missing_pdf_folder_is_an_input_error(tmp_path):
     with pytest.raises(inputs.InputError, match="not found"):
-        inputs.find_pdfs(tmp_path / "missing", profile.load("example-easychair"))
+        inputs.find_pdfs(tmp_path / "missing", profile.load("icse-2027"))
 
 
 def test_pdf_folder_skips_the_dot_files_of_macos(tmp_path):
     for name in ("CONF_2026_paper_0041.pdf", "._CONF_2026_paper_0041.pdf"):
         shutil.copy(FIXTURES / "papers" / "corrupt.pdf", tmp_path / name)
-    found = inputs.find_pdfs(tmp_path, profile.load("example-easychair"))
+    found = inputs.find_pdfs(tmp_path, profile.load("icse-2027"))
     assert (found.papers[41].name, found.duplicates) == ("CONF_2026_paper_0041.pdf", [])
 
 
 def test_pdf_paths_are_absolute_for_a_relative_folder(tmp_path, monkeypatch):
     shutil.copy(FIXTURES / "papers" / "corrupt.pdf", tmp_path / "-CONF_2026_paper_0041.pdf")
     monkeypatch.chdir(tmp_path)
-    assert inputs.find_pdfs(Path("."), profile.load("example-easychair")).papers[41].is_absolute()
+    assert inputs.find_pdfs(Path("."), profile.load("icse-2027")).papers[41].is_absolute()
 
 
 def test_submission_sheet_gives_titles_by_id():
-    titles = inputs.read_submissions(EASYCHAIR / "submissions.csv", profile.load("example-easychair"))
+    titles = inputs.read_submissions(EASYCHAIR / "submissions.csv", profile.load("icse-2027"))
     assert set(titles) == {7, 8}
 
 
 def test_submission_sheet_without_the_id_column_names_the_column(tmp_path):
     path = tmp_path / "s.csv"
     path.write_text("Number,Title\n1,A\n")
-    with pytest.raises(inputs.InputError, match="'#'"):
-        inputs.read_submissions(path, profile.load("example-easychair"))
+    with pytest.raises(inputs.InputError, match="no column of paper IDs"):
+        inputs.read_submissions(path)
 
 
-def test_easychair_sheet_under_a_hotcrp_profile_names_the_easychair_profile(tmp_path):
+@pytest.mark.parametrize("header", ["#,Title,paper", "ID,Title"])
+def test_submission_sheet_of_either_system_gives_titles_without_a_profile(tmp_path, header):
     path = tmp_path / "submissions.csv"
-    path.write_text("#,Title\n1,A\n")
-    with pytest.raises(inputs.InputError, match="--profile example-easychair"):
-        inputs.read_submissions(path, profile.load("icse-2027"))
+    path.write_text(f"{header}\n7,A,A.pdf\n8,B,B.pdf\n")
+    assert inputs.read_submissions(path) == {7: "A", 8: "B"}
 
 
-def test_hotcrp_sheet_under_an_easychair_profile_names_a_hotcrp_profile(tmp_path):
+def test_id_column_of_the_profile_overrides_the_search_of_the_sheet(tmp_path):
     path = tmp_path / "submissions.csv"
-    path.write_text("ID,Title\n1,A\n")
-    with pytest.raises(inputs.InputError, match="--profile icse-2027"):
-        inputs.read_submissions(path, profile.load("example-easychair"))
+    path.write_text("#,Submission,Title\n1,7,A\n")
+    venue = dataclasses.replace(profile.load("icse-2027"), id_column="Submission")
+    assert inputs.read_submissions(path, venue) == {7: "A"}
 
 
 def test_easychair_author_headers_are_understood():

@@ -60,7 +60,8 @@ def parser() -> argparse.ArgumentParser:
     top = argparse.ArgumentParser(prog="peercheck", description="Screen submissions and reviews locally.",
                                   allow_abbrev=False)
     top.add_argument("--version", action="version", version=f"PeerCheck {__version__}")
-    top.add_argument("--profile", default="icse-2027", help="venue profile key or YAML file (default icse-2027)")
+    top.add_argument("--profile", help="the rules of the venue, a filled copy of profiles/template.yaml or an example "
+                                       "such as icse-2027; the paper checks need one")
     commands = top.add_subparsers(dest="command")
 
     papers = commands.add_parser("papers", help="check the submission PDFs of a folder")
@@ -138,6 +139,9 @@ def _port(text: str) -> int:
 
 def run_papers(args: argparse.Namespace) -> int:
     """Check a folder of submission PDFs and write the report."""
+    if not args.profile:
+        raise inputs.InputError("the paper checks need the rules of the venue; copy profiles/template.yaml, fill it "
+                                "in, and pass it with --profile, or pass an example such as --profile icse-2027")
     venue = profiles.load(args.profile)
     checks = list(dict.fromkeys(name.strip() for name in args.checks.split(","))) if args.checks else None
     run = pipeline.run_papers(args.pdfs, venue, args.submissions, args.authors, checks)
@@ -149,8 +153,10 @@ def run_papers(args: argparse.Namespace) -> int:
     report.write_papers(args.out, run, venue, args.submissions)
     flagged = sum(1 for result in run.results if needs_review(result.findings))
     print(f"{len(run.results)} papers checked, {flagged} need review. Report: {args.out}")
-    for name in run.unmatched + run.duplicates:
-        print(f"skipped {name}; see the Files sheet", file=sys.stderr)
+    for paper_id, name in sorted(run.numbered.items()):
+        print(f"{name} holds no paper number; checked as paper {paper_id}", file=sys.stderr)
+    for name in run.duplicates:
+        print(f"skipped {name}, which repeats a paper number; see the Files sheet", file=sys.stderr)
     return 0
 
 
@@ -158,12 +164,13 @@ def run_reviews(args: argparse.Namespace) -> int:
     """Run the review checks in their own process, since they load PyTorch and the detector models."""
     if importlib.util.find_spec("torch") is None:
         raise tools.ToolError("the review checks need the reviews extra: pip install 'peercheck[reviews]'")
-    return subprocess.call([sys.executable, "-m", "peercheck.reviews", "--profile", args.profile, *args.rest])
+    venue = ["--profile", args.profile] if args.profile else []
+    return subprocess.call([sys.executable, "-m", "peercheck.reviews", *venue, *args.rest])
 
 
 def run_conflicts(args: argparse.Namespace) -> int:
     """Find conflicts of interest from the author and committee lists and write the report."""
-    venue = profiles.load(args.profile)
+    venue = profiles.load(args.profile) if args.profile else None
     if args.save_index and (args.dblp_index or not args.dblp_dump):
         raise inputs.InputError("--save-index saves the index built from --dblp-dump; give --dblp-dump without "
                                 "--dblp-index")
@@ -192,12 +199,13 @@ def run_conflicts(args: argparse.Namespace) -> int:
         index = dblp.build_index(args.dblp_dump, people)
         if args.save_index:
             index.save(args.save_index)
-    options = venue.options("conflicts") | ({"coauthor_years": args.years} if args.years is not None else {})
+    options = (venue.options("conflicts") if venue else {}) | (
+        {"coauthor_years": args.years} if args.years is not None else {})
     found = conflicts.find_conflicts(authors, committee, index, assignments, declared, options)
     sheets = {"Conflicts": conflicts.rows(found)}
     if index is not None and assignments:
         sheets["Reviewer Ties"] = conflicts.rows(conflicts.reviewer_ties(assignments, index, options))
-    report.write_sheets(args.out, sheets, [], [("Profile", venue.name),
+    report.write_sheets(args.out, sheets, [], [("Profile", venue.name if venue else "none"),
                                                ("DBLP", "used" if index is not None else "not used")], key="Paper")
     print(f"{len(found)} possible conflicts. Report: {args.out}")
     return 0
@@ -205,7 +213,8 @@ def run_conflicts(args: argparse.Namespace) -> int:
 
 def run_canary(args: argparse.Namespace) -> int:
     """Write a copy of each submission PDF with its hidden citation and update the key file."""
-    count, skipped = canary.mark_folder(args.pdfs, args.out, args.key, profiles.load(args.profile))
+    venue = profiles.load(args.profile) if args.profile else None
+    count, skipped = canary.mark_folder(args.pdfs, args.out, args.key, venue)
     print(f"{count} PDFs marked in {args.out}. Key: {args.key}")
     for name in skipped:
         print(f"skipped {name}", file=sys.stderr)
@@ -215,7 +224,8 @@ def run_canary(args: argparse.Namespace) -> int:
 def run_gui(args: argparse.Namespace) -> int:
     """Serve the checks as a page in the browser until Ctrl+C."""
     # The page offers the profile of the session first, therefore a profile that does not load stops here.
-    profiles.load(args.profile)
+    if args.profile:
+        profiles.load(args.profile)
     return gui.serve(args.profile, args.port, not args.no_browser, args.host)
 
 
@@ -246,11 +256,11 @@ def run_profiles(args: argparse.Namespace) -> int:
     return 0
 
 
-def menu(profile_key: str) -> int:
+def menu(profile_key: str | None) -> int:
     """Offer the checks in a loop of numbered choices, as the original suite did."""
     actions = {"1": _menu_papers, "2": _menu_reviews, "3": _menu_conflicts}
     while True:
-        print(MENU.format(version=__version__, profile=profile_key))
+        print(MENU.format(version=__version__, profile=profile_key or "no venue profile"))
         try:
             choice = input("Enter your choice (1-4): ").strip()
             if choice == "4":
@@ -259,7 +269,9 @@ def menu(profile_key: str) -> int:
                 print("Please enter 1, 2, 3, or 4.")
                 continue
             try:
-                code = main(["--profile", profile_key, *actions[choice]()])
+                venue = profile_key or (_ask("Venue profile, a filled copy of profiles/template.yaml", "venue.yaml")
+                                        if choice == "1" else None)
+                code = main([*(["--profile", venue] if venue else []), *actions[choice]()])
             except SystemExit as stop:
                 # argparse stops with SystemExit at an answer that it refuses, such as a folder named --bogus.
                 code = stop.code

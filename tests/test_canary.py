@@ -89,9 +89,9 @@ def test_marking_a_folder_marks_each_paper_and_keeps_the_citations_of_an_existin
     for name in ("conf2027-paper3.pdf", "conf2027-paper5.pdf", "notes.pdf"):
         _pdf(folder / name)
     canary.write_key(key_path, {3: "Smith et al. (2019)"})
-    count, skipped = canary.mark_folder(folder, out, key_path, profile.load("icse-2027"))
+    count, skipped = canary.mark_folder(folder, out, key_path)
     key = canary.read_key(key_path)
-    assert (count, skipped) == (2, ["notes.pdf (no paper ID in the name)"])
+    assert (count, skipped) == (2, ["notes.pdf (no paper number in the name)"])
     assert key[3] == "Smith et al. (2019)" and 5 in key
     with pymupdf.open(out / "conf2027-paper3.pdf") as marked:
         assert INSTRUCTION in " ".join(marked[-1].get_text().split())
