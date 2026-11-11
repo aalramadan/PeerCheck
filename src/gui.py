@@ -21,8 +21,8 @@ from urllib.parse import parse_qs, urlsplit
 
 import openpyxl
 
-from peercheck import pipeline
 from peercheck import profile as profiles
+from peercheck.papers import pipeline
 
 PAGE = Path(__file__).with_name("gui.html")
 # The page answers only requests addressed to these names, on any port, since docker run -p and SSH tunnels forward

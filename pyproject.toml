@@ -36,7 +36,7 @@ peercheck = "peercheck.cli:main"
 # authors in external/. A wheel holds the profiles in peercheck/profiles/ and the files of external/ that the checks
 # need, with their licenses, in peercheck/external/.
 package-dir = {"peercheck" = "src", "peercheck.profiles" = "profiles", "peercheck.external" = "external"}
-packages = ["peercheck", "peercheck.checks", "peercheck.reviews", "peercheck.profiles", "peercheck.external"]
+packages = ["peercheck", "peercheck.papers", "peercheck.reviews", "peercheck.profiles", "peercheck.external"]
 
 [tool.setuptools.package-data]
 peercheck = ["gui.html"]

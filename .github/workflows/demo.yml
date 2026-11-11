@@ -1,6 +1,6 @@
 name: demo
 
-# PeerCheck makes the reports in examples/ locally, since EditLens needs a Hugging Face token.
+# PeerCheck makes the reports in examples/reports/ locally, since EditLens needs a Hugging Face token.
 on:
   push:
     branches: [main]
@@ -26,6 +26,6 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/upload-pages-artifact@v3
         with:
-          path: examples
+          path: examples/reports
       - id: deployment
         uses: actions/deploy-pages@v4

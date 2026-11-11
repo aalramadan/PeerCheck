@@ -10,15 +10,15 @@ import pikepdf
 import pymupdf
 import pytest
 
-from peercheck.checks import unreadable_text
-from peercheck.checks.unreadable_text import PageText
 from peercheck.findings import Severity
 from peercheck.models import Paper
+from peercheck.papers import unreadable_text
+from peercheck.papers.unreadable_text import PageText
 from peercheck.profile import load
 
 TEXT = Path(__file__).parent / "fixtures" / "text"
 PAPERS = Path(__file__).parent / "fixtures" / "papers"
-SAMPLES = Path(__file__).parents[1] / "samples" / "papers"
+SAMPLES = Path(__file__).parents[1] / "examples" / "papers"
 ENGLISH = ("Flaky tests pass and fail on the same version of the code, and a developer who sees such a failure "
            "cannot tell whether the change under review broke the program or whether the test fails at random. ")
 

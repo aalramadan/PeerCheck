@@ -15,9 +15,9 @@ import pdfguard.config
 import pymupdf
 import pytest
 
-from peercheck.checks import hidden_text
 from peercheck.findings import Severity, needs_review
 from peercheck.models import Paper
+from peercheck.papers import hidden_text
 from peercheck.profile import load
 
 FIXTURES = Path(__file__).parent / "fixtures" / "hidden"

@@ -1,4 +1,0 @@
-# The tests of the source distribution read these files.
-graft tests/fixtures
-graft samples
-include .github/scripts/prune_images.py

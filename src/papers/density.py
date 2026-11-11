@@ -12,9 +12,9 @@ from pathlib import Path
 
 import pymupdf
 
-from peercheck.checks.layout import Layout
 from peercheck.findings import Finding, Severity
 from peercheck.models import Paper
+from peercheck.papers.layout import Layout
 from peercheck.profile import Profile, ProfileError
 
 CHECK = "density"

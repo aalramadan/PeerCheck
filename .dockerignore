@@ -1,11 +1,10 @@
 .git
 .github
-docs
-examples
-samples
 tests
 **/__pycache__
 *.egg-info
 .pytest_cache
 .ruff_cache
 external/submission-checker/target
+resources
+examples

@@ -6,8 +6,8 @@ import os
 import shutil
 from pathlib import Path
 
-from peercheck import retraction_watch
-from peercheck.retraction_watch import Notice
+from peercheck.papers import retraction_watch
+from peercheck.papers.retraction_watch import Notice
 
 CSV = Path(__file__).parent / "fixtures" / "references" / "retraction_watch.csv"
 

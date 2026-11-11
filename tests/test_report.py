@@ -8,7 +8,7 @@ import openpyxl
 from peercheck import profile, report
 from peercheck.findings import Finding, Severity
 from peercheck.models import Paper
-from peercheck.pipeline import PaperResult, PapersRun
+from peercheck.papers.pipeline import PaperResult, PapersRun
 
 EASYCHAIR = Path(__file__).parent / "fixtures" / "easychair"
 

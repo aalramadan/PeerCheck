@@ -11,9 +11,9 @@ from pathlib import Path
 import pymupdf
 import pytest
 
-from peercheck.checks import title_match
 from peercheck.findings import Severity
 from peercheck.models import Paper
+from peercheck.papers import title_match
 from peercheck.profile import load
 
 TESTS = Path(__file__).parent
@@ -48,7 +48,7 @@ def write_pdf(path: Path, *texts: tuple[str, float, float, float, int], metadata
 
 
 CLEAN = [
-    *[(path, SAMPLE) for path in sorted((TESTS.parent / "samples" / "papers").glob("*.pdf"))],
+    *[(path, SAMPLE) for path in sorted((TESTS.parent / "examples" / "papers").glob("*.pdf"))],
     *[(FIXTURES / "papers" / f"{name}.pdf", MAINTENANCE) for name in (
         "acm-small-review", "ieee-9pt-option", "ieee-linespread", "ieee-over-page-limit", "ieee-refs-start-p10",
         "ieee-three-reference-pages")],

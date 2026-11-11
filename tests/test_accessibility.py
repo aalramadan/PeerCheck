@@ -12,9 +12,9 @@ import pikepdf
 import pymupdf
 import pytest
 
-from peercheck.checks import accessibility
 from peercheck.findings import Severity
 from peercheck.models import Paper
+from peercheck.papers import accessibility
 from peercheck.profile import ProfileError, load
 
 ACCESSIBILITY = Path(__file__).parent / "fixtures" / "accessibility"

@@ -12,15 +12,15 @@ from pathlib import Path
 import pymupdf
 import pytest
 
-from peercheck.checks import images
 from peercheck.findings import Severity
 from peercheck.models import Paper
+from peercheck.papers import images
 from peercheck.profile import ProfileError, load
 
 FIXTURES = Path(__file__).parent / "fixtures" / "images"
 PAPERS = Path(__file__).parent / "fixtures" / "papers"
 FONTS = Path(__file__).parent / "fixtures" / "fonts"
-SAMPLES = Path(__file__).parents[1] / "samples" / "papers"
+SAMPLES = Path(__file__).parents[1] / "examples" / "papers"
 PROFILE = load("icse-2027")
 ERROR, WARNING, INFO = Severity.ERROR, Severity.WARNING, Severity.INFO
 CLEAN = [*sorted(SAMPLES.glob("*.pdf")), *sorted(p for p in PAPERS.glob("*.pdf") if p.name != "corrupt.pdf"),

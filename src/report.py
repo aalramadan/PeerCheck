@@ -14,9 +14,9 @@ from openpyxl.cell.cell import ILLEGAL_CHARACTERS_RE
 from openpyxl.utils import get_column_letter
 
 from peercheck import __version__, inputs
-from peercheck.checks.layout import REPORT_COLUMNS
 from peercheck.findings import Finding, Severity, count, needs_review
-from peercheck.pipeline import PapersRun
+from peercheck.papers.layout import REPORT_COLUMNS
+from peercheck.papers.pipeline import PapersRun
 from peercheck.profile import Profile
 
 SUMMARY_COLUMNS = ("Errors", "Warnings", "Needs Review", "Findings")

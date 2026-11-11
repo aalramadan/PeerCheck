@@ -10,9 +10,9 @@ from pathlib import Path
 import pymupdf
 import pytest
 
-from peercheck.checks import line_numbers
 from peercheck.findings import Severity
 from peercheck.models import Paper
+from peercheck.papers import line_numbers
 from peercheck.profile import ProfileError, load
 
 FIXTURES = Path(__file__).parent / "fixtures"

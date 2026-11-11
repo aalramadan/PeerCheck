@@ -24,11 +24,11 @@ jobs:
           tags: peercheck:test
           cache-from: type=gha
           cache-to: type=gha,mode=max
-      - name: Check the samples with the image
+      - name: Check the examples with the image
         run: |
           docker run --rm peercheck:test doctor
-          docker run --rm -v "$PWD/samples:/data/samples" peercheck:test --profile samples/venue.yaml \
-            papers samples/papers --authors samples/authors.csv --checks layout,sigsoft,hidden-text --out /tmp/report.xlsx
+          docker run --rm -v "$PWD/examples:/data/examples" peercheck:test --profile examples/venue.yaml \
+            papers examples/papers --authors examples/authors.csv --checks layout,sigsoft,hidden-text --out /tmp/report.xlsx
           docker run -d --name page -p 127.0.0.1:8765:8765 peercheck:test gui
           for attempt in $(seq 30); do curl -sf http://127.0.0.1:8765/ -o page.html && break; sleep 1; done
           grep -q "<title>PeerCheck</title>" page.html

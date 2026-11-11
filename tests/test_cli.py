@@ -4,7 +4,8 @@ import shutil
 
 import pytest
 
-from peercheck import cli, pipeline, tools
+from peercheck import cli, tools
+from peercheck.papers import pipeline
 
 
 def test_command_line_applies_no_venue_profile_by_default():

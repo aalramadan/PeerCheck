@@ -15,7 +15,7 @@ import pytest
 
 from peercheck import cli, gui
 
-SAMPLES = Path(__file__).resolve().parents[1] / "samples"
+SAMPLES = Path(__file__).resolve().parents[1] / "examples"
 
 
 @pytest.fixture

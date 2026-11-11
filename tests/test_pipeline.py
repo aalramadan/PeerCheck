@@ -5,9 +5,9 @@ from pathlib import Path
 
 import yaml
 
-from peercheck import pipeline, profile
-from peercheck.checks import layout, sigsoft
+from peercheck import profile
 from peercheck.findings import Finding, Severity
+from peercheck.papers import layout, pipeline, sigsoft
 
 FIXTURES = Path(__file__).parent / "fixtures"
 HIDDEN = FIXTURES / "hidden"

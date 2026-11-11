@@ -8,7 +8,9 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from peercheck import inputs
-from peercheck.checks import (
+from peercheck.findings import Finding, Severity, count
+from peercheck.models import Paper
+from peercheck.papers import (
     accessibility,
     active_content,
     density,
@@ -26,8 +28,6 @@ from peercheck.checks import (
     unreadable_text,
     unresolved_references,
 )
-from peercheck.findings import Finding, Severity, count
-from peercheck.models import Paper
 from peercheck.profile import Profile
 
 PAPER_CHECKS = ("layout", "sigsoft", "hidden-text", "references")

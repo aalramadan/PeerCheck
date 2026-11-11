@@ -9,15 +9,15 @@ from pathlib import Path
 import pymupdf
 import pytest
 
-from peercheck.checks import margins
 from peercheck.findings import Severity
 from peercheck.models import Paper
+from peercheck.papers import margins
 from peercheck.profile import load
 
 TESTS = Path(__file__).parent
 FIXTURES = TESTS / "fixtures" / "margins"
 PAPERS = TESTS / "fixtures" / "papers"
-SAMPLES = TESTS.parent / "samples" / "papers"
+SAMPLES = TESTS.parent / "examples" / "papers"
 CLEAN = [
     *[(path, "icse-2027") for path in sorted(SAMPLES.glob("*.pdf"))],
     *[(path, "icse-2027") for path in sorted(PAPERS.glob("*.pdf")) if path.stem.startswith(("ieee-", "article-"))],

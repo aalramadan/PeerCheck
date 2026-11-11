@@ -53,9 +53,10 @@ import zipfile
 from dataclasses import dataclass
 from pathlib import Path
 
-from peercheck import retraction_watch, tools
+from peercheck import tools
 from peercheck.findings import Finding, Severity
 from peercheck.models import Paper
+from peercheck.papers import retraction_watch
 from peercheck.profile import Profile
 
 VERSION = "0.2.4"

@@ -24,10 +24,10 @@ from typing import ClassVar
 import pytest
 
 from peercheck import profile as profile_module
-from peercheck import retraction_watch, tools
-from peercheck.checks import references
+from peercheck import tools
 from peercheck.findings import Severity
 from peercheck.models import Paper
+from peercheck.papers import references, retraction_watch
 
 FIXTURES = Path(__file__).parent / "fixtures" / "references"
 

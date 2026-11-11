@@ -10,9 +10,9 @@ import pytest
 import yaml
 
 from peercheck import profile, tools
-from peercheck.checks import sigsoft
 from peercheck.findings import Severity
 from peercheck.models import Paper, Person
+from peercheck.papers import sigsoft
 
 PAPERS = Path(__file__).parent / "fixtures" / "papers"
 needs_jar = pytest.mark.skipif(not shutil.which("java") or not tools.submission_checker().is_file(),

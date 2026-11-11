@@ -9,10 +9,10 @@ import subprocess
 import sys
 from pathlib import Path
 
-from peercheck import __version__, canary, conflicts, dblp, gui, inputs, pipeline, report, tools
+from peercheck import __version__, canary, conflicts, dblp, gui, inputs, report, tools
 from peercheck import profile as profiles
-from peercheck.checks import references
 from peercheck.findings import needs_review
+from peercheck.papers import pipeline, references
 
 MENU = """
 ========================================

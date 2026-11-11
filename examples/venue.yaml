@@ -1,4 +1,4 @@
-# A made-up venue for the samples, with the rules of the default profile.
+# A made-up venue for the examples, filled from profiles/template.yaml.
 name: Example Conference 2027
 source: https://example.org/call-for-papers
 

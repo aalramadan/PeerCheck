@@ -8,15 +8,15 @@ import pymupdf
 import pytest
 
 from peercheck import tools
-from peercheck.checks import embedded_identity, sigsoft
 from peercheck.findings import Severity
 from peercheck.inputs import read_people
 from peercheck.models import Paper, Person
+from peercheck.papers import embedded_identity, sigsoft
 from peercheck.profile import load
 
 FIXTURES = Path(__file__).parent / "fixtures" / "identity"
 PAPERS = Path(__file__).parent / "fixtures" / "papers"
-SAMPLES = Path(__file__).parents[1] / "samples"
+SAMPLES = Path(__file__).parents[1] / "examples"
 PROFILE = load("icse-2027")
 LENA = Person("Lena", "Brandt", "lena.brandt@uni-nowhere.edu", "University of Nowhere")
 ERROR, WARNING, INFO = Severity.ERROR, Severity.WARNING, Severity.INFO

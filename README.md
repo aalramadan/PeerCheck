@@ -21,22 +21,22 @@ reviews, and conflicts of interest.
 These two report pages come from the commands below.
 
 ```bash
-peercheck --profile samples/venue.yaml papers samples/papers --authors samples/authors.csv \
+peercheck --profile examples/venue.yaml papers examples/papers --authors examples/authors.csv \
   --checks layout,sigsoft,hidden-text --html report.html
-peercheck --profile samples/venue.yaml reviews samples/reviews --canaries samples/canaries.csv --html reviews.html
+peercheck --profile examples/venue.yaml reviews examples/reviews --canaries examples/canaries.csv --html reviews.html
 ```
 
 > [!TIP]
 > The [live demo](https://aalramadan.github.io/PeerCheck/) shows the full reports with their Excel workbooks,
-> together with a review export of HotCRP and the conflict check. The reports sit in [`examples/`](examples/).
+> together with a review export of HotCRP and the conflict check. The reports sit in [`examples/reports/`](examples/reports/).
 
 #### Papers
 
-![HTML report of peercheck papers on five sample papers](docs/papers-report.png)
+![HTML report of peercheck papers on five sample papers](resources/papers-report.png)
 
 #### Reviews
 
-![HTML report of peercheck reviews on eight sample reviews](docs/reviews-report.png)
+![HTML report of peercheck reviews on eight sample reviews](resources/reviews-report.png)
 
 ## 📊 Benchmark
 
@@ -273,7 +273,7 @@ mvn -f external/submission-checker/pom.xml package   # rebuilds the revised SIGS
 - The reference check stays offline by default. The profile option `online: true` sends DOIs and arXiv
   identifiers to doi.org and arxiv.org. The option `online_titles: true` also sends reference titles.
 - `.gitignore` keeps PDFs, review XML files, spreadsheets, and CSV files out of git, except the test fixtures and
-  the samples.
+  the examples.
 
 ## 📄 License
 

@@ -11,9 +11,9 @@ from pathlib import Path
 import pymupdf
 import pytest
 
-from peercheck.checks import fonts
 from peercheck.findings import Severity
 from peercheck.models import Paper
+from peercheck.papers import fonts
 from peercheck.profile import ProfileError, load
 
 FONTS = Path(__file__).parent / "fixtures" / "fonts"

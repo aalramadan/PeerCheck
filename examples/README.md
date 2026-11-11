@@ -1,6 +1,6 @@
-# Samples
+# Examples
 
-- Made-up submissions and public reviews to try PeerCheck on.
+- Made-up submissions and public reviews to try PeerCheck on, with the reports of PeerCheck on these files.
 - Every name, email address, and affiliation in these files is made up.
 - The review texts come from the public test set of CoCoNUTS (MIT license).
 - The review of submission 106 holds a made-up planted citation.
@@ -19,17 +19,18 @@
 | `canaries.csv` | the key of the planted citations of the eight reviews | |
 | `hotcrp-reviews.csv` | three reviews as a HotCRP export | the HotCRP reader |
 | `venue.yaml` | the profile of a made-up venue, filled from `profiles/template.yaml` | a venue profile |
+| `reports/` | the reports of PeerCheck on these files, with the page of the live demo | the output of each command |
 
-- The commands below write the reports of the samples to [`examples/`](../examples/), which the
+- The commands below write the reports to [`reports/`](reports/), which the
   [live demo](https://aalramadan.github.io/PeerCheck/) serves.
 
 ```bash
-peercheck --profile samples/venue.yaml papers samples/papers --authors samples/authors.csv \
-  --checks layout,sigsoft,hidden-text --out examples/report.xlsx --html examples/report.html
-peercheck --profile samples/venue.yaml reviews samples/reviews --canaries samples/canaries.csv \
-  --out examples/reviews.xlsx --html examples/reviews.html
-peercheck --profile samples/venue.yaml reviews samples/hotcrp-reviews.csv \
-  --out examples/hotcrp.xlsx --html examples/hotcrp.html
-peercheck --profile samples/venue.yaml conflicts --authors samples/authors.csv --pc samples/committee.csv \
-  --out examples/conflicts.xlsx
+peercheck --profile examples/venue.yaml papers examples/papers --authors examples/authors.csv \
+  --checks layout,sigsoft,hidden-text --out examples/reports/report.xlsx --html examples/reports/report.html
+peercheck --profile examples/venue.yaml reviews examples/reviews --canaries examples/canaries.csv \
+  --out examples/reports/reviews.xlsx --html examples/reports/reviews.html
+peercheck --profile examples/venue.yaml reviews examples/hotcrp-reviews.csv \
+  --out examples/reports/hotcrp.xlsx --html examples/reports/hotcrp.html
+peercheck --profile examples/venue.yaml conflicts --authors examples/authors.csv --pc examples/committee.csv \
+  --out examples/reports/conflicts.xlsx
 ```

@@ -11,10 +11,10 @@ from pathlib import Path
 import pymupdf
 import pytest
 
-from peercheck.checks import density, layout
-from peercheck.checks.density import Density
 from peercheck.findings import Severity
 from peercheck.models import Paper
+from peercheck.papers import density, layout
+from peercheck.papers.density import Density
 from peercheck.profile import ProfileError, load
 
 FIXTURES = Path(__file__).parent / "fixtures" / "density"

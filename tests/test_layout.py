@@ -10,9 +10,9 @@ import pymupdf
 import pytest
 
 from peercheck import profile, tools
-from peercheck.checks import layout
 from peercheck.findings import Severity
 from peercheck.models import Paper
+from peercheck.papers import layout
 
 PAPERS = Path(__file__).parent / "fixtures" / "papers"
 needs_banal = pytest.mark.skipif(not (shutil.which("perl") and shutil.which("pdftohtml")),

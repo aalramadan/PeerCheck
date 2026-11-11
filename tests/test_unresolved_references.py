@@ -8,15 +8,15 @@ from pathlib import Path
 import pymupdf
 import pytest
 
-from peercheck.checks import unresolved_references
 from peercheck.findings import Severity
 from peercheck.models import Paper
+from peercheck.papers import unresolved_references
 from peercheck.profile import load
 
 FIXTURES = Path(__file__).parent / "fixtures" / "unresolved"
 INTEGRITY = Path(__file__).parent / "fixtures" / "integrity"
 PAPERS = Path(__file__).parent / "fixtures" / "papers"
-SAMPLES = Path(__file__).resolve().parents[1] / "samples" / "papers"
+SAMPLES = Path(__file__).resolve().parents[1] / "examples" / "papers"
 CLEAN = [FIXTURES / "ieee.pdf", INTEGRITY / "paper.pdf", *sorted(SAMPLES.glob("*.pdf")),
          *sorted(pdf for pdf in PAPERS.glob("*.pdf") if pdf.name != "corrupt.pdf")]
 
