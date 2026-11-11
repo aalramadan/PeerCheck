@@ -14,8 +14,7 @@ It reports format violations, anonymity leaks, hidden text, unverifiable referen
 reviews, and conflicts of interest.
 
 > [!IMPORTANT]
-> PeerCheck assists the organizers of the review process. Every flagged paper or review should be checked by a
-> person.
+> PeerCheck assists program chairs. A human should verify every flagged paper or review.
 
 ## 🎬 Demo
 
