@@ -33,36 +33,6 @@ gives the commands.
 
 ![HTML report of peercheck reviews on eight sample reviews](resources/reviews-report.png)
 
-## 📊 Benchmark
-
-We tested the two AI detectors on 1,409 reviews of ICLR 2017 papers, in three groups.
-
-- 1,014 human reviews, the official reviews in [PeerRead](https://github.com/allenai/PeerRead), a public dataset of
-  peer reviews, written in 2016 before AI writing tools.
-- 98 polished reviews, each a copy of one of these human reviews that a model polished.
-- 297 AI reviews, written by DiffusionGemma 26B, Gemma 4 31B, Mistral Large 4, Nemotron 3 Ultra, and Step 5.
-
-| Written by | Reviews | CoCoDet (AI) | EditLens (AI-Edited) | EditLens (AI) |
-|---|---|---|---|---|
-| People | 1,014 | 0 | 51 | 0 |
-| People, then polished by a model | 98 | 0 | 89 | 0 |
-| DiffusionGemma 26B | 58 | 58 | 58 | 0 |
-| Gemma 4 31B | 60 | 60 | 60 | 0 |
-| Mistral Large 4 | 60 | 52 | 60 | 0 |
-| Nemotron 3 Ultra | 60 | 56 | 60 | 0 |
-| Step 5 | 59 | 47 | 58 | 0 |
-| **Total** | **1,409** | **273** | **436** | **0** |
-
-- CoCoDet caught 273 of the 297 AI reviews (91.9%) and flagged none of the human or polished reviews.
-- EditLens, the second detector, labeled 296 of the 297 AI reviews (99.7%) as AI-Edited. It also caught AI
-  polishing in 89 of the 98 polished reviews (90.8%). Of the 1,014 human reviews, it labeled 51 (5.0%) as
-  AI-Edited.
-- EditLens labeled none of the 1,409 reviews as AI. PeerCheck therefore reports each detector on its own, since a
-  rule that needs the two to agree on AI would catch none of the 297 AI reviews.
-- On 900 reviews of the [CoCoNUTS](https://huggingface.co/datasets/khaaaaaan/CoCoNUTS) test set, from the
-  collection that CoCoDet was trained on, CoCoDet caught 298 of the 300 AI reviews. It flagged 1 of the 150 reviews
-  that mix human and AI writing and 3 of the 450 human reviews, all three polished by AI.
-
 ## 📦 Install
 
 - PeerCheck is tested on Linux, including WSL on Windows.
@@ -225,6 +195,31 @@ Run any command with `--help` for every option.
 - **EditLens** labels a review as Human, AI-Edited (human writing that AI edited), or AI, as a second opinion.
 - **EditLens Score** runs from 0 for human writing to 1 for AI writing. A score below 0.0971 reads as Human, a
   score of 0.997 or more as AI, and a score between them as AI-Edited.
+
+## 📊 Benchmark
+
+We tested the two AI detectors on 1,409 reviews of ICLR 2017 papers, in three groups.
+
+- 1,014 human reviews, the official reviews in [PeerRead](https://github.com/allenai/PeerRead), a public dataset of
+  peer reviews, written in 2016 before AI writing tools.
+- 98 polished reviews, each a copy of one of these human reviews that a model polished.
+- 297 AI reviews, written by DiffusionGemma 26B, Gemma 4 31B, Mistral Large 4, Nemotron 3 Ultra, and Step 5.
+
+| Written by | Reviews | CoCoDet (AI) | EditLens (AI-Edited) | EditLens (AI) |
+|---|---|---|---|---|
+| People | 1,014 | 0 | 51 | 0 |
+| People, then polished by a model | 98 | 0 | 89 | 0 |
+| DiffusionGemma 26B | 58 | 58 | 58 | 0 |
+| Gemma 4 31B | 60 | 60 | 60 | 0 |
+| Mistral Large 4 | 60 | 52 | 60 | 0 |
+| Nemotron 3 Ultra | 60 | 56 | 60 | 0 |
+| Step 5 | 59 | 47 | 58 | 0 |
+| **Total** | **1,409** | **273** | **436** | **0** |
+
+- CoCoDet caught 273 of the 297 AI reviews (91.9%) and flagged none of the human or polished reviews.
+- EditLens, the second detector, labeled 296 of the 297 AI reviews (99.7%) as AI-Edited. It also caught AI
+  polishing in 89 of the 98 polished reviews (90.8%). Of the 1,014 human reviews, it labeled 51 (5.0%) as
+  AI-Edited.
 
 ## 🏛️ Venue profiles
 
