@@ -14,7 +14,7 @@ from collections import Counter
 from dataclasses import replace
 from pathlib import Path
 
-from peercheck import canary, conflicts, inputs, report, tools
+from peercheck import canary, inputs, report, tools
 from peercheck import profile as profiles
 from peercheck.findings import Finding, Severity, needs_review
 from peercheck.models import Review
@@ -31,11 +31,9 @@ DETAIL_COLUMNS = ("CoCoDet Detail", "Content Sources", "Style Sources", "CoCoDet
 
 
 def main(argv: list[str] | None = None) -> int:
-    """Run the review checks or download their models."""
+    """Run the review checks."""
     args = parser().parse_args(argv)
     try:
-        if args.folder == "setup":
-            return setup(args.extra[0] if args.extra else "cocodet", args.device)
         return run(args)
     except (inputs.InputError, profiles.ProfileError, tools.ToolError, cocodet.ModelError, editlens.ModelError,
             OSError, ValueError) as exc:
@@ -46,9 +44,8 @@ def main(argv: list[str] | None = None) -> int:
 def parser() -> argparse.ArgumentParser:
     """Build the parser of the review command line."""
     top = argparse.ArgumentParser(prog="peercheck reviews",
-                                  description="Check reviews exported from EasyChair (XML) or HotCRP (CSV).")
-    top.add_argument("folder", help="folder or file of review exports, or setup to download the models")
-    top.add_argument("extra", nargs="*", help="after setup: cocodet or editlens")
+                                  description="Check the reviews of a folder or a file.")
+    top.add_argument("folder", help="folder or file of the reviews")
     top.add_argument("--profile", help="the rules of the venue, which set the page count of the citation check")
     top.add_argument("--detectors", default="cocodet,editlens", help="comma-separated subset of cocodet,editlens")
     top.add_argument("--checks", default="duplicates,citations", help="comma-separated subset of duplicates,citations")
@@ -57,24 +54,10 @@ def parser() -> argparse.ArgumentParser:
     top.add_argument("--device", choices=("cpu", "cuda"), help="cpu or cuda (default: cuda when available)")
     top.add_argument("--dblp-index", type=Path, help="dblp index saved by peercheck conflicts, to match "
                                                      "requested citations against works of the reviewers")
-    top.add_argument("--reviewer-csv", type=Path, help="EasyChair reviewer.csv, with --assignment-csv")
-    top.add_argument("--assignment-csv", type=Path, help="EasyChair assignment.csv: who reviews which paper")
     top.add_argument("--out", type=Path, default=Path("reviews.xlsx"), help="Excel report (default reviews.xlsx)")
     top.add_argument("--json", type=Path, help="also write the results as JSON")
     top.add_argument("--html", type=Path, help="HTML page for the browser (default the --out file with .html)")
     return top
-
-
-def setup(what: str, device: str | None) -> int:
-    """Download the models of one detector into the cache."""
-    if what == "cocodet":
-        cocodet.Detector(device="cpu")
-    elif what == "editlens":
-        editlens.Detector(device="cpu")
-    else:
-        raise ValueError(f"unknown model {what!r}; choose cocodet or editlens")
-    print(f"{what} is ready in the Hugging Face cache")
-    return 0
 
 
 def run(args: argparse.Namespace) -> int:
@@ -158,14 +141,7 @@ def _key_coverage(reviews: list[Review], key: dict[int, str]) -> str:
 
 
 def _panel_options(args: argparse.Namespace) -> dict[str, object]:
-    options: dict[str, object] = {}
-    if args.dblp_index:
-        options["dblp_index"] = args.dblp_index
-    if args.assignment_csv:
-        if not args.reviewer_csv:
-            raise inputs.InputError("--assignment-csv needs --reviewer-csv for the member IDs")
-        options["assignments"] = conflicts.read_pairs(args.assignment_csv, conflicts.read_members(args.reviewer_csv))
-    return options
+    return {"dblp_index": args.dblp_index} if args.dblp_index else {}
 
 
 def _choose(text: str, allowed: tuple[str, ...], what: str) -> tuple[str, ...]:
@@ -180,7 +156,7 @@ def _row(review: Review) -> dict[str, object]:
     scores = review.scores
     return {"Source File": review.source, "Submission": review.paper_id, "Review ID": review.review_id,
             "Title": review.title,
-            # EasyChair and HotCRP name the two common scores differently.
+            # Review forms name the two common scores differently.
             "Overall Evaluation": scores.get("Overall evaluation") or scores.get("Overall merit"),
             "Reviewer's Confidence": scores.get("Reviewer's confidence") or scores.get("Reviewer expertise"),
             "Words for Authors": editlens.count_words(review.author_text)}

@@ -14,7 +14,7 @@
 | `census-surnames/` | U.S. Census Bureau, Frequently Occurring Surnames from the 2010 Census | 2010 census | public domain | reads the 9,999 most common surnames for the made-up citations of the canary check |
 | `coconuts/` | github.com/icip-cas/CoCoNUTS | commit `25df608` | MIT, per the CoCoDet model card | keeps `infer.py`, the original of CoCoDet, and runs its own version in `src/reviews/cocodet.py` |
 | `editlens/` | github.com/pangramlabs/EditLens | commit `05a588f` | CC BY-NC-SA 4.0 | keeps the code of Open Pangram, the release of EditLens, without its data and runs its own version in `src/reviews/editlens.py` |
-| `hallucinator/` | github.com/gianlucasb/hallucinator | release v0.2.4 | AGPL-3.0-or-later | keeps the Rust source of the reference checker, whose built program `peercheck setup references` downloads |
+| `hallucinator/` | github.com/gianlucasb/hallucinator | release v0.2.4 | AGPL-3.0-or-later | keeps the Rust source of the reference checker, whose built program `peercheck setup` downloads |
 | `hotcrp/` | github.com/kohler/hotcrp | commit `4c1ef77` | GPL-2.0-or-later for `banal`, Click license for the rest | runs `banal` in the format check and reads the affiliation word lists of `affiliationmatchers.json` in the conflict check |
 | `mubanal/` | github.com/kohler/mubanal | commit `f185559` | AGPL-3.0 | keeps `src/extract.cc` and `src/mubanal.hh` of the PDF analyzer that HotCRP reads, whose nine categories of active content `src/papers/active_content.py` follows with a scan of its own in pikepdf |
 | `openreview-py/` | github.com/openreview/openreview-py | commit `9e8ba8e` | MIT | copies the webmail list of `openreview/tools.py` into `src/conflicts.py` |
@@ -37,7 +37,7 @@
 | `reviews` | Planted citation (`--canaries`) | reviews that cite the made-up work hidden in their paper | the method of Rao et al. that ICML 2026 used |
 | `reviews` | Copied text (`duplicates`) | paragraphs that reviews share, with at least half of their short character sequences alike | MinHash, a fast search for similar text, from the datasketch library |
 | `reviews` | Citation requests (`citations`) | works that reviewers ask the authors to cite, their own included, and requests for more works than the paper has pages | DBLP, for the works of the reviewers, through `--dblp-index` |
-| `conflicts` | Conflicts of interest | co-authorship within three years (the window of the ACM SIGSOFT Policy on Program Committees), shared email domains other than webmail, affiliations that match (two universities of one city stay apart), and declared conflicts without evidence | DBLP, the affiliation word lists of HotCRP, the webmail list of OpenReview, and the Public Suffix List |
+| `conflicts` | Conflicts of interest | co-authorship within three years (the window of the ACM SIGSOFT Policy on Program Committees), shared email domains other than webmail, and affiliations that match (two universities of one city stay apart) | DBLP, the affiliation word lists of HotCRP, the webmail list of OpenReview, and the Public Suffix List |
 
 - Before the review period, `peercheck canary` hides a request to cite a made-up work, such as Smith et al. (2019),
   in white text in a copy of each PDF. A wrong hit among all reviews has a chance of 0.1% or less.

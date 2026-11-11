@@ -1,11 +1,11 @@
 """Conflicts of interest between the authors of each paper and the program committee.
 
-The check reuses the methods of the conflict tools of large conferences, applied to EasyChair exports.
+The check reuses the methods of the conflict tools of large conferences, applied to plain lists of the authors
+and of the committee.
 
 - HotCRP (github.com/kohler/hotcrp, Click license), the system of the ICSE 2027 research track, lists
   potential missing conflicts on its page src/pages/p_conflictassign.php by fuzzy matching of
-  authors against the names and affiliations of PC members, and lists in a second view the declared
-  conflicts that the matching does not support. This module does both. Two affiliations match the
+  authors against the names and affiliations of PC members. This module does the same. Two affiliations match the
   way HotCRP's AuthorMatcher matches them: one affiliation shares a strong word with the other, or,
   when it has only weak words, all its words appear in the other. A word also appears through one
   of its alternates, such as carnegie mellon for cmu, and counts only where the two affiliations
@@ -16,7 +16,7 @@ The check reuses the methods of the conflict tools of large conferences, applied
   and of fields, such as politecnica and data, and words of at most two letters to the weak words.
   Strong words of five letters or more, without digits, also match a strong word with a rapidfuzz
   ratio of at least affiliation_min, which absorbs typing errors such as Stutgart.
-- CLOSET with its EasyChair scripts (github.com/pchrszon/ec-closet-support, MIT) and the scripts of
+- The CLOSET scripts (github.com/pchrszon/ec-closet-support, MIT) and the scripts of
   ISCA 2018 and ISCA 2021 (github.com/mdrumond/pc-chair-kit, github.com/hibagus/ISCA-2021-Script)
   flag co-authorship in dblp within a number of years. ec-closet-support counts a joint paper when
   the current year minus its year is at most the window, the year arithmetic used here.
@@ -30,9 +30,7 @@ find_conflicts returns one Conflict per paper and PC member with every reason fo
 function turns the conflicts into rows for a sheet with the columns of COLUMNS. A person listed
 twice counts once. A PC member who is an author of the paper, by email, dblp person ID, or name, is
 reported as such. The dblp person ID is the one given or the one the dblp index resolves, and two
-different IDs make two people even under one name. With an EasyChair conflict export, a declared
-conflict that no data supports, with no co-authorship in any year, appears with the kind "declared
-without support". reviewer_ties lists co-authorship among the assigned reviewers of each paper.
+different IDs make two people even under one name.
 
 Options (profile key "conflicts"):
 
@@ -45,34 +43,24 @@ Options (profile key "conflicts"):
 - affiliation_min (90): the rapidfuzz ratio at or above which two affiliation words of five letters
   or more count as the same word. ISCA-2021-Script uses 90 as the cutoff of its fuzzy name matches.
 - webmail: further email domains to treat as webmail, as a list or as one domain.
-
-The EasyChair readers take the files that ec-closet-support documents: reviewer.csv with the PC
-member ID, name, email, and role, and assignment.csv with the PC member ID and the submission ID,
-both without a header and separated by commas, semicolons, or tabs. read_pairs reads the conflict
-export with the layout of assignment.csv, an assumption that a real export should confirm, and
-refuses a file without any pair. The name of a PC member splits at its last space, as
-ISCA-2021-Script splits names.
 """
 
 from __future__ import annotations
 
-import csv
 import datetime
 import functools
 import json
 import re
 from dataclasses import dataclass
-from pathlib import Path
 
 from rapidfuzz import fuzz
 
 from peercheck import tools
 from peercheck.dblp import DblpIndex, Publication, fold, parse_pid
-from peercheck.inputs import InputError
 from peercheck.models import Person
 
 DEFAULTS = {"coauthor_years": 3, "reference_year": None, "affiliation_min": 90, "webmail": ()}
-COLUMNS = ("Paper", "PC member", "PC member email", "With", "Kinds", "Reasons", "Declared", "Assigned")
+COLUMNS = ("Paper", "PC member", "PC member email", "With", "Kinds", "Reasons")
 LISTED_PAPERS = 3
 FUZZY_WORD_MIN = 5
 
@@ -186,19 +174,15 @@ class Conflict:
     others: tuple[Person, ...]
     kinds: tuple[str, ...]
     reasons: tuple[str, ...]
-    declared: bool | None = None
-    assigned: bool | None = None
 
 
 def find_conflicts(
     authors: dict[int, list[Person]],
     committee: list[Person],
     index: DblpIndex | None = None,
-    assignments: dict[int, list[Person]] | None = None,
-    declared: dict[int, list[Person]] | None = None,
     options: dict | None = None,
 ) -> list[Conflict]:
-    """Return the possible conflicts of each paper with each PC member, and declared conflicts without support."""
+    """Return the possible conflicts of each paper with each PC member."""
     settings = {**DEFAULTS, **(options or {})}
     since = _since(settings)
     extra = settings["webmail"] or ()
@@ -219,37 +203,8 @@ def find_conflicts(
                     others.append(author)
                     kinds.extend(kind for kind, _ in pair if kind not in kinds)
                     reasons.extend(reason for _, reason in pair)
-            is_declared = None if declared is None else _among(member, declared.get(paper_id, []), works)
-            is_assigned = None if assignments is None else _among(member, assignments.get(paper_id, []), works)
-            if not kinds and is_declared:
-                reason = _unsupported(people, member, works)
-                if not reason:
-                    continue
-                kinds, reasons = ["declared without support"], [reason]
             if kinds:
-                found.append(Conflict(paper_id, member, tuple(others), tuple(kinds), tuple(reasons), is_declared,
-                                      is_assigned))
-    return found
-
-
-def reviewer_ties(assignments: dict[int, list[Person]], index: DblpIndex, options: dict | None = None) -> list[Conflict]:
-    """Return the pairs of assigned reviewers of one paper who wrote a dblp paper together within the window."""
-    since = _since({**DEFAULTS, **(options or {})})
-    works = _Works(index)
-    found = []
-    for paper_id in sorted(assignments):
-        reviewers: list[Person] = []
-        for person in assignments[paper_id]:
-            if not any(_same(person, other, works) for other in reviewers):
-                reviewers.append(person)
-        for i, first in enumerate(reviewers):
-            for second in reviewers[i + 1:]:
-                joint = works.joint(first, second, since)
-                if joint:
-                    found.append(Conflict(
-                        paper_id, first, (second,), ("reviewer co-authorship",),
-                        (_coauthor_reason(first, second, joint, index, since),), None, True,
-                    ))
+                found.append(Conflict(paper_id, member, tuple(others), tuple(kinds), tuple(reasons)))
     return found
 
 
@@ -258,7 +213,7 @@ def rows(conflicts: list[Conflict]) -> list[dict[str, str]]:
     return [
         dict(zip(COLUMNS, (
             str(c.paper_id), c.member.name, c.member.email, "; ".join(p.name for p in c.others), "; ".join(c.kinds),
-            "\n".join(c.reasons), _flag(c.declared), _flag(c.assigned),
+            "\n".join(c.reasons),
         )))
         for c in conflicts
     ]
@@ -290,31 +245,6 @@ def org_domain(email: str) -> str:
     return ""
 
 
-def read_members(path: Path) -> dict[int, Person]:
-    """Read the PC members of an EasyChair reviewer.csv, keyed by PC member ID."""
-    members = {}
-    for row in _csv_rows(path):
-        if len(row) >= 2 and row[0].strip().isdigit():
-            first, _, last = row[1].strip().rpartition(" ")
-            members[int(row[0])] = Person(first=first, last=last, email=row[2].strip() if len(row) > 2 else "")
-    return members
-
-
-def read_pairs(path: Path, members: dict[int, Person]) -> dict[int, list[Person]]:
-    """Read the PC member and submission pairs of an EasyChair assignment.csv or conflict export, keyed by paper."""
-    pairs: dict[int, list[Person]] = {}
-    for row in _csv_rows(path):
-        if len(row) < 2 or not (row[0].strip().isdigit() and row[1].strip().isdigit()):
-            continue
-        member = members.get(int(row[0]))
-        if member is None:
-            raise InputError(f"{path.name}: PC member {row[0].strip()} is not in the reviewer list")
-        pairs.setdefault(int(row[1]), []).append(member)
-    if not pairs:
-        raise InputError(f"{path.name}: no row holds a PC member ID and a submission ID")
-    return pairs
-
-
 class _Works:
     """The dblp publications of each person from a year on, looked up once per person and year."""
 
@@ -329,11 +259,6 @@ class _Works:
             return []
         mine = self._of(first, since)
         return [publication for key, publication in self._of(second, since).items() if key in mine]
-
-    def known(self, person: Person) -> bool:
-        """Return True if the index holds dblp names for a person."""
-        identity = self.index.identity(person) if self.index is not None else None
-        return identity is not None and bool(identity.names)
 
     def pid(self, person: Person) -> str:
         """Return the dblp person ID that the index resolves for a person, or else the one given, or nothing."""
@@ -378,19 +303,6 @@ def _coauthor_reason(member: Person, other: Person, joint: list[Publication], in
         identity = index.identity(person)
         if identity is not None and identity.ambiguous:
             reason += f". The name {person.name} matches {identity.records} dblp person records; confirm the person"
-    return reason
-
-
-def _unsupported(authors: list[Person], member: Person, works: _Works) -> str:
-    if any(works.joint(author, member, None) for author in authors):
-        return ""
-    shared = "an email domain or an affiliation" if works.index is None else \
-        "a dblp paper, an email domain, or an affiliation"
-    reason = f"declared in the conflict export, while no author shares {shared} with {member.name}"
-    if works.index is not None:
-        unknown = sum(1 for author in authors if not works.known(author))
-        if unknown:
-            reason += f"; dblp has no record for {unknown} of {len(authors)} authors"
     return reason
 
 
@@ -522,10 +434,6 @@ def _name(name: str) -> str:
     return fold(name)
 
 
-def _among(person: Person, people: list[Person], works: _Works) -> bool:
-    return any(_same(person, other, works) for other in people)
-
-
 def _webmail(domain: str, webmail: frozenset[str]) -> bool:
     return domain in webmail or domain.split(".")[0] in WEBMAIL_PROVIDERS
 
@@ -533,20 +441,3 @@ def _webmail(domain: str, webmail: frozenset[str]) -> bool:
 def _since(settings: dict) -> int:
     year = settings["reference_year"] or datetime.date.today().year
     return int(year) - int(settings["coauthor_years"])
-
-
-def _flag(value: bool | None) -> str:
-    return "" if value is None else ("yes" if value else "no")
-
-
-def _csv_rows(path: Path) -> list[list[str]]:
-    if not path.is_file():
-        raise InputError(f"file not found: {path}")
-    with path.open(encoding="utf-8-sig", newline="") as handle:
-        sample = handle.read(4096)
-        handle.seek(0)
-        try:
-            delimiter = csv.Sniffer().sniff(sample, delimiters=",;\t").delimiter
-        except csv.Error:
-            delimiter = ","
-        return list(csv.reader(handle, delimiter=delimiter))

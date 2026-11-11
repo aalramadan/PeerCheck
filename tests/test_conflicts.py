@@ -7,7 +7,6 @@ from pathlib import Path
 import pytest
 
 from peercheck import cli, conflicts, dblp
-from peercheck.inputs import InputError
 from peercheck.models import Person
 
 DUMP = Path(__file__).parent / "fixtures" / "dblp" / "dblp.xml"
@@ -34,12 +33,7 @@ def index() -> dblp.DblpIndex:
 
 @pytest.fixture(scope="module")
 def found(index) -> dict[tuple[int, str], conflicts.Conflict]:
-    result = conflicts.find_conflicts(
-        AUTHORS, COMMITTEE, index,
-        assignments={1: [BRANDT, KIM], 2: [LEMAITRE, PAT], 3: [KIM]},
-        declared={1: [KIM], 2: [PC_MULLER], 3: [KIM]},
-        options=OPTIONS,
-    )
+    result = conflicts.find_conflicts(AUTHORS, COMMITTEE, index, options=OPTIONS)
     return {(c.paper_id, c.member.name): c for c in result}
 
 
@@ -175,7 +169,7 @@ class TestDomains:
 class TestFindConflicts:
     def test_conflicts_cover_the_expected_pairs_only(self, found):
         assert sorted(found) == [
-            (1, "Jürgen Müller"), (1, "Kim Doe"), (1, "Lena Brandt"), (2, "François Lemaître"), (3, "Kim Doe"),
+            (1, "Jürgen Müller"), (1, "Kim Doe"), (1, "Lena Brandt"), (2, "François Lemaître"),
         ]
 
     def test_shared_domain_and_affiliation_give_two_reasons(self, found):
@@ -186,7 +180,6 @@ class TestFindConflicts:
             "Kim Doe and Jürgen Müller share the email domain testville.example",
             "Kim Doe (Testville University) and Jürgen Müller (University of Testville) share the words testville",
         )
-        assert (conflict.declared, conflict.assigned) == (True, True)
 
     def test_recent_joint_paper_gives_a_coauthor_conflict(self, found):
         conflict = found[1, "Lena Brandt"]
@@ -195,7 +188,6 @@ class TestFindConflicts:
             "Lena Brandt and Jürgen Müller wrote 1 dblp paper together since 2023: "
             "Regression Test Selection for Synthetic Builds (2025, dblp conf/icse/Brandt25)"
         ),)
-        assert (conflict.declared, conflict.assigned) == (False, True)
 
     def test_pc_member_among_the_authors_is_reported_with_the_other_reasons(self, found):
         conflict = found[1, "Jürgen Müller"]
@@ -209,14 +201,6 @@ class TestFindConflicts:
     def test_affiliation_keeps_a_homonym_from_making_a_false_coauthor_conflict(self, found):
         assert found[2, "François Lemaître"].kinds == ("email domain",)
 
-    def test_declared_conflict_without_any_data_is_listed(self, found):
-        conflict = found[3, "Kim Doe"]
-        assert conflict.kinds == ("declared without support",)
-        assert conflict.reasons == ((
-            "declared in the conflict export, while no author shares a dblp paper, an email domain, or an "
-            "affiliation with Kim Doe"
-        ),)
-
     def test_window_follows_the_options(self, index):
         older = conflicts.find_conflicts({2: [PEREZ]}, [PC_MULLER], index, options={"reference_year": 2022})
         assert [c.kinds for c in older] == [("co-author",)]
@@ -224,17 +208,6 @@ class TestFindConflicts:
     def test_ambiguous_name_asks_for_a_check(self, index):
         found = conflicts.find_conflicts({1: [MULLER]}, [Person("Lena", "Brandt")], index, options=OPTIONS)
         assert found[0].reasons[0].endswith("The name Lena Brandt matches 2 dblp person records; confirm the person")
-
-    def test_without_assignments_or_declarations_the_flags_stay_empty(self, index):
-        found = conflicts.find_conflicts({1: [MULLER]}, [KIM], index, options=OPTIONS)
-        assert (found[0].declared, found[0].assigned) == (None, None)
-
-    def test_declared_conflict_without_an_index_claims_no_dblp_check(self):
-        member = Person("Kim", "Doe", "kim@one.example", "One University")
-        found = conflicts.find_conflicts({3: [UNRELATED]}, [member], declared={3: [member]}, options=OPTIONS)
-        assert found[0].reasons == (
-            "declared in the conflict export, while no author shares an email domain or an affiliation with Kim Doe",
-        )
 
     def test_people_with_different_dblp_ids_are_not_one_author(self):
         author = Person("Ana", "Pérez", "ana.perez@ejemplo.example", "Universidad de Ejemplo", dblp="22/2001")
@@ -257,55 +230,14 @@ class TestFindConflicts:
         assert [(c.others, c.kinds, len(c.reasons)) for c in found] == [((author,), ("email domain", "affiliation"), 2)]
 
 
-class TestReviewerTies:
-    def test_assigned_reviewers_who_wrote_together_are_listed(self, index):
-        ties = conflicts.reviewer_ties({4: [KIM, LEMAITRE, PAT]}, index, OPTIONS)
-        assert [(t.paper_id, t.member.name, t.others[0].name, t.kinds) for t in ties] == [
-            (4, "Kim Doe", "François Lemaître", ("reviewer co-authorship",)),
-        ]
-
-    def test_reviewer_assigned_twice_has_no_tie_with_the_same_person(self, index):
-        ties = conflicts.reviewer_ties({4: [KIM, LEMAITRE, KIM]}, index, OPTIONS)
-        assert [(t.member.name, t.others[0].name) for t in ties] == [("Kim Doe", "François Lemaître")]
-
-
 class TestRows:
     def test_rows_hold_the_columns_of_a_sheet(self, found):
         row = conflicts.rows([found[1, "Kim Doe"]])[0]
         assert tuple(row) == conflicts.COLUMNS
-        assert (row["Paper"], row["PC member"], row["With"], row["Kinds"], row["Declared"], row["Assigned"]) == (
-            "1", "Kim Doe", "Jürgen Müller", "email domain; affiliation", "yes", "yes",
+        assert (row["Paper"], row["PC member"], row["With"], row["Kinds"]) == (
+            "1", "Kim Doe", "Jürgen Müller", "email domain; affiliation",
         )
         assert row["Reasons"].count("\n") == 1
-
-
-class TestEasyChairFiles:
-    def test_members_and_pairs_read_without_header(self, tmp_path):
-        (tmp_path / "reviewer.csv").write_text("1,Kim Doe,kim@x.example,PC member\n2,Ana María Pérez,ana@y.example,PC member\n")
-        (tmp_path / "assignment.csv").write_text("1,10\n2,10\n2,11\n")
-        members = conflicts.read_members(tmp_path / "reviewer.csv")
-        assert members[2] == Person("Ana María", "Pérez", "ana@y.example")
-        pairs = conflicts.read_pairs(tmp_path / "assignment.csv", members)
-        assert {paper: [p.last for p in people] for paper, people in pairs.items()} == {10: ["Doe", "Pérez"], 11: ["Pérez"]}
-
-    def test_header_rows_are_skipped(self, tmp_path):
-        (tmp_path / "reviewer.csv").write_text("#,name,email,role\n1,Kim Doe,kim@x.example,PC member\n")
-        assert list(conflicts.read_members(tmp_path / "reviewer.csv")) == [1]
-
-    def test_unknown_member_id_raises(self, tmp_path):
-        (tmp_path / "conflict.csv").write_text("7,10\n")
-        with pytest.raises(InputError, match="PC member 7"):
-            conflicts.read_pairs(tmp_path / "conflict.csv", {})
-
-    @pytest.mark.parametrize("text", ["1;10\n2;10\n", "1\t10\n2\t10\n"])
-    def test_pairs_separated_by_semicolons_or_tabs_are_read(self, tmp_path, text):
-        (tmp_path / "assignment.csv").write_text(text)
-        assert conflicts.read_pairs(tmp_path / "assignment.csv", {1: KIM, 2: LEMAITRE}) == {10: [KIM, LEMAITRE]}
-
-    def test_file_without_any_pair_raises(self, tmp_path):
-        (tmp_path / "conflict.csv").write_text("member,submission\n")
-        with pytest.raises(InputError, match="no row"):
-            conflicts.read_pairs(tmp_path / "conflict.csv", {1: KIM})
 
 
 class TestCommand:
@@ -319,6 +251,10 @@ class TestCommand:
             encoding="utf-8")
         return ["conflicts", "--authors", str(tmp_path / "authors.csv"), "--pc", str(tmp_path / "pc.csv"),
                 "--out", str(tmp_path / "conflicts.xlsx")]
+
+    def test_committee_list_is_required(self, command):
+        with pytest.raises(SystemExit):
+            cli.main([part for part in command if part not in command[command.index("--pc"):command.index("--pc") + 2]])
 
     def test_years_zero_reaches_the_check(self, command, monkeypatch):
         options = []

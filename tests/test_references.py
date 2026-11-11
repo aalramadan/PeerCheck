@@ -244,7 +244,7 @@ def test_missing_binary_is_reported_as_an_error(tmp_path, cache, monkeypatch):
     (cache / "hallucinator" / references.VERSION / "hallucinator-cli").unlink()
     [error] = run(tmp_path, cache, FakeHallucinator("offline-run.json"), monkeypatch)
     assert error.check == "references.error" and error.severity is Severity.WARNING
-    assert "Hallucinator is not installed" in error.message and "peercheck setup references" in error.message
+    assert "Hallucinator is not installed" in error.message and "peercheck setup" in error.message
 
 
 def test_missing_dblp_database_is_reported_as_an_error(tmp_path, cache, monkeypatch):

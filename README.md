@@ -42,7 +42,7 @@ gives the commands.
 
 ```bash
 docker pull ghcr.io/aalramadan/peercheck   # includes Java, Perl, and poppler
-docker run --rm -v peercheck-cache:/cache ghcr.io/aalramadan/peercheck setup references   # once, about 1.1 GB
+docker run --rm -v peercheck-cache:/cache ghcr.io/aalramadan/peercheck setup   # once, about 1.1 GB
 ```
 
 #### 🐍 Python
@@ -52,7 +52,7 @@ sudo apt install python3-venv perl poppler-utils default-jre   # Debian or Ubunt
 git clone https://github.com/aalramadan/PeerCheck.git && cd PeerCheck
 python3 -m venv .venv && . .venv/bin/activate                  # Python 3.10 or newer
 pip install -e ".[reviews]"                                    # [reviews] adds the AI detectors of reviews
-peercheck setup references                                     # once, the reference database, about 1.1 GB
+peercheck setup                                                # once, the reference database, about 1.1 GB
 ```
 
 #### 🔑 EditLens access
@@ -118,8 +118,7 @@ peercheck reviews reviews/ --detectors cocodet                                  
 | `--detectors` | reviews | picks the AI detectors, `cocodet,editlens` by default |
 | `--canaries` | reviews | runs the planted-citation check with the key file of `peercheck canary` |
 | `--device` | reviews | runs the detectors on the processor (`cpu`) or the graphics card (`cuda`) |
-| `--pc`, `--reviewer-csv` | conflicts | read the committee list |
-| `--conflict-csv` | conflicts | reads the declared conflicts that EasyChair exports |
+| `--pc` | conflicts | reads the committee list |
 | `--dblp-dump` | conflicts | builds the co-author index from `dblp.xml.gz`, the full download of DBLP at dblp.org/xml |
 | `--dblp-index` | reviews, conflicts | reads the index that `--save-index` of `peercheck conflicts` wrote |
 | `--years` | conflicts | sets the co-authorship window, 3 years by default |
@@ -134,12 +133,10 @@ peercheck conflicts --authors authors.csv --pc pc.csv --dblp-dump dblp.xml.gz   
 peercheck canary submissions/ --out marked/ --key canaries.csv                    # plants a citation in each PDF
 peercheck reviews reviews/ --canaries canaries.csv                                # finds the planted citations
 peercheck gui                                                                     # the checks on a page in the browser
-peercheck menu                                                                    # asks for each file in turn
 ```
 
 - With Docker, run `docker run --rm -p 127.0.0.1:8765:8765 -v peercheck-cache:/cache -e HF_TOKEN
-  ghcr.io/aalramadan/peercheck gui` and open the address it prints. For `peercheck menu`, add `-it` after
-  `docker run`.
+  ghcr.io/aalramadan/peercheck gui` and open the address it prints.
 
 > [!TIP]
 > Check the original PDFs with `peercheck papers` before `peercheck canary`, since the hidden-text check reports the
@@ -158,7 +155,7 @@ peercheck menu                                                                  
 - An author list, a CSV or Excel file with the columns paper, first, last, email, and affiliation.
 - Reviews, as the XML files of EasyChair, the review CSV file of HotCRP, or any CSV file with the columns paper and
   review (the review ID, such as A) and one column per field of the review form, such as the text of the review.
-- A committee list with first, last, email, and affiliation, or the EasyChair file `reviewer.csv`. An optional column
+- A committee list with first, last, email, and affiliation. An optional column
   dblp with the DBLP person ID settles a name that several DBLP authors share.
 
 #### 📖 Reports

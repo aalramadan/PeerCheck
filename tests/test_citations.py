@@ -151,24 +151,6 @@ class TestSelfCitation:
         index.save(tmp_path / "index.json.gz")
         assert citations.check_reviews(reviews, {"dblp_index": str(tmp_path / "index.json.gz")}) == found
 
-    def test_assigned_reviewers_count_when_the_review_names_no_reviewer(self, index):
-        found = citations.check_reviews(
-            [review("Please cite doi:10.1145/2222222.2222223.", paper_id=7)],
-            {"dblp_index": index, "assignments": {7: [LEMAITRE]}},
-        )
-        assert checks(found["X"], "citations.self-citation-request")[0].message == (
-            "The review asks for 1 work by François Lemaître, a reviewer of paper 7."
-        )
-
-    def test_reviewer_named_by_the_review_and_the_assignments_counts_once(self, index):
-        found = citations.check_reviews(
-            [review("Please cite doi:10.1145/2222222.2222223.", paper_id=7, reviewer=LEMAITRE)],
-            {"dblp_index": index, "assignments": {7: [Person("François", "Lemaître")]}},
-        )
-        assert [f.message for f in checks(found["X"], "citations.self-citation-request")] == [
-            "The review asks for 1 work by its own reviewer François Lemaître.",
-        ]
-
     def test_ambiguous_reviewer_name_asks_for_a_check(self, index):
         reviewer = Person("Ana", "Pérez")
         found = citations.check_reviews([review("See arXiv:2401.01234.", reviewer=reviewer)], {"dblp_index": index})

@@ -87,7 +87,7 @@ def test_gui_with_an_unknown_profile_stops_before_the_page_starts(monkeypatch, c
 @pytest.mark.parametrize("value", ["abc", "70000"])
 def test_wrong_gui_port_in_the_environment_stops_only_the_gui_command(monkeypatch, value):
     monkeypatch.setenv("PEERCHECK_GUI_PORT", value)
-    assert cli.parser().parse_args(["doctor"]).command == "doctor"
+    assert cli.parser().parse_args(["setup"]).command == "setup"
     with pytest.raises(SystemExit):
         cli.parser().parse_args(["gui"])
 
@@ -114,25 +114,6 @@ def test_gui_listens_only_on_the_addresses_whose_page_a_browser_can_open(monkeyp
         cli.parser().parse_args(["gui"])
 
 
-def test_doctor_reports_a_missing_census_list(monkeypatch, tmp_path, capsys):
-    monkeypatch.setattr(tools, "EXTERNAL", tmp_path)
-    assert cli.main(["doctor"]) == 1
-    assert "missing census_surnames.txt" in capsys.readouterr().out
-
-
-def test_doctor_reports_missing_data_of_the_conflict_check(monkeypatch, tmp_path, capsys):
-    monkeypatch.setattr(tools, "EXTERNAL", tmp_path)
-    cli.main(["doctor"])
-    printed = capsys.readouterr().out
-    assert "missing affiliationmatchers.json" in printed and "missing public_suffix_list.dat" in printed
-
-
-def test_doctor_reports_a_missing_stop_word_list_of_the_text_check(monkeypatch, tmp_path, capsys):
-    monkeypatch.setattr(tools, "EXTERNAL", tmp_path)
-    cli.main(["doctor"])
-    assert "missing stop.txt" in capsys.readouterr().out
-
-
 def test_installed_package_finds_the_external_files_that_its_wheel_holds(tmp_path):
     package = tmp_path / "site-packages" / "peercheck"
     for relative in ("hotcrp/banal", "submission-checker/submission-checker.jar", "census-surnames/census_surnames.txt"):
@@ -143,44 +124,16 @@ def test_installed_package_finds_the_external_files_that_its_wheel_holds(tmp_pat
     installed = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(installed)
     assert installed.banal() == package.resolve() / "external" / "hotcrp" / "banal"
-    assert not {"banal", "submission-checker.jar", "census_surnames.txt"} & set(installed.missing())
+    assert all(path.is_file() for path in (installed.banal(), installed.submission_checker(), installed.census_surnames()))
 
 
-def _menu_commands(monkeypatch, answers):
-    """Answer the prompts of the menu in order and return the command lines that the menu runs."""
-    replies = iter(answers)
-    commands = []
-    monkeypatch.setattr("builtins.input", lambda prompt="": next(replies))
-    monkeypatch.setattr(cli, "main", lambda argv: commands.append(argv) or 0)
-    assert cli.menu("icse-2027") == 0
-    return commands
+def test_no_command_prints_the_help(capsys):
+    assert cli.main([]) == 0
+    assert capsys.readouterr().out.startswith("usage: peercheck")
 
 
-@pytest.mark.parametrize(("answer", "detectors"), [("cocodet", "cocodet"), ("none", ""), ("", "cocodet,editlens")])
-def test_menu_asks_which_ai_detectors_the_review_checks_run(monkeypatch, answer, detectors):
-    commands = _menu_commands(monkeypatch, ["2", "exports", answer, "reviews.xlsx", "4"])
-    assert commands == [["--profile", "icse-2027", "reviews", "exports", "--detectors", detectors,
-                         "--out", "reviews.xlsx"]]
-
-
-def test_menu_warns_about_a_submission_sheet_that_does_not_exist(monkeypatch, tmp_path, capsys):
-    monkeypatch.chdir(tmp_path)
-    commands = _menu_commands(monkeypatch, ["1", "submissions", "submisions.xlsx", "none", "report.xlsx", "4"])
-    assert commands == [["--profile", "icse-2027", "papers", "submissions", "--out", "report.xlsx"]]
-    assert "submisions.xlsx not found" in capsys.readouterr().out
-
-
-def test_menu_goes_on_after_an_answer_that_the_command_line_refuses(monkeypatch, capsys):
-    replies = iter(["1", "--bogus", "none", "none", "report.xlsx", "4"])
-    monkeypatch.setattr("builtins.input", lambda prompt="": next(replies))
-    assert cli.menu("icse-2027") == 0
-    assert "Finished with exit code 2." in capsys.readouterr().out
-
-
-def test_menu_without_a_session_profile_asks_for_the_venue_rules_of_the_paper_checks(monkeypatch):
-    replies = iter(["1", "venue.yaml", "submissions", "none", "none", "report.xlsx", "4"])
-    commands = []
-    monkeypatch.setattr("builtins.input", lambda prompt="": next(replies))
-    monkeypatch.setattr(cli, "main", lambda argv: commands.append(argv) or 0)
-    assert cli.menu(None) == 0
-    assert commands == [["--profile", "venue.yaml", "papers", "submissions", "--out", "report.xlsx"]]
+def test_setup_downloads_the_reference_database(monkeypatch, tmp_path):
+    calls = []
+    monkeypatch.setattr(cli.references, "install_tools", lambda *args: calls.append(args) or [tmp_path / "dblp.db"])
+    assert cli.main(["setup", "--refresh"]) == 0
+    assert calls == [(cli.tools.cache_dir(), None, None, True)]

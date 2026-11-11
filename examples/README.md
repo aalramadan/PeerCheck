@@ -11,7 +11,7 @@
 | `papers/conf2027-paper2.pdf` | A4 paper, one column, and 12 pt type | format errors |
 | `papers/conf2027-paper3.pdf` | an author named in the text, a link, the acknowledgments, and the metadata | anonymity leaks |
 | `papers/conf2027-paper4.pdf` | an instruction to AI reviewers in white text and in tiny text | hidden text |
-| `papers/conf2027-paper5.pdf` | made-up references and a retracted one | the reference check, after `peercheck setup references` |
+| `papers/conf2027-paper5.pdf` | made-up references and a retracted one | the reference check, after `peercheck setup` |
 | `papers/src/` | the LaTeX sources of the five papers | |
 | `authors.csv` | the authors of the five papers | |
 | `committee.csv` | a program committee with two conflicts | conflicts of interest |

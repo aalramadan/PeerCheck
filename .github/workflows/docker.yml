@@ -26,7 +26,7 @@ jobs:
           cache-to: type=gha,mode=max
       - name: Check the examples with the image
         run: |
-          docker run --rm peercheck:test doctor
+          docker run --rm peercheck:test --version
           docker run --rm -v "$PWD/examples:/data/examples" peercheck:test --profile examples/venue.yaml \
             papers examples/papers --authors examples/authors.csv --checks layout,sigsoft,hidden-text --out /tmp/report.xlsx
           docker run -d --name page -p 127.0.0.1:8765:8765 peercheck:test gui

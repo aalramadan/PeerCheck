@@ -1,4 +1,4 @@
-"""Locations of the programs and the tools in external/ that the checks run, and a report of what is missing."""
+"""Locations of the programs and the tools in external/ that the checks run."""
 
 from __future__ import annotations
 
@@ -55,14 +55,3 @@ def cache_dir() -> Path:
     """Return the folder where PeerCheck keeps downloaded models, databases, and tools."""
     base = os.environ.get("XDG_CACHE_HOME") or os.path.join(os.path.expanduser("~"), ".cache")
     return Path(base) / "peercheck"
-
-
-def missing() -> dict[str, str]:
-    """Return each program or file of external/ that is missing, with its install hint."""
-    problems = {name: hint for name, hint in INSTALL_HINTS.items() if not shutil.which(name)}
-    data = (external("hotcrp/affiliationmatchers.json"), external("publicsuffix/public_suffix_list.dat"),
-            external("snowball/stop.txt"))
-    for path in (banal(), submission_checker(), census_surnames(), *data):
-        if not path.is_file():
-            problems[path.name] = f"file missing at {path}; run PeerCheck from a full clone of the repository"
-    return problems

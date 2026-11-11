@@ -17,8 +17,7 @@ doi:10.1093/bioinformatics/btz071) propose "more than one reference per printed 
 paper" as the rule of thumb for a substantial request.
 
 With a dblp index, the items are matched against the publications of the reviewers of the paper:
-the author of the review (Review.reviewer), the authors of the other reviews of the same paper, and
-the reviewers that the assignments name. Barnett (eLife 2025, doi:10.7554/eLife.108748) matched the
+the author of the review (Review.reviewer) and the authors of the other reviews of the same paper. Barnett (eLife 2025, doi:10.7554/eLife.108748) matched the
 DOIs cited in reviews to the publications of the reviewers in the same way. An item matches a
 publication by DOI (arXiv items through the arXiv DOI 10.48550/arXiv.<id>), by a publication title
 that the item contains, or, for an author-year citation, by the surname of the first author and the
@@ -30,7 +29,6 @@ Options (profile key "citations"):
 
 - dblp_index: a DblpIndex, or the path of a file that DblpIndex.save wrote. Without an index the
   check skips the self-citation part.
-- assignments: a mapping from paper ID to the reviewers (Person) assigned to the paper.
 - pages (10): the page count of the papers, one number for all or a mapping from paper ID to pages.
   The default is the main page limit of the ICSE 2027 research track.
 - title_min (90): the rapidfuzz partial ratio at or above which a publication title counts as
@@ -51,7 +49,7 @@ from peercheck.dblp import DblpIndex, Publication, base_name, fold, load_index
 from peercheck.findings import Finding, Severity
 from peercheck.models import Person, Review
 
-DEFAULTS = {"dblp_index": None, "assignments": None, "pages": 10, "title_min": 90}
+DEFAULTS = {"dblp_index": None, "pages": 10, "title_min": 90}
 TITLE_MIN_CHARS = 20
 _DOI = re.compile(r"\b(10\.\d{4,9}/[-._;()/:a-z0-9]+)", re.IGNORECASE)
 _ARXIV = re.compile(
@@ -117,7 +115,7 @@ def check_reviews(reviews: list[Review], options: dict) -> dict[str, list[Findin
             requests.append((review, items))
     if index is None:
         return findings
-    panels = _panels(reviews, settings["assignments"] or {})
+    panels = _panels(reviews)
     works: dict[str, list[Publication]] = {}
     hits = []
     for review, items in requests:
@@ -250,12 +248,10 @@ def _is_author(review: Review, reviewer: Person) -> bool:
     return review.reviewer is not None and _same(review.reviewer, reviewer)
 
 
-def _panels(reviews: list[Review], assignments: dict[int, list[Person]]) -> dict[int | None, list[Person]]:
-    """Return the reviewers of each paper, each person once, the authors of its reviews first."""
+def _panels(reviews: list[Review]) -> dict[int | None, list[Person]]:
+    """Return the authors of the reviews of each paper, each person once."""
     panels: dict[int | None, list[Person]] = {}
-    pairs = [(r.paper_id, r.reviewer) for r in reviews if r.reviewer is not None]
-    pairs += [(paper_id, person) for paper_id, people in assignments.items() for person in people]
-    for paper_id, person in pairs:
+    for paper_id, person in [(r.paper_id, r.reviewer) for r in reviews if r.reviewer is not None]:
         panel = panels.setdefault(paper_id, [])
         if not any(_same(person, other) for other in panel):
             panel.append(person)

@@ -61,20 +61,20 @@ pre{white-space:pre-wrap;word-break:break-word;color:var(--muted);font-size:.8re
       <small>CSV or Excel file with the columns paper, first, last, email, and affiliation.</small></div>
     <div class="field"><label for="submissions">Submission sheet (optional)</label>
       <input id="submissions" name="submissions" type="file" accept=".csv,.xlsx">
-      <small>The submission sheet of EasyChair (Excel) or HotCRP (CSV), which the report extends.</small></div>
+      <small>A CSV or Excel list with the number and the title of each paper, which the report extends.</small></div>
     <fieldset><legend>Checks</legend>
       <label><input type="checkbox" name="checks" value="layout" checked> Format</label>
       <label><input type="checkbox" name="checks" value="sigsoft" checked> Anonymity and template</label>
       <label><input type="checkbox" name="checks" value="hidden-text" checked> Hidden text</label>
       <label><input type="checkbox" name="checks" value="references"> References</label>
-      <small>References needs the download of <code>peercheck setup references</code> first.</small></fieldset>
+      <small>References needs the download of <code>peercheck setup</code> first.</small></fieldset>
     <button class="run" type="submit">Check the submissions</button>
   </form>
 
   <form id="reviews" hidden>
     <div class="field"><label for="exports">Review exports</label>
       <input id="exports" name="reviews" type="file" accept=".xml,.csv" multiple required>
-      <small>The review XML files of EasyChair or the review CSV file of HotCRP.</small></div>
+      <small>The exported reviews, as XML files or one CSV file with a row per review.</small></div>
     <div class="field"><label for="canaries">Canary key (optional)</label>
       <input id="canaries" name="canaries" type="file" accept=".csv">
       <small>The key file of <code>peercheck canary</code>, to find reviews that cite the made-up work hidden in
