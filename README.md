@@ -54,9 +54,9 @@ We tested the two AI detectors on 1,409 reviews of ICLR 2017 papers, in three gr
 | **Total** | **1,409** | **273** | **436** | **0** |
 
 - CoCoDet caught 273 of the 297 AI reviews (91.9%) and flagged none of the human or polished reviews.
-- EditLens labeled 296 of the 297 AI reviews (99.7%) as AI-Edited. It also labeled 89 of the 98 polished reviews
-  (90.8%) and 51 of the 1,014 human reviews (5.0%) as AI-Edited. It cannot tell a review that AI wrote from one
-  that AI polished.
+- EditLens, the second detector, labeled 296 of the 297 AI reviews (99.7%) as AI-Edited. It also caught AI
+  polishing in 89 of the 98 polished reviews (90.8%). Of the 1,014 human reviews, it labeled 51 (5.0%) as
+  AI-Edited.
 - EditLens labeled none of the 1,409 reviews as AI. PeerCheck therefore reports each detector on its own, since a
   rule that needs the two to agree on AI would catch none of the 297 AI reviews.
 - On 900 reviews of the [CoCoNUTS](https://huggingface.co/datasets/khaaaaaan/CoCoNUTS) test set, from the
