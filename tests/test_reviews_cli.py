@@ -79,6 +79,12 @@ def test_canary_check_runs_without_any_model_and_fills_its_column(tmp_path):
     assert {row[header.index("Canary")] for row in sheet.iter_rows(min_row=2, values_only=True)} == {"no"}
 
 
+def test_reviews_command_writes_the_html_page_beside_the_workbook_by_default(tmp_path):
+    out = tmp_path / "reviews.xlsx"
+    assert cli.main([str(EASYCHAIR), "--detectors", "", "--checks", "", "--out", str(out)]) == 0
+    assert out.is_file() and out.with_suffix(".html").is_file()
+
+
 def test_a_canary_key_without_any_reviewed_paper_is_reported(tmp_path, capsys):
     key, out = tmp_path / "key.csv", tmp_path / "reviews.xlsx"
     canary.write_key(key, {99: "Smith et al. (2019)"})

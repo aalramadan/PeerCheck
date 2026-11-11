@@ -61,7 +61,7 @@ def parser() -> argparse.ArgumentParser:
     top.add_argument("--assignment-csv", type=Path, help="EasyChair assignment.csv: who reviews which paper")
     top.add_argument("--out", type=Path, default=Path("reviews.xlsx"), help="Excel report (default reviews.xlsx)")
     top.add_argument("--json", type=Path, help="also write the results as JSON")
-    top.add_argument("--html", type=Path, help="also write an HTML page for viewing in a browser")
+    top.add_argument("--html", type=Path, help="HTML page for the browser (default the --out file with .html)")
     return top
 
 
@@ -117,10 +117,10 @@ def run(args: argparse.Namespace) -> int:
                          *canaries, ("Caution", CAUTION)])
     if args.json:
         report.write_json(args.json, {"reviews": list(rows.values()), "findings": found})
-    if args.html:
-        report.write_rows_html(args.html, "PeerCheck, Reviews", list(rows.values()), found, "Review ID", DETAIL_COLUMNS)
+    page = args.html or args.out.with_suffix(".html")
+    report.write_rows_html(page, "PeerCheck, Reviews", list(rows.values()), found, "Review ID", DETAIL_COLUMNS)
     flagged = sum(1 for items in found.values() if needs_review(items))
-    print(f"{len(reviews)} reviews checked, {flagged} need review. Report: {args.out}")
+    print(f"{len(reviews)} reviews checked, {flagged} need review. Report: {page} and {args.out}")
     return 0
 
 

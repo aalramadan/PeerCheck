@@ -71,7 +71,7 @@ def parser() -> argparse.ArgumentParser:
     papers.add_argument("--checks", help=f"comma-separated subset of {', '.join(pipeline.PAPER_CHECKS)}")
     papers.add_argument("--out", type=Path, default=Path("report.xlsx"), help="Excel report (default report.xlsx)")
     papers.add_argument("--json", type=Path, help="also write the results as JSON")
-    papers.add_argument("--html", type=Path, help="also write an HTML page for viewing in a browser")
+    papers.add_argument("--html", type=Path, help="HTML page for the browser (default the --out file with .html)")
     papers.set_defaults(handler=run_papers)
 
     reviews = commands.add_parser("reviews", help="check the reviews exported from EasyChair or HotCRP",
@@ -146,13 +146,13 @@ def run_papers(args: argparse.Namespace) -> int:
     checks = list(dict.fromkeys(name.strip() for name in args.checks.split(","))) if args.checks else None
     run = pipeline.run_papers(args.pdfs, venue, args.submissions, args.authors, checks)
     # The JSON file and the page come first, since the workbook can fail, such as when it is open in Excel.
+    page = args.html or args.out.with_suffix(".html")
     if args.json:
         report.write_json(args.json, run)
-    if args.html:
-        report.write_papers_html(args.html, run)
+    report.write_papers_html(page, run)
     report.write_papers(args.out, run, venue, args.submissions)
     flagged = sum(1 for result in run.results if needs_review(result.findings))
-    print(f"{len(run.results)} papers checked, {flagged} need review. Report: {args.out}")
+    print(f"{len(run.results)} papers checked, {flagged} need review. Report: {page} and {args.out}")
     for paper_id, name in sorted(run.numbered.items()):
         print(f"{name} holds no paper number; checked as paper {paper_id}", file=sys.stderr)
     for name in run.duplicates:

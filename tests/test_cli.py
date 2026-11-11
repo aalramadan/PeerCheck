@@ -59,6 +59,12 @@ def test_papers_command_runs_a_repeated_check_once(monkeypatch, tmp_path):
     assert requested == [["hidden-text", "layout"]]
 
 
+def test_papers_command_writes_the_html_page_beside_the_workbook_by_default(monkeypatch, tmp_path):
+    monkeypatch.setattr(cli.pipeline, "run_papers", _papers_run)
+    assert cli.main(["--profile", "icse-2027", "papers", str(tmp_path), "--out", str(tmp_path / "venue.xlsx")]) == 0
+    assert (tmp_path / "venue.xlsx").is_file() and (tmp_path / "venue.html").is_file()
+
+
 def test_papers_command_writes_the_json_and_html_reports_when_the_workbook_fails(monkeypatch, tmp_path):
     def locked(*args):
         raise PermissionError("report.xlsx is open in another program")
