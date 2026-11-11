@@ -15,9 +15,9 @@
 | `papers/src/` | the LaTeX sources of the five papers | |
 | `authors.csv` | the authors of the five papers | |
 | `committee.csv` | a program committee with two conflicts | conflicts of interest |
-| `reviews/` | eight reviews as EasyChair XML, three by people, two that AI polished or extended, and three by AI | AI detection and a planted citation |
+| `reviews/` | eight reviews as the XML files of a review export, three by people, two that AI polished or extended, and three by AI | AI detection and a planted citation |
 | `canaries.csv` | the key of the planted citations of the eight reviews | |
-| `hotcrp-reviews.csv` | three reviews as a HotCRP export | the HotCRP reader |
+| `reviews.csv` | three reviews in one CSV file, a row per review | the CSV reader |
 | `venue.yaml` | the profile of a made-up venue, filled from `profiles/template.yaml` | a venue profile |
 | `reports/` | the reports of PeerCheck on these files, with the page of the live demo | the output of each command |
 
@@ -26,11 +26,10 @@
 
 ```bash
 peercheck --profile examples/venue.yaml papers examples/papers --authors examples/authors.csv \
-  --checks layout,sigsoft,hidden-text --out examples/reports/report.xlsx --html examples/reports/report.html
+  --checks layout,sigsoft,hidden-text --out examples/reports/report.xlsx
 peercheck --profile examples/venue.yaml reviews examples/reviews --canaries examples/canaries.csv \
-  --out examples/reports/reviews.xlsx --html examples/reports/reviews.html
-peercheck --profile examples/venue.yaml reviews examples/hotcrp-reviews.csv \
-  --out examples/reports/hotcrp.xlsx --html examples/reports/hotcrp.html
+  --out examples/reports/reviews.xlsx
+peercheck --profile examples/venue.yaml reviews examples/reviews.csv --out examples/reports/reviews-csv.xlsx
 peercheck --profile examples/venue.yaml conflicts --authors examples/authors.csv --pc examples/committee.csv \
   --out examples/reports/conflicts.xlsx
 ```

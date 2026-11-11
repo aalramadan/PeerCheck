@@ -23,7 +23,7 @@ gives the commands.
 
 > [!TIP]
 > The [live demo](https://aalramadan.github.io/PeerCheck/) shows the full reports with their Excel workbooks,
-> together with a review export of HotCRP and the conflict check. The reports sit in [`examples/reports/`](examples/reports/).
+> together with reviews from a CSV file and the conflict check. The reports sit in [`examples/reports/`](examples/reports/).
 
 #### Papers
 
@@ -70,7 +70,7 @@ peercheck setup                                                # once, the refer
 my-conference/
   venue.yaml     the rules of the venue, a filled copy of profiles/template.yaml
   submissions/   the PDFs of the submissions
-  reviews/       the reviews, as EasyChair XML files or the HotCRP review CSV file
+  reviews/       the reviews, as the XML files of a review export or one CSV file
 ```
 
 ```bash
@@ -153,8 +153,8 @@ peercheck gui                                                                   
   sheet of the report names.
 - A submission sheet, any CSV or Excel list with a column of paper numbers, such as # or ID, and a column Title.
 - An author list, a CSV or Excel file with the columns paper, first, last, email, and affiliation.
-- Reviews, as the XML files of EasyChair, the review CSV file of HotCRP, or any CSV file with the columns paper and
-  review (the review ID, such as A) and one column per field of the review form, such as the text of the review.
+- Reviews, as the XML files of a review export or a CSV file with the columns paper and review (the review ID, such
+  as A) and one column per field of the review form, such as the text of the review.
 - A committee list with first, last, email, and affiliation. An optional column
   dblp with the DBLP person ID settles a name that several DBLP authors share.
 
