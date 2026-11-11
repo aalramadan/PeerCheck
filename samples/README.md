@@ -18,7 +18,7 @@
 | `reviews/` | eight reviews as EasyChair XML, three by people, two that AI polished or extended, and three by AI | AI detection and a planted citation |
 | `canaries.csv` | the key of the planted citations of the eight reviews | |
 | `hotcrp-reviews.csv` | three reviews as a HotCRP export | the HotCRP reader |
-| `venue.yaml` | the profile of a made-up venue, with the rules of the default profile | a venue profile |
+| `venue.yaml` | the profile of a made-up venue, filled from `profiles/template.yaml` | a venue profile |
 
 - The commands below write the reports of the samples to [`examples/`](../examples/), which the
   [live demo](https://aalramadan.github.io/PeerCheck/) serves.

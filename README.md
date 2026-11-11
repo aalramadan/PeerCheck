@@ -1,6 +1,6 @@
 <h1 align="center">PeerCheck</h1>
 
-<p align="center">PeerCheck automatically checks submissions, reviews, and conflicts of interest for software engineering conferences.</p>
+<p align="center">PeerCheck automatically checks submissions, reviews, and conflicts of interest for conferences and journals.</p>
 
 <p align="center">
   <a href="https://github.com/aalramadan/PeerCheck/actions/workflows/tests.yml"><img alt="Tests" src="https://github.com/aalramadan/PeerCheck/actions/workflows/tests.yml/badge.svg"></a>
@@ -144,10 +144,8 @@ peercheck setup cocodet                         # downloads the CoCoDet model, a
      reviews/           the reviews, as the XML files of EasyChair or the review CSV file of HotCRP
    ```
 
-2. Pick the rules of the venue. The profiles `icse-2027` and `fse-2027` ship with PeerCheck. For another venue, copy
-   `profiles/example-easychair.yaml` (a venue on EasyChair) or `profiles/icse-2027.yaml` (a venue on HotCRP) of this
-   repository into the folder as `venue.yaml` and set its page limit and template, as Venue profiles below
-   describes.
+2. Copy `profiles/template.yaml` of this repository into the folder as `venue.yaml`. Set the rules of the venue from
+   its call for papers, such as its template and page limit, as Venue profiles below describes.
 
 3. Run the checks from that folder, with `--profile` before the command.
 
@@ -171,11 +169,10 @@ peercheck setup cocodet                         # downloads the CoCoDet model, a
 
 #### 📂 Inputs
 
-- The commands read the unchanged exports of EasyChair and HotCRP, the two conference systems, and plain CSV or
-  Excel lists.
-- PDFs named with their paper ID, as the two systems name them, such as `CONF_2027_paper_12.pdf` from EasyChair or
-  `conf2027-paper12.pdf` from HotCRP.
-- A submission sheet, the export that lists the ID and the title of each paper.
+- PDFs with any file names. A number after paper or submission in a name becomes the paper number, such as 12 in
+  `CONF_2027_paper_12.pdf` or `conf2027-paper12.pdf`. A PDF without one gets the next free number, which the Files
+  sheet of the report names.
+- A submission sheet, any CSV or Excel list with a column of paper numbers, such as # or ID, and a column Title.
 - An author list, a CSV or Excel file with the columns paper, first, last, email, and affiliation.
 - Reviews, as the XML files of EasyChair, the review CSV file of HotCRP, or any CSV file with the columns paper and
   review (the review ID, such as A) and one column per field of the review form, such as the text of the review.
@@ -184,7 +181,7 @@ peercheck setup cocodet                         # downloads the CoCoDet model, a
 
 #### 🧰 More commands
 
-Each command takes the `--profile` of the first run before its name, such as `peercheck --profile venue.yaml canary`.
+`peercheck papers` needs the `--profile` of the first run. The other commands run without one.
 
 ```bash
 peercheck papers submissions/ --authors authors.csv           # also finds the names of the authors in the PDFs
@@ -205,11 +202,11 @@ peercheck reviews reviews/ --canaries canaries.csv              # finds the plan
 
 | Option | Commands | What it does |
 |---|---|---|
-| `--profile` | all, before the command | picks the venue profile, the rules of one venue, `icse-2027` by default |
+| `--profile` | all, before the command | names the rules of the venue, a filled copy of `profiles/template.yaml` or an example such as `icse-2027`, which `papers` needs |
 | `--out` | all | names the Excel workbook, or the folder of marked PDFs for `peercheck canary` |
 | `--json`, `--html` | papers, reviews | also write a JSON file or a page for the browser |
 | `--authors` | papers, conflicts | reads the author list |
-| `--submissions` | papers | reads the submission sheet of EasyChair or HotCRP |
+| `--submissions` | papers | reads a submission sheet with paper numbers and titles |
 | `--checks` | papers, reviews | runs only the checks it names, such as `--checks layout,references`, from the list of checks in `external/README.md` |
 | `--detectors` | reviews | picks the AI detectors, `cocodet,editlens` by default |
 | `--canaries` | reviews | runs the planted-citation check with the key file of `peercheck canary` |
@@ -238,36 +235,30 @@ Run any command with `--help` for every option.
 
 ## 🏛️ Venue profiles
 
-- PeerCheck reads the exports of EasyChair and HotCRP unchanged. It therefore works for any conference on either
-  system.
-- A **profile** holds the rules of one conference, such as its page limit, template, and margins. The format check
-  compares each paper with these rules.
-- PeerCheck is tuned for software engineering venues and ships with three profiles. Two of them copy the calls for papers
-  of ICSE 2027 and FSE 2027. Each file links its call. The third shows a made-up venue on EasyChair.
+- A **profile** holds the rules of one venue, a conference or a journal, such as its template, page limit, and
+  margins. It also decides which checks run and how strict each one is.
+- `profiles/template.yaml` lists every rule and option, each commented out with its meaning and its default.
+- Two filled copies serve as examples. Each copies the call for papers of its venue and links the call.
 
 | Profile | Venue | Format | Pages |
 |---|---|---|---|
-| icse-2027 (default) | ICSE 2027 Research Track | IEEE, two columns, US Letter | 10 plus 2 of references |
+| icse-2027 | ICSE 2027 Research Track | IEEE, two columns, US Letter | 10 plus 2 of references |
 | fse-2027 | FSE 2027 Research Track | ACM acmsmall, one column | 18 plus 4 of references |
-| example-easychair | an example venue on EasyChair | IEEE, two columns, US Letter | 10 plus 2 of references |
 
 #### ➕ Add a venue
 
-1. Copy the profile closest to the venue into the folder of the conference as `venue.yaml`, such as
-   `profiles/example-easychair.yaml` for a venue on EasyChair or `profiles/icse-2027.yaml` for a venue on HotCRP.
-2. Set its values from the call for papers of the venue. The comments in the file explain each value. This table names
-   the main ones.
+1. Copy `profiles/template.yaml` into the folder of the conference as `venue.yaml`.
+2. Remove the `#` before each line that the venue needs and set its value from the call for papers. The lines marked
+   required always stay. Each other line names its default.
 3. Pass the copy by path, such as `peercheck --profile venue.yaml papers submissions/`.
 
 | Value | Sets | Example |
 |---|---|---|
-| `name`, `source` | the name of the venue and the address of its call for papers | `Example Conference 2026` |
-| `file_pattern` | how the conference system names the PDFs, with the paper ID in parentheses | `'_paper_(\d+)\.pdf$'` for EasyChair |
-| `id_column` | the column of the submission sheet that holds the paper ID | `'#'` for EasyChair, `'ID'` for HotCRP |
-| `format.main_pages`, `format.reference_pages` | the page limit and the extra pages for references only | `10` and `2` |
+| `name`, `source` | the name of the venue and the address of its call for papers | `Example Conference 2027` |
 | `format.style`, `format.columns`, `format.paper_size` | the template, its columns, and the paper size in points | `IEEE`, `2`, and `[792, 612]` for US Letter |
+| `format.main_pages`, `format.reference_pages` | the page limit and the extra pages for references only | `10` and `2` |
 | `format.margins`, `format.body_font_max` | the margins in points and the largest font size of the body text | `[52, 48, 72, 48]` and `10.5` |
-| `checks` | the options of single checks, such as the hosts that links may name | the comments in each file |
+| `checks` | which checks run and their options, such as the hosts that links may name | the comments in the template |
 
 ## 🧪 Tests
 
