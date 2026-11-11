@@ -35,14 +35,12 @@ gives the commands.
 
 ## 📊 Benchmark
 
-We tested the two AI detectors on 1,409 reviews.
+We tested the two AI detectors on 1,409 reviews of ICLR 2017 papers, in three groups.
 
-- 1,014 reviews written by people, the official reviews of ICLR 2017 in
-  [PeerRead](https://github.com/allenai/PeerRead), a public dataset of peer reviews, written in 2016 before AI
-  writing tools.
-- 297 reviews of 60 of these papers, written by DiffusionGemma 26B, Gemma 4 31B, Mistral Large 4, Nemotron 3 Ultra,
-  and Step 5.
-- 98 of the human reviews, each polished by a model.
+- 1,014 human reviews, the official reviews in [PeerRead](https://github.com/allenai/PeerRead), a public dataset of
+  peer reviews, written in 2016 before AI writing tools.
+- 98 polished reviews, each a copy of one of these human reviews that a model polished.
+- 297 AI reviews, written by DiffusionGemma 26B, Gemma 4 31B, Mistral Large 4, Nemotron 3 Ultra, and Step 5.
 
 | Written by | Reviews | CoCoDet (AI) | EditLens (AI-Edited) | EditLens (AI) |
 |---|---|---|---|---|
@@ -56,14 +54,14 @@ We tested the two AI detectors on 1,409 reviews.
 | **Total** | **1,409** | **273** | **436** | **0** |
 
 - CoCoDet caught 273 of the 297 AI reviews (91.9%) and flagged none of the human or polished reviews.
-- EditLens labeled 296 of the 297 AI reviews as AI-Edited. It also labeled 89 of the 98 polished reviews (90.8%)
-  and 51 of the 1,014 human reviews (5.0%) as AI-Edited. It cannot tell a review that AI wrote from one that AI
-  polished.
-- Flagging only the reviews that the two detectors call AI would have caught 208 of the 297 AI reviews (70.0%).
-  PeerCheck therefore reports each detector on its own.
+- EditLens labeled 296 of the 297 AI reviews (99.7%) as AI-Edited. It also labeled 89 of the 98 polished reviews
+  (90.8%) and 51 of the 1,014 human reviews (5.0%) as AI-Edited. It cannot tell a review that AI wrote from one
+  that AI polished.
+- EditLens labeled none of the 1,409 reviews as AI. PeerCheck therefore reports each detector on its own, since a
+  rule that needs the two to agree on AI would catch none of the 297 AI reviews.
 - On 900 reviews of the [CoCoNUTS](https://huggingface.co/datasets/khaaaaaan/CoCoNUTS) test set, from the
-  collection that CoCoDet was trained on, CoCoDet caught 298 of the 300 AI reviews and flagged 3 of the 450 human
-  reviews, all three polished by AI.
+  collection that CoCoDet was trained on, CoCoDet caught 298 of the 300 AI reviews. It flagged 1 of the 150 reviews
+  that mix human and AI writing and 3 of the 450 human reviews, all three polished by AI.
 
 ## 📦 Install
 
