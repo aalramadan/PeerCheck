@@ -40,7 +40,8 @@ We tested the two AI detectors on 1,409 reviews.
 - 1,014 reviews written by people, the official reviews of ICLR 2017 in
   [PeerRead](https://github.com/allenai/PeerRead), a public dataset of peer reviews, written in 2016 before AI
   writing tools.
-- 297 reviews of 60 of these papers, written by five current models on NVIDIA build, the model service of NVIDIA.
+- 297 reviews of 60 of these papers, written by DiffusionGemma 26B, Gemma 4 31B, Mistral Large 4, Nemotron 3 Ultra,
+  and Step 5.
 - 98 of the human reviews, each polished by a model.
 
 | Written by | Reviews | CoCoDet (AI) | EditLens (AI-Edited) | EditLens (AI) |
@@ -204,7 +205,7 @@ peercheck reviews reviews/ --canaries canaries.csv              # finds the plan
 | `--checks` | papers, reviews | runs only the checks it names, such as `--checks layout,references`, from the list of checks in `external/README.md` |
 | `--detectors` | reviews | picks the AI detectors, `cocodet,editlens` by default |
 | `--canaries` | reviews | runs the planted-citation check with the key file of `peercheck canary` |
-| `--device` | reviews | runs the detectors on the processor (`cpu`) or an NVIDIA graphics card (`cuda`) |
+| `--device` | reviews | runs the detectors on the processor (`cpu`) or the graphics card (`cuda`) |
 | `--pc`, `--reviewer-csv` | conflicts | read the committee list |
 | `--conflict-csv` | conflicts | reads the declared conflicts that EasyChair exports |
 | `--dblp-dump` | conflicts | builds the co-author index from `dblp.xml.gz`, the full download of DBLP at dblp.org/xml |
