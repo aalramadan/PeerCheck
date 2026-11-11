@@ -78,14 +78,14 @@ def by_check(findings, check):
 
 
 def test_offline_run_reports_fabricated_references_as_not_found(tmp_path, cache, monkeypatch):
-    findings = run(tmp_path, cache, FakeHallucinator("offline-run.json"), monkeypatch)
+    findings = run(tmp_path, cache, FakeHallucinator("offline-run.json"), monkeypatch, online=False)
     missing = by_check(findings, "references.not-found")
     assert [f.message.split('"')[0] for f in missing] == ["Reference [11] ", "Reference [13] "]
     assert all(f.severity is Severity.WARNING and f.message.endswith("was not found in DBLP") for f in missing)
 
 
 def test_offline_run_reports_a_real_title_with_false_authors_as_author_mismatch(tmp_path, cache, monkeypatch):
-    findings = run(tmp_path, cache, FakeHallucinator("offline-run.json"), monkeypatch)
+    findings = run(tmp_path, cache, FakeHallucinator("offline-run.json"), monkeypatch, online=False)
     [mismatch] = by_check(findings, "references.author-mismatch")
     assert mismatch.message.startswith('Reference [12] "Automatically finding patches using genetic programming"')
     assert "Claire Le Goues" in mismatch.message
@@ -93,7 +93,7 @@ def test_offline_run_reports_a_real_title_with_false_authors_as_author_mismatch(
 
 
 def test_offline_run_reports_a_cited_work_with_a_retraction_notice(tmp_path, cache, monkeypatch):
-    findings = run(tmp_path, cache, FakeHallucinator("offline-run.json"), monkeypatch)
+    findings = run(tmp_path, cache, FakeHallucinator("offline-run.json"), monkeypatch, online=False)
     [retracted] = by_check(findings, "references.retracted")
     assert retracted.severity is Severity.WARNING
     assert retracted.message.startswith("Reference [10] ")
@@ -102,7 +102,7 @@ def test_offline_run_reports_a_cited_work_with_a_retraction_notice(tmp_path, cac
 
 
 def test_evidence_holds_at_most_200_characters_of_the_reference_text(tmp_path, cache, monkeypatch):
-    findings = run(tmp_path, cache, FakeHallucinator("offline-run.json"), monkeypatch)
+    findings = run(tmp_path, cache, FakeHallucinator("offline-run.json"), monkeypatch, online=False)
     [first, *_] = by_check(findings, "references.not-found")
     assert len(first.evidence) <= 200
     assert first.evidence.startswith("M. Hartmann, P. Venkataraman, and L. Oberg")
@@ -110,16 +110,16 @@ def test_evidence_holds_at_most_200_characters_of_the_reference_text(tmp_path, c
 
 
 def test_summary_counts_the_references_of_the_run(tmp_path, cache, monkeypatch):
-    findings = run(tmp_path, cache, FakeHallucinator("offline-run.json"), monkeypatch)
+    findings = run(tmp_path, cache, FakeHallucinator("offline-run.json"), monkeypatch, online=False)
     [summary] = by_check(findings, "references.summary")
     assert summary.severity is Severity.INFO
     assert summary.message == ("Hallucinator checked 13 references offline against DBLP: 10 found, 2 not found, "
                                "1 with other authors or identifiers, 0 skipped")
 
 
-def test_default_run_disables_every_online_source_and_uses_the_local_dblp(tmp_path, cache, monkeypatch):
+def test_online_false_disables_every_online_source_and_uses_the_local_dblp(tmp_path, cache, monkeypatch):
     fake = FakeHallucinator("offline-run.json")
-    run(tmp_path, cache, fake, monkeypatch)
+    run(tmp_path, cache, fake, monkeypatch, online=False)
     command = fake.calls[0][0]
     assert set(fake.disabled()) == set(references.ONLINE_SOURCES) - {"DBLP"}
     assert command[command.index("--dblp-offline") + 1] == str(cache / "hallucinator" / "dblp.db")
@@ -132,21 +132,21 @@ def test_offline_run_hides_keys_and_proxies_of_the_user(tmp_path, cache, monkeyp
     monkeypatch.setenv("OPENALEX_KEY", "not-a-real-key")
     monkeypatch.setenv("HTTPS_PROXY", "http://proxy.invalid:3128")
     fake = FakeHallucinator("offline-run.json")
-    run(tmp_path, cache, fake, monkeypatch)
+    run(tmp_path, cache, fake, monkeypatch, online=False)
     env = fake.calls[0][1]["env"]
     assert "OPENALEX_KEY" not in env and "HTTPS_PROXY" not in env
     assert env["HOME"] == str(tmp_path / "work" / "references")
 
 
-def test_online_option_allows_doi_lookups_only_in_the_first_run(tmp_path, cache, monkeypatch):
+def test_titles_off_allows_doi_lookups_only_in_the_first_run(tmp_path, cache, monkeypatch):
     fake = FakeHallucinator("online-run.json", "arxiv-run.json")
-    run(tmp_path, cache, fake, monkeypatch, online=True)
+    run(tmp_path, cache, fake, monkeypatch, online_titles=False)
     assert set(references.ONLINE_SOURCES) - set(fake.disabled(0)) == {"DBLP", "DOI"}
 
 
-def test_online_option_looks_up_arxiv_ids_through_the_arxiv_source_alone(tmp_path, cache, monkeypatch):
+def test_titles_off_looks_up_arxiv_ids_through_the_arxiv_source_alone(tmp_path, cache, monkeypatch):
     fake = FakeHallucinator("online-run.json", "arxiv-run.json")
-    run(tmp_path, cache, fake, monkeypatch, online=True)
+    run(tmp_path, cache, fake, monkeypatch, online_titles=False)
     command = fake.calls[1][0]
     assert set(references.ONLINE_SOURCES) - set(fake.disabled(1)) == {"arXiv"}
     assert "--dblp-offline" not in command
@@ -154,8 +154,8 @@ def test_online_option_looks_up_arxiv_ids_through_the_arxiv_source_alone(tmp_pat
     assert bib.read_text(encoding="utf-8") == (FIXTURES / "arxiv-lookups.bib").read_text(encoding="utf-8")
 
 
-def test_online_option_merges_the_arxiv_answers_into_the_findings(tmp_path, cache, monkeypatch):
-    findings = run(tmp_path, cache, FakeHallucinator("online-run.json", "arxiv-run.json"), monkeypatch, online=True)
+def test_titles_off_merges_the_arxiv_answers_into_the_findings(tmp_path, cache, monkeypatch):
+    findings = run(tmp_path, cache, FakeHallucinator("online-run.json", "arxiv-run.json"), monkeypatch, online_titles=False)
     [mismatch] = by_check(findings, "references.author-mismatch")
     assert mismatch.message.startswith("Reference [2] ")
     assert mismatch.message.endswith("matches a title in arXiv whose authors differ: The ATLAS Collaboration")
@@ -163,6 +163,25 @@ def test_online_option_merges_the_arxiv_answers_into_the_findings(tmp_path, cach
     assert missing.message.startswith("Reference [3] ") and missing.message.endswith("was not found in DBLP, arXiv")
     assert by_check(findings, "references.summary")[0].message.startswith(
         "Hallucinator checked 3 references with DOI and arXiv ID lookups against DBLP: 1 found, 1 not found")
+
+
+def test_default_run_sends_titles_to_every_online_source_beside_the_local_dblp(tmp_path, cache, monkeypatch):
+    monkeypatch.setenv("S2_API_KEY", "not-a-real-key")
+    fake = FakeHallucinator("online-run.json")
+    run(tmp_path, cache, fake, monkeypatch)
+    command = fake.calls[0][0]
+    assert fake.disabled() == []
+    assert command[command.index("--dblp-offline") + 1] == str(cache / "hallucinator" / "dblp.db")
+    assert fake.calls[0][1]["env"]["S2_API_KEY"] == "not-a-real-key"
+    assert len(fake.calls) == 1
+
+
+def test_online_false_keeps_titles_offline_even_when_online_titles_is_true(tmp_path, cache, monkeypatch):
+    monkeypatch.setenv("S2_API_KEY", "not-a-real-key")
+    fake = FakeHallucinator("offline-run.json")
+    run(tmp_path, cache, fake, monkeypatch, online=False, online_titles=True)
+    assert set(fake.disabled()) == set(references.ONLINE_SOURCES) - {"DBLP"}
+    assert "S2_API_KEY" not in fake.calls[0][1]["env"]
 
 
 def test_online_titles_option_allows_every_title_source(tmp_path, cache, monkeypatch):
@@ -178,7 +197,7 @@ def test_offline_arxiv_database_replaces_the_online_arxiv_source(tmp_path, cache
     arxiv_db = tmp_path / "arxiv.db"
     arxiv_db.write_text("", encoding="utf-8")
     fake = FakeHallucinator("offline-run.json")
-    run(tmp_path, cache, fake, monkeypatch, arxiv_db=str(arxiv_db))
+    run(tmp_path, cache, fake, monkeypatch, online=False, arxiv_db=str(arxiv_db))
     command = fake.calls[0][0]
     assert command[command.index("--arxiv-offline") + 1] == str(arxiv_db)
     assert "arXiv" not in fake.disabled()

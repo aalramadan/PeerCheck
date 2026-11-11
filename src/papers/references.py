@@ -12,13 +12,14 @@ author name that holds a named entity.
 Options under ``checks.references`` of a profile:
 
 - ``enabled`` (default true): the pipeline runs the check only when the profile leaves it on.
-- ``online`` (default false): also look up the DOI of a reference at doi.org, which forwards the request
-  to the agency of the DOI such as Crossref, and its arXiv ID at export.arxiv.org. These lookups send public
-  identifiers only. Without this option the check makes no network connection.
-- ``online_titles`` (default false): also send the titles of references to every online source of
-  Hallucinator, such as CrossRef, arXiv, Semantic Scholar, Europe PMC, PubMed, and Open Library. The title
-  of a fabricated reference is text of the submission, therefore this option stays off unless the organizers
-  accept that. It implies ``online`` and passes the keys CROSSREF_MAILTO, S2_API_KEY, and OPENALEX_KEY.
+- ``online`` (default true): look up references online beside the local databases. False keeps the check
+  offline, with no network connection, whatever ``online_titles`` says.
+- ``online_titles`` (default true): send the titles of references to every online source of Hallucinator, such
+  as CrossRef, arXiv, Semantic Scholar, OpenAlex, Europe PMC, PubMed, and Open Library, and pass the keys
+  CROSSREF_MAILTO, S2_API_KEY, and OPENALEX_KEY. The title of a fabricated reference is text of the submission,
+  therefore organizers who keep that text in house set this option to false. The check then looks up only the
+  DOI of a reference at doi.org, which forwards the request to the agency of the DOI such as Crossref, and its
+  arXiv ID at export.arxiv.org. These lookups send public identifiers only.
 - ``cache`` (default ``tools.cache_dir()``, which is ``$XDG_CACHE_HOME/peercheck`` or
   ``~/.cache/peercheck``): the folder of ``install_tools``.
 - ``binary``, ``dblp_db``, ``retraction_csv``: paths that replace the files of the cache.
@@ -173,10 +174,10 @@ def settings_from(options: dict) -> Settings:
     for source, _flag, key in OFFLINE_DATABASES:
         if options.get(key):
             offline[source] = Path(options[key]).expanduser()
-    online_titles = bool(options.get("online_titles", False))
+    online = bool(options.get("online", True))
     return Settings(
-        online=online_titles or bool(options.get("online", False)),
-        online_titles=online_titles,
+        online=online,
+        online_titles=online and bool(options.get("online_titles", True)),
         binary=Path(options.get("binary") or tool / VERSION / _binary_name()).expanduser(),
         offline=offline,
         local_corpus=Path(options["local_corpus"]).expanduser() if options.get("local_corpus") else None,

@@ -47,8 +47,8 @@
 #     extra_phrases: [ignore all previous instructions]   # default none: more phrases of hidden prompts
 #   references:
 #     enabled: true                                 # default true: the reference check, after peercheck setup references
-#     online: false                                 # default false: also look up DOIs and arXiv IDs online
-#     online_titles: false                          # default false: also send reference titles online
+#     online: true                                  # default true: look up references online, false keeps the check offline
+#     online_titles: true                           # default true: send reference titles online, false sends only DOIs and arXiv IDs
 #     timeout: 600                                  # default 600: the seconds before the check of one PDF stops
 #     local_corpus: ~/corpus                        # default none: a local corpus of Hallucinator with further known works
 #   fonts:

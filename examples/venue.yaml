@@ -29,5 +29,3 @@ checks:
     enabled: true
   references:
     enabled: true
-    online: false
-    online_titles: false

@@ -55,6 +55,3 @@ checks:
     enabled: true
   references:
     enabled: true
-    # Offline by default. online sends DOIs and arXiv IDs only; online_titles also sends titles.
-    online: false
-    online_titles: false

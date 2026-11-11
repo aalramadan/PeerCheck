@@ -45,6 +45,3 @@ checks:
   references:
     # The call checks submissions "for hallucinated, fabricated, or unverifiable references".
     enabled: true
-    # Offline by default. online sends DOIs and arXiv IDs only; online_titles also sends titles.
-    online: false
-    online_titles: false
