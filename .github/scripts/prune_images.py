@@ -5,6 +5,7 @@ A tagged image built for several platforms lists child manifests without tags, w
 import json
 import os
 import re
+import urllib.error
 import urllib.request
 
 INDEX_TYPES = ("application/vnd.oci.image.index.v1+json, application/vnd.docker.distribution.manifest.list.v2+json, "
@@ -45,6 +46,17 @@ def fetch_all(url: str, headers: dict[str, str]) -> list:
         page += 1
 
 
+def delete(url: str, headers: dict[str, str]) -> bool:
+    """Delete one version and return False when it is gone, as when the runs of a branch and a tag prune at once."""
+    try:
+        urllib.request.urlopen(urllib.request.Request(url, method="DELETE", headers=headers)).close()
+    except urllib.error.HTTPError as error:
+        if error.code != 404:
+            raise
+        return False
+    return True
+
+
 def main() -> None:
     """Delete every untagged version that no tagged image needs and print each deleted digest."""
     owner, package = os.environ["GITHUB_REPOSITORY_OWNER"].lower(), "peercheck"
@@ -62,8 +74,8 @@ def main() -> None:
         for tag in version["metadata"]["container"]["tags"]:
             needed |= listed_digests(fetch(f"https://ghcr.io/v2/{owner}/{package}/manifests/{tag}", registry))
     for version in stale + to_delete(versions, needed):
-        urllib.request.urlopen(urllib.request.Request(f"{api}/{version['id']}", method="DELETE", headers=github)).close()
-        print(f"deleted {version['name']}")
+        if delete(f"{api}/{version['id']}", github):
+            print(f"deleted {version['name']}")
 
 
 if __name__ == "__main__":

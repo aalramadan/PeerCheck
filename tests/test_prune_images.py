@@ -2,8 +2,11 @@
 
 import importlib.util
 import io
+import urllib.error
 from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
+
+import pytest
 
 SCRIPT = Path(__file__).resolve().parents[1] / ".github" / "scripts" / "prune_images.py"
 SPEC = importlib.util.spec_from_file_location("prune_images", SCRIPT)
@@ -13,6 +16,26 @@ SPEC.loader.exec_module(prune)
 
 def _version(number, name, tags=()):
     return {"id": number, "name": name, "metadata": {"container": {"tags": list(tags)}}}
+
+
+def _registry(versions):
+    """Answer the GET requests of the script for one page of versions, no tags, and single images."""
+    def fetch(url, headers):
+        if "/versions" in url:
+            return versions
+        if "/tags" in url:
+            return []
+        return {"token": "anonymous"} if "/token" in url else {"config": {}, "layers": []}
+    return fetch
+
+
+def _run_offline(monkeypatch, fetch, urlopen):
+    monkeypatch.setattr(prune, "fetch", fetch)
+    monkeypatch.setattr(prune.urllib.request, "urlopen", urlopen)
+    monkeypatch.setenv("GITHUB_REPOSITORY_OWNER", "example")
+    monkeypatch.setenv("GITHUB_REPOSITORY", "example/PeerCheck")
+    monkeypatch.setenv("GITHUB_TOKEN", "offline")
+    prune.main()
 
 
 def test_untagged_versions_go_and_tagged_ones_stay():
@@ -55,10 +78,27 @@ def test_image_of_a_release_whose_tag_is_on_the_second_page_of_tags_stays(monkey
         deleted.append(request.full_url)
         return io.BytesIO()
 
-    monkeypatch.setattr(prune, "fetch", fetch)
-    monkeypatch.setattr(prune.urllib.request, "urlopen", delete)
-    monkeypatch.setenv("GITHUB_REPOSITORY_OWNER", "example")
-    monkeypatch.setenv("GITHUB_REPOSITORY", "example/PeerCheck")
-    monkeypatch.setenv("GITHUB_TOKEN", "offline")
-    prune.main()
+    _run_offline(monkeypatch, fetch, delete)
     assert deleted == []
+
+
+def test_a_version_that_a_parallel_run_deleted_first_is_skipped(monkeypatch, capsys):
+    versions = [_version(1, "sha256:new", ["latest"]), _version(2, "sha256:gone"), _version(3, "sha256:old")]
+
+    def delete(request):
+        if request.full_url.endswith("/2"):
+            raise urllib.error.HTTPError(request.full_url, 404, "Not Found", {}, None)
+        return io.BytesIO()
+
+    _run_offline(monkeypatch, _registry(versions), delete)
+    assert capsys.readouterr().out == "deleted sha256:old\n"
+
+
+def test_a_refused_deletion_still_fails(monkeypatch):
+    versions = [_version(1, "sha256:new", ["latest"]), _version(2, "sha256:old")]
+
+    def refuse(request):
+        raise urllib.error.HTTPError(request.full_url, 403, "Forbidden", {}, None)
+
+    with pytest.raises(urllib.error.HTTPError):
+        _run_offline(monkeypatch, _registry(versions), refuse)
