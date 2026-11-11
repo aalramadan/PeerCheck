@@ -22,7 +22,6 @@ from urllib.parse import parse_qs, urlsplit
 import openpyxl
 
 from peercheck import profile as profiles
-from peercheck.papers import pipeline
 
 PAGE = Path(__file__).with_name("gui.html")
 # The page answers only requests addressed to these names, on any port, since docker run -p and SSH tunnels forward
@@ -39,8 +38,6 @@ REQUEST_ERRORS = (OSError, TypeError, ValueError)
 FOLDER_FIELDS = ("pdfs", "reviews")
 SINGLE_FIELDS = ("authors", "submissions", "canaries", "pc")
 KINDS = ("papers", "reviews", "conflicts")
-DETECTORS = ("cocodet", "editlens")
-REVIEW_CHECKS = ("duplicates", "citations")
 RUN_FILES = {"report.html": "text/html; charset=utf-8",
              "report.xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"}
 LOG_LINES = 40
@@ -58,19 +55,13 @@ def command(kind: str, options: dict, folder: Path) -> list[str]:
         files = sorted((folder / field).iterdir()) if (folder / field).is_dir() else []
         return [f"--{field}", str(files[0])] if files else []
 
-    reports = ["--out", str(folder / "report.xlsx"), "--html", str(folder / "report.html")]
+    reports = ["--out", str(folder / "report.xlsx")]
     if kind == "papers":
-        checks = _subset(options.get("checks"), pipeline.PAPER_CHECKS)
-        if not checks:
-            raise RequestError("choose at least one check")
         if not venue:
             raise RequestError("choose the venue rules, which the paper checks need")
-        return [*venue, "papers", str(folder / "pdfs"), *reports, *single("authors"),
-                *single("submissions"), "--checks", ",".join(checks)]
+        return [*venue, "papers", str(folder / "pdfs"), *reports, *single("authors"), *single("submissions")]
     if kind == "reviews":
-        return [*venue, "reviews", str(folder / "reviews"), *reports, *single("canaries"),
-                "--detectors", ",".join(_subset(options.get("detectors"), DETECTORS)),
-                "--checks", ",".join(_subset(options.get("checks"), REVIEW_CHECKS))]
+        return [*venue, "reviews", str(folder / "reviews"), *reports, *single("canaries")]
     if kind == "conflicts":
         return [*venue, "conflicts", *single("authors"), *single("pc"), "--out", str(folder / "report.xlsx")]
     raise RequestError(f"unknown kind of run: {kind}")
@@ -270,9 +261,3 @@ def serve(profile: str | None, port: int = 0, open_browser: bool = True, host: s
         finally:
             server.server_close()
     return 0
-
-
-def _subset(names, allowed: tuple[str, ...]) -> list[str]:
-    """Keep the chosen names that the command knows, in the order of the command."""
-    chosen = set(names or ())
-    return [name for name in allowed if name in chosen]

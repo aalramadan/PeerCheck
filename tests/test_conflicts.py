@@ -256,10 +256,14 @@ class TestCommand:
         with pytest.raises(SystemExit):
             cli.main([part for part in command if part not in command[command.index("--pc"):command.index("--pc") + 2]])
 
-    def test_years_zero_reaches_the_check(self, command, monkeypatch):
+    def test_window_of_the_venue_file_reaches_the_check(self, command, monkeypatch, tmp_path):
+        venue = tmp_path / "venue.yaml"
+        venue.write_text("name: Test\nsource: https://example.org\nformat:\n  style: IEEE\n  paper_size: [792, 612]\n"
+                         "  columns: 2\n  main_pages: 10\n  reference_pages: 2\n"
+                         "checks:\n  conflicts:\n    coauthor_years: 0\n", encoding="utf-8")
         options = []
         monkeypatch.setattr(conflicts, "find_conflicts", lambda *args: options.append(args[-1]) or [])
-        assert cli.main([*command, "--years", "0"]) == 0
+        assert cli.main(["--profile", str(venue), *command]) == 0
         assert options[0]["coauthor_years"] == 0
 
     def test_save_index_without_a_dump_is_refused(self, command, tmp_path, capsys):

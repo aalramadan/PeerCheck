@@ -62,12 +62,8 @@ pre{white-space:pre-wrap;word-break:break-word;color:var(--muted);font-size:.8re
     <div class="field"><label for="submissions">Submission sheet (optional)</label>
       <input id="submissions" name="submissions" type="file" accept=".csv,.xlsx">
       <small>A CSV or Excel list with the number and the title of each paper, which the report extends.</small></div>
-    <fieldset><legend>Checks</legend>
-      <label><input type="checkbox" name="checks" value="layout" checked> Format</label>
-      <label><input type="checkbox" name="checks" value="sigsoft" checked> Anonymity and template</label>
-      <label><input type="checkbox" name="checks" value="hidden-text" checked> Hidden text</label>
-      <label><input type="checkbox" name="checks" value="references"> References</label>
-      <small>References needs the download of <code>peercheck setup</code> first.</small></fieldset>
+    <p><small>The venue rules decide which checks run. The reference check needs <code>peercheck setup</code>
+      first.</small></p>
     <button class="run" type="submit">Check the submissions</button>
   </form>
 
@@ -79,13 +75,8 @@ pre{white-space:pre-wrap;word-break:break-word;color:var(--muted);font-size:.8re
       <input id="canaries" name="canaries" type="file" accept=".csv">
       <small>The key file of <code>peercheck canary</code>, to find reviews that cite the made-up work hidden in
         their paper.</small></div>
-    <fieldset><legend>AI detectors</legend>
-      <label><input type="checkbox" name="detectors" value="cocodet" checked> CoCoDet</label>
-      <label><input type="checkbox" name="detectors" value="editlens" checked> EditLens</label>
-      <small>EditLens needs a Hugging Face account that accepted its license, as the README describes.</small></fieldset>
-    <fieldset><legend>Checks</legend>
-      <label><input type="checkbox" name="checks" value="duplicates" checked> Copied text</label>
-      <label><input type="checkbox" name="checks" value="citations" checked> Citation requests</label></fieldset>
+    <p><small>The venue rules decide which checks run. EditLens runs when a Hugging Face token is set, as the README
+      describes.</small></p>
     <button class="run" type="submit">Check the reviews</button>
   </form>
 
@@ -206,10 +197,8 @@ for (const form of document.querySelectorAll('form')) {
         await api(`/api/file?${query}`, {method: 'PUT', body: file});
       }
       report('', 'Running the checks. Many files and the AI detectors take a few minutes.');
-      const chosen = name => [...form.querySelectorAll(`input[name=${name}]:checked`)].map(input => input.value);
       const done = await api('/api/start', {method: 'POST', headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({run, kind: form.id, profile: profile.value, checks: chosen('checks'),
-                              detectors: chosen('detectors')})});
+        body: JSON.stringify({run, kind: form.id, profile: profile.value})});
       log.textContent = done.log;
       report(done.ok ? 'done' : 'error',
              done.ok ? done.summary || 'Done.' : 'The check stopped with an error. The log below gives the reason.');

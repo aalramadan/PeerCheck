@@ -35,7 +35,9 @@
 # file_pattern: 'sub-(\d+)\.pdf$'                   # default none: a pattern whose one group is the paper number
 # id_column: Submission                             # default none: the column of the submission sheet with the numbers
 
-# checks:
+# checks:                                          # every check runs unless its section sets enabled: false
+#   layout:
+#     enabled: true                                 # default true: the format check, with fonts, margins, and the other layout notes
 #   sigsoft:
 #     enabled: true                                 # default true: the anonymity and template check
 #   anonymity:
@@ -74,10 +76,16 @@
 #     template_characters: 6422                     # default none: characters per full text page of the template
 #   active_content:
 #     severity: warning                             # default warning: the severity of scripts and other active content
+#   cocodet:
+#     enabled: true                                 # default true: the AI detector CoCoDet on each review
+#   editlens:
+#     enabled: true                                 # default true: the AI detector EditLens, skipped without a Hugging Face token
 #   duplicates:
+#     enabled: true                                 # default true: copied text between reviews
 #     threshold: 0.5                                # default 0.5: how alike two review paragraphs are, from 0 to 1
 #     min_chars: 150                                # default 150: the shortest paragraph to compare
 #   citations:
+#     enabled: true                                 # default true: the citation requests of the reviews
 #     title_min: 90                                 # default 90: how close, from 0 to 100, a cited title must be
 #   canary:
 #     fwer: 0.001                                   # default 0.001: the chance of any wrong hit among all reviews

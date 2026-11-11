@@ -138,16 +138,16 @@ def write_papers_html(out: Path, run: PapersRun) -> None:
 
 
 def write_rows_html(out: Path, title: str, rows: list[dict], findings: dict[str, list[Finding]], key: str,
-                    leave_out: tuple[str, ...] = ()) -> None:
+                    leave_out: tuple[str, ...] = (), notes: list[str] | None = None) -> None:
     """Write a self-contained HTML page of rows with their findings, such as one row per review.
 
-    The columns in leave_out stay in the workbook and the JSON file but not on the page.
+    The columns in leave_out stay in the workbook and the JSON file but not on the page. The notes follow the table.
     """
     skip = HIDDEN_COLUMNS + leave_out
     columns = tuple(dict.fromkeys(name for row in rows for name in row
                                   if name not in skip and any(r.get(name) not in (None, "") for r in rows)))
     records = [([row.get(name) for name in columns], findings.get(str(row.get(key)), [])) for row in rows]
-    _write_html(out, title, columns, records, [])
+    _write_html(out, title, columns, records, list(notes or []))
 
 
 def write_json(out: Path, data: object) -> None:

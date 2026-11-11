@@ -22,7 +22,7 @@ one INFO finding. Faint text that still leaves ink, such as a light gray waterma
 gives its page and an excerpt of at most 120 characters.
 
 Options under `hidden_text` in the profile:
-- enabled (default true): the pipeline leaves the check out when false, unless --checks names it.
+- enabled (default true): the pipeline leaves the check out when false.
 - min_font_size (default 2.0): text below this size in points counts as hidden. The default is TINY_FONT_PT of
   pdfguardrail 0.3.0 (pdfguard/checks.py), the same limit as the 2.0 pt of pdf-injection-scanner 0.2.1. A higher
   limit adds the text spans of pdfguardrail between the two sizes, and a lower one drops its tiny-text findings above

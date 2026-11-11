@@ -60,10 +60,8 @@ def parser() -> argparse.ArgumentParser:
     papers.add_argument("pdfs", type=Path, help="folder with the submission PDFs")
     papers.add_argument("--submissions", type=Path, help="CSV or Excel list with the number and the title of each paper")
     papers.add_argument("--authors", type=Path, help="author list with paper, first, last, email, affiliation")
-    papers.add_argument("--checks", help=f"comma-separated subset of {', '.join(pipeline.PAPER_CHECKS)}")
-    papers.add_argument("--out", type=Path, default=Path("report.xlsx"), help="Excel report (default report.xlsx)")
+    papers.add_argument("--out", type=Path, default=Path("report.xlsx"), help="Excel report, with the HTML page for the browser beside it (default report.xlsx)")
     papers.add_argument("--json", type=Path, help="also write the results as JSON")
-    papers.add_argument("--html", type=Path, help="HTML page for the browser (default the --out file with .html)")
     papers.set_defaults(handler=run_papers)
 
     reviews = commands.add_parser("reviews", help="check the reviews of a folder or a file",
@@ -77,7 +75,6 @@ def parser() -> argparse.ArgumentParser:
     found.add_argument("--dblp-dump", type=Path, help="dblp.xml.gz to build a co-author index from")
     found.add_argument("--dblp-index", type=Path, help="index saved by an earlier run, instead of --dblp-dump")
     found.add_argument("--save-index", type=Path, help="save the index built from --dblp-dump here")
-    found.add_argument("--years", type=int, help="co-authorship window in years (default 3)")
     found.add_argument("--out", type=Path, default=Path("conflicts.xlsx"), help="Excel report (default conflicts.xlsx)")
     found.set_defaults(handler=run_conflicts)
 
@@ -128,10 +125,9 @@ def run_papers(args: argparse.Namespace) -> int:
         raise inputs.InputError("the paper checks need the rules of the venue; copy profiles/template.yaml, fill it "
                                 "in, and pass it with --profile, or pass an example such as --profile icse-2027")
     venue = profiles.load(args.profile)
-    checks = list(dict.fromkeys(name.strip() for name in args.checks.split(","))) if args.checks else None
-    run = pipeline.run_papers(args.pdfs, venue, args.submissions, args.authors, checks)
+    run = pipeline.run_papers(args.pdfs, venue, args.submissions, args.authors)
     # The JSON file and the page come first, since the workbook can fail, such as when it is open in Excel.
-    page = args.html or args.out.with_suffix(".html")
+    page = args.out.with_suffix(".html")
     if args.json:
         report.write_json(args.json, run)
     report.write_papers_html(page, run)
@@ -148,7 +144,7 @@ def run_papers(args: argparse.Namespace) -> int:
 def run_reviews(args: argparse.Namespace) -> int:
     """Run the review checks in their own process, since they load PyTorch and the detector models."""
     if importlib.util.find_spec("torch") is None:
-        raise tools.ToolError("the review checks need the reviews extra: pip install 'peercheck[reviews]'")
+        raise tools.ToolError("the review checks need PyTorch, which pip install -e . installs with PeerCheck")
     venue = ["--profile", args.profile] if args.profile else []
     return subprocess.call([sys.executable, "-m", "peercheck.reviews", *venue, *args.rest])
 
@@ -174,8 +170,7 @@ def run_conflicts(args: argparse.Namespace) -> int:
         index = dblp.build_index(args.dblp_dump, people)
         if args.save_index:
             index.save(args.save_index)
-    options = (venue.options("conflicts") if venue else {}) | (
-        {"coauthor_years": args.years} if args.years is not None else {})
+    options = venue.options("conflicts") if venue else {}
     found = conflicts.find_conflicts(authors, committee, index, options)
     report.write_sheets(args.out, {"Conflicts": conflicts.rows(found)}, [], [("Profile", venue.name if venue else "none"),
                                                ("DBLP", "used" if index is not None else "not used")], key="Paper")

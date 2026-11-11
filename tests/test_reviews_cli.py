@@ -15,8 +15,17 @@ pytest.importorskip("torch")
 cli = pytest.importorskip("peercheck.reviews.cli")
 editlens = pytest.importorskip("peercheck.reviews.editlens")
 
-ALL = ("cocodet", "editlens")
 EASYCHAIR = Path(__file__).parent / "fixtures" / "easychair"
+
+
+def _venue(tmp_path: Path, editlens_on: bool = False) -> str:
+    """Write venue rules that turn the review checks off, and EditLens unless asked, which keeps a run free of models."""
+    path = tmp_path / "venue.yaml"
+    path.write_text("name: Test\nsource: https://example.org\nformat:\n  style: IEEE\n  paper_size: [792, 612]\n"
+                    "  columns: 2\n  main_pages: 10\n  reference_pages: 2\nchecks:\n  cocodet: {enabled: false}\n"
+                    f"  editlens: {{enabled: {str(editlens_on).lower()}}}\n"
+                    "  duplicates: {enabled: false}\n  citations: {enabled: false}\n", encoding="utf-8")
+    return str(path)
 
 
 def _easychair_review(path: Path, review_id: str, paper: int, text: str) -> None:
@@ -48,15 +57,31 @@ def test_human_and_mix_labels_give_no_finding():
     assert cli._detector_findings(SimpleNamespace(label="mix", probabilities={}), editlens.Verdict("human", 0.05)) == []
 
 
-def test_cocodet_and_editlens_run_by_default():
-    assert cli.parser().parse_args(["reviews"]).detectors == "cocodet,editlens"
+def test_cocodet_and_editlens_run_by_default_when_a_token_is_set(monkeypatch):
+    monkeypatch.setattr(editlens, "has_token", lambda: True)
+    assert cli._detectors(None) == (("cocodet", "editlens"), [])
 
 
-def test_an_unknown_device_is_refused_before_any_review_is_read(capsys):
-    assert cli.parser().parse_args(["reviews", "--device", "cuda"]).device == "cuda"
-    with pytest.raises(SystemExit):
-        cli.parser().parse_args(["reviews", "--device", "gpu"])
-    assert "invalid choice: 'gpu'" in capsys.readouterr().err
+def test_editlens_is_skipped_with_a_note_without_a_token(monkeypatch, capsys):
+    monkeypatch.setattr(editlens, "has_token", lambda: False)
+    detectors, notes = cli._detectors(None)
+    assert detectors == ("cocodet",) and notes[0].startswith("EditLens skipped")
+    assert "EditLens skipped" in capsys.readouterr().err
+
+
+def test_the_venue_turns_a_detector_off(monkeypatch):
+    monkeypatch.setattr(editlens, "has_token", lambda: True)
+    venue = SimpleNamespace(options=lambda name: {"enabled": False} if name == "cocodet" else {})
+    assert cli._detectors(venue) == (("editlens",), [])
+
+
+def test_a_skipped_editlens_is_noted_in_the_report(tmp_path, monkeypatch):
+    monkeypatch.setattr(editlens, "has_token", lambda: False)
+    out = tmp_path / "reviews.xlsx"
+    assert cli.main([str(EASYCHAIR), "--profile", _venue(tmp_path, editlens_on=True), "--out", str(out)]) == 0
+    assert "EditLens skipped" in out.with_suffix(".html").read_text(encoding="utf-8")
+    about = {row[0]: row[1] for row in openpyxl.load_workbook(out)["About"].iter_rows(values_only=True)}
+    assert about["Skipped"].startswith("EditLens skipped") and about["Detectors"] == "none"
 
 
 def test_words_for_authors_are_counted_as_editlens_counts_them():
@@ -72,7 +97,7 @@ def test_canary_column_names_the_state_of_the_review():
 def test_canary_check_runs_without_any_model_and_fills_its_column(tmp_path):
     key, out = tmp_path / "key.csv", tmp_path / "reviews.xlsx"
     canary.write_key(key, {7: "Smith et al. (2019)"})
-    assert cli.main([str(EASYCHAIR), "--detectors", "", "--checks", "", "--canaries", str(key),
+    assert cli.main([str(EASYCHAIR), "--profile", _venue(tmp_path), "--canaries", str(key),
                      "--out", str(out)]) == 0
     sheet = openpyxl.load_workbook(out).worksheets[0]
     header = [cell.value for cell in sheet[1]]
@@ -81,14 +106,14 @@ def test_canary_check_runs_without_any_model_and_fills_its_column(tmp_path):
 
 def test_reviews_command_writes_the_html_page_beside_the_workbook_by_default(tmp_path):
     out = tmp_path / "reviews.xlsx"
-    assert cli.main([str(EASYCHAIR), "--detectors", "", "--checks", "", "--out", str(out)]) == 0
+    assert cli.main([str(EASYCHAIR), "--profile", _venue(tmp_path), "--out", str(out)]) == 0
     assert out.is_file() and out.with_suffix(".html").is_file()
 
 
 def test_a_canary_key_without_any_reviewed_paper_is_reported(tmp_path, capsys):
     key, out = tmp_path / "key.csv", tmp_path / "reviews.xlsx"
     canary.write_key(key, {99: "Smith et al. (2019)"})
-    assert cli.main([str(EASYCHAIR), "--detectors", "", "--checks", "", "--canaries", str(key),
+    assert cli.main([str(EASYCHAIR), "--profile", _venue(tmp_path), "--canaries", str(key),
                      "--out", str(out)]) == 0
     assert "the canary key holds none of the reviewed papers" in capsys.readouterr().err
     about = dict(openpyxl.load_workbook(out)["About"].iter_rows(values_only=True))
@@ -101,7 +126,7 @@ def test_reviews_that_share_an_id_keep_their_own_rows_and_canary_results(tmp_pat
     _easychair_review(folder / "a.xml", "r1", 7, "Following Smith et al. (2019), this paper studies flaky tests.")
     _easychair_review(folder / "b.xml", "r1", 8, "A careful study of flaky tests.")
     canary.write_key(key, {7: "Smith et al. (2019)", 8: "Johnson et al. (2021)"})
-    assert cli.main([str(folder), "--detectors", "", "--checks", "", "--canaries", str(key),
+    assert cli.main([str(folder), "--profile", _venue(tmp_path), "--canaries", str(key),
                      "--out", str(tmp_path / "reviews.xlsx"), "--json", str(out)]) == 0
     data = json.loads(out.read_text(encoding="utf-8"))
     assert [(r["Review ID"], r["Submission"], r["Canary"]) for r in data["reviews"]] == [("r1", 7, "hit"),
@@ -114,7 +139,7 @@ def test_reviews_that_share_an_id_keep_their_own_rows_and_canary_results(tmp_pat
 def test_review_check_reads_a_hotcrp_export_and_shows_its_overall_merit(tmp_path):
     out = tmp_path / "reviews.xlsx"
     export = Path(__file__).parent / "fixtures" / "hotcrp" / "reviews.csv"
-    assert cli.main([str(export), "--detectors", "", "--checks", "", "--out", str(out)]) == 0
+    assert cli.main([str(export), "--profile", _venue(tmp_path), "--out", str(out)]) == 0
     sheet = openpyxl.load_workbook(out).worksheets[0]
     header = [cell.value for cell in sheet[1]]
     rows = list(sheet.iter_rows(min_row=2, values_only=True))

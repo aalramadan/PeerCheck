@@ -46,31 +46,27 @@ def parser() -> argparse.ArgumentParser:
     top = argparse.ArgumentParser(prog="peercheck reviews",
                                   description="Check the reviews of a folder or a file.")
     top.add_argument("folder", help="folder or file of the reviews")
-    top.add_argument("--profile", help="the rules of the venue, which set the page count of the citation check")
-    top.add_argument("--detectors", default="cocodet,editlens", help="comma-separated subset of cocodet,editlens")
-    top.add_argument("--checks", default="duplicates,citations", help="comma-separated subset of duplicates,citations")
+    top.add_argument("--profile", help="the rules of the venue and the settings of the review checks")
     top.add_argument("--canaries", type=Path, help="key file of peercheck canary, to find reviews that contain the "
                                                    "citation hidden in their paper")
-    top.add_argument("--device", choices=("cpu", "cuda"), help="cpu or cuda (default: cuda when available)")
     top.add_argument("--dblp-index", type=Path, help="dblp index saved by peercheck conflicts, to match "
                                                      "requested citations against works of the reviewers")
-    top.add_argument("--out", type=Path, default=Path("reviews.xlsx"), help="Excel report (default reviews.xlsx)")
+    top.add_argument("--out", type=Path, default=Path("reviews.xlsx"), help="Excel report, with the HTML page for the browser beside it (default reviews.xlsx)")
     top.add_argument("--json", type=Path, help="also write the results as JSON")
-    top.add_argument("--html", type=Path, help="HTML page for the browser (default the --out file with .html)")
     return top
 
 
 def run(args: argparse.Namespace) -> int:
     """Check every review of a folder and write the report."""
     venue = profiles.load(args.profile) if args.profile else None
-    detectors = _choose(args.detectors, DETECTORS, "detectors")
-    checks = _choose(args.checks, CHECKS, "checks")
+    detectors, skipped = _detectors(venue)
+    checks = tuple(name for name in CHECKS if _options(venue, name).get("enabled", True))
     key = canary.read_key(args.canaries) if args.canaries else None
     reviews, found = _unique_ids(inputs.read_reviews(Path(args.folder)))
     rows = {r.review_id: _row(r) for r in reviews}
     texts = [r.author_text for r in reviews]
-    labels = cocodet.Detector(args.device).label(texts) if "cocodet" in detectors else None
-    lenses = editlens.Detector(args.device).label(texts) if "editlens" in detectors else None
+    labels = cocodet.Detector().label(texts) if "cocodet" in detectors else None
+    lenses = editlens.Detector().label(texts) if "editlens" in detectors else None
     for index, review in enumerate(reviews):
         verdict = labels[index] if labels else None
         lens = lenses[index] if lenses else None
@@ -96,12 +92,13 @@ def run(args: argparse.Namespace) -> int:
             f.as_text() for f in found[review.review_id] if f.severity is not Severity.INFO)
     report.write_sheets(args.out, {"Reviews": list(rows.values())},
                         [(rid, f) for rid, items in found.items() for f in items],
-                        [("Detectors", ", ".join(detectors) or "none"), ("Checks", ", ".join(checks) or "none"),
+                        [("Detectors", ", ".join(detectors) or "none"), *[("Skipped", note) for note in skipped],
+                         ("Checks", ", ".join(checks) or "none"),
                          *canaries, ("Caution", CAUTION)])
     if args.json:
         report.write_json(args.json, {"reviews": list(rows.values()), "findings": found})
-    page = args.html or args.out.with_suffix(".html")
-    report.write_rows_html(page, "PeerCheck, Reviews", list(rows.values()), found, "Review ID", DETAIL_COLUMNS)
+    page = args.out.with_suffix(".html")
+    report.write_rows_html(page, "PeerCheck, Reviews", list(rows.values()), found, "Review ID", DETAIL_COLUMNS, skipped)
     flagged = sum(1 for items in found.values() if needs_review(items))
     print(f"{len(reviews)} reviews checked, {flagged} need review. Report: {page} and {args.out}")
     return 0
@@ -144,12 +141,14 @@ def _panel_options(args: argparse.Namespace) -> dict[str, object]:
     return {"dblp_index": args.dblp_index} if args.dblp_index else {}
 
 
-def _choose(text: str, allowed: tuple[str, ...], what: str) -> tuple[str, ...]:
-    names = tuple(name.strip() for name in text.split(",") if name.strip())
-    unknown = sorted(set(names) - set(allowed))
-    if unknown:
-        raise ValueError(f"unknown {what} {', '.join(unknown)}; choose from {', '.join(allowed)}")
-    return names
+def _detectors(venue) -> tuple[tuple[str, ...], list[str]]:
+    """Return the detectors that the venue leaves on and a note for EditLens when no Hugging Face token is set."""
+    detectors = tuple(name for name in DETECTORS if _options(venue, name).get("enabled", True))
+    if "editlens" in detectors and not editlens.has_token():
+        note = "EditLens skipped, since no Hugging Face token is set. The README describes EditLens access."
+        print(note, file=sys.stderr)
+        return tuple(name for name in detectors if name != "editlens"), [note]
+    return detectors, []
 
 
 def _row(review: Review) -> dict[str, object]:

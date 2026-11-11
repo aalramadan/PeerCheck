@@ -16,7 +16,7 @@ COPY external external
 # The editable install keeps src/ beside external/, where the checks find the tools of other authors. The CPU build
 # of PyTorch keeps the image small.
 RUN pip install --no-cache-dir torch --index-url https://download.pytorch.org/whl/cpu \
-    && pip install --no-cache-dir -e ".[reviews]"
+    && pip install --no-cache-dir -e .
 
 # One volume at /cache keeps the models, the DBLP database, and Hallucinator between runs. Any user may write
 # there, for a run with --user.

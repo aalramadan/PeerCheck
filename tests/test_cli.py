@@ -50,13 +50,18 @@ def _papers_run(*args):
     return pipeline.PapersRun([], {}, {}, [], ("layout",))
 
 
-def test_papers_command_runs_a_repeated_check_once(monkeypatch, tmp_path):
+def test_papers_command_leaves_the_choice_of_checks_to_the_venue_rules(monkeypatch, tmp_path):
     requested = []
-    monkeypatch.setattr(cli.pipeline, "run_papers", lambda *args: requested.append(args[4]) or _papers_run())
-    argv = ["--profile", "icse-2027", "papers", str(tmp_path), "--checks", "hidden-text, hidden-text,layout",
-            "--out", str(tmp_path / "r.xlsx")]
-    assert cli.main(argv) == 0
-    assert requested == [["hidden-text", "layout"]]
+    monkeypatch.setattr(cli.pipeline, "run_papers", lambda *args: requested.append(args) or _papers_run())
+    assert cli.main(["--profile", "icse-2027", "papers", str(tmp_path), "--out", str(tmp_path / "r.xlsx")]) == 0
+    assert len(requested[0]) == 4
+
+
+@pytest.mark.parametrize("argv", [["papers", "pdfs", "--checks", "layout"], ["papers", "pdfs", "--html", "r.html"],
+                                  ["conflicts", "--authors", "a.csv", "--pc", "pc.csv", "--years", "2"]])
+def test_settings_are_no_options_of_the_command_line(argv):
+    with pytest.raises(SystemExit):
+        cli.parser().parse_args(argv)
 
 
 def test_papers_command_writes_the_html_page_beside_the_workbook_by_default(monkeypatch, tmp_path):
@@ -72,7 +77,7 @@ def test_papers_command_writes_the_json_and_html_reports_when_the_workbook_fails
     monkeypatch.setattr(cli.pipeline, "run_papers", _papers_run)
     monkeypatch.setattr(cli.report, "write_papers", locked)
     argv = ["--profile", "icse-2027", "papers", str(tmp_path), "--out", str(tmp_path / "report.xlsx"),
-            "--json", str(tmp_path / "report.json"), "--html", str(tmp_path / "report.html")]
+            "--json", str(tmp_path / "report.json")]
     assert cli.main(argv) == 2
     assert (tmp_path / "report.json").is_file() and (tmp_path / "report.html").is_file()
 

@@ -53,28 +53,22 @@ def start_run(server, uploads, options):
     return status, json.loads(data)
 
 
-def test_papers_command_passes_the_uploaded_files_and_the_chosen_checks_in_order(tmp_path):
+def test_papers_command_passes_the_uploaded_files_and_leaves_the_checks_to_the_venue_rules(tmp_path):
     (tmp_path / "authors").mkdir()
     (tmp_path / "authors" / "authors.csv").write_text("paper,first,last,email,affiliation\n")
-    arguments = gui.command("papers", {"profile": "fse-2027", "checks": ["hidden-text", "layout"]}, tmp_path)
+    arguments = gui.command("papers", {"profile": "fse-2027"}, tmp_path)
     assert arguments[:4] == ["--profile", "fse-2027", "papers", str(tmp_path / "pdfs")]
     assert arguments[arguments.index("--authors") + 1] == str(tmp_path / "authors" / "authors.csv")
-    assert arguments[arguments.index("--checks") + 1] == "layout,hidden-text"
-    assert "--submissions" not in arguments
-
-
-def test_papers_command_needs_at_least_one_check(tmp_path):
-    with pytest.raises(gui.RequestError):
-        gui.command("papers", {"profile": "icse-2027", "checks": []}, tmp_path)
+    assert "--checks" not in arguments and "--submissions" not in arguments
 
 
 def test_papers_command_without_venue_rules_is_refused(tmp_path):
     with pytest.raises(gui.RequestError, match="venue rules"):
-        gui.command("papers", {"profile": "", "checks": ["layout"]}, tmp_path)
+        gui.command("papers", {"profile": ""}, tmp_path)
 
 
 def test_reviews_command_without_venue_rules_runs_without_a_profile(tmp_path):
-    arguments = gui.command("reviews", {"profile": "", "detectors": [], "checks": []}, tmp_path)
+    arguments = gui.command("reviews", {"profile": ""}, tmp_path)
     assert arguments[0] == "reviews"
 
 
@@ -83,11 +77,10 @@ def test_page_offers_no_venue_rules_before_the_shipped_examples(tmp_path):
     assert keys == ["", "fse-2027", "icse-2027"]
 
 
-def test_reviews_command_keeps_only_the_detectors_and_checks_it_knows(tmp_path):
-    arguments = gui.command("reviews", {"profile": "icse-2027", "detectors": ["editlens", "other"], "checks": []},
-                            tmp_path)
-    assert arguments[arguments.index("--detectors") + 1] == "editlens"
-    assert arguments[arguments.index("--checks") + 1] == ""
+def test_reviews_command_leaves_the_detectors_and_checks_to_the_venue_rules(tmp_path):
+    arguments = gui.command("reviews", {"profile": "icse-2027"}, tmp_path)
+    assert arguments[:3] == ["--profile", "icse-2027", "reviews"]
+    assert "--detectors" not in arguments and "--checks" not in arguments
 
 
 def test_unknown_kind_of_run_is_refused(tmp_path):
@@ -156,7 +149,7 @@ def test_requests_that_fail_inside_the_server_get_an_answer_with_the_reason(serv
     status, data = call(server, "PUT", f"/api/file?run={run}&field=pdfs&name=a.pdf", b"%PDF",
                         headers={"Content-Length": "abc"})
     assert status == 400 and json.loads(data)["error"]
-    options = {"run": run, "kind": "papers", "profile": "icse-2027", "checks": 5}
+    options = {"run": run, "kind": "papers", "profile": ["icse-2027"]}
     status, data = call(server, "POST", "/api/start", json.dumps(options).encode())
     assert status == 400 and json.loads(data)["error"]
     assert call(server, "POST", "/api/new", token=False, headers={"X-PeerCheck-Token": "\u00e9\u00e9"})[0] == 403
@@ -191,9 +184,11 @@ def test_page_runs_the_conflict_check_and_returns_its_rows(server):
     assert call(server, "GET", outcome["workbook"])[0] == 200
 
 
-def test_page_runs_a_papers_check_and_serves_its_report(server):
+def test_page_runs_a_papers_check_and_serves_its_report(server, monkeypatch, tmp_path):
+    # An empty cache keeps the reference check from finding Hallucinator, therefore the run stays offline.
+    monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path / "cache"))
     status, outcome = start_run(server, [("pdfs", SAMPLES / "papers" / "conf2027-paper4.pdf")],
-                                {"kind": "papers", "profile": "icse-2027", "checks": ["hidden-text"]})
+                                {"kind": "papers", "profile": "icse-2027"})
     assert status == 200 and outcome["ok"], outcome["log"]
     assert outcome["summary"] == "1 papers checked, 1 need review."
     reply, page = call(server, "GET", outcome["report"])

@@ -26,7 +26,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import torch
-from huggingface_hub import snapshot_download
+from huggingface_hub import get_token, snapshot_download
 from huggingface_hub.errors import GatedRepoError
 from transformers import AutoModelForSequenceClassification, AutoTokenizer
 
@@ -39,7 +39,7 @@ AI_FROM = 0.997
 # The training data of EditLens keeps texts of 75 words or more (configs/roberta.yaml, min_words).
 MIN_WORDS = 75
 GATED = (f"EditLens is gated: accept its terms at https://huggingface.co/{MODEL_REPO} while logged in, then run "
-         "hf auth login on this machine, or check the reviews with --detectors cocodet")
+         "hf auth login on this machine, or set enabled: false under editlens in the venue rules")
 
 
 class ModelError(RuntimeError):
@@ -53,6 +53,11 @@ class Verdict:
     label: str
     score: float
     notes: tuple[str, ...] = ()
+
+
+def has_token() -> bool:
+    """Return whether a Hugging Face token is set, through HF_TOKEN or a saved login, which the gated model needs."""
+    return bool(get_token())
 
 
 def files() -> Path:
