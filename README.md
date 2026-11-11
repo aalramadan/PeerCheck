@@ -18,13 +18,8 @@ reviews, and conflicts of interest.
 
 ## 🎬 Demo
 
-These two report pages come from the commands below.
-
-```bash
-peercheck --profile examples/venue.yaml papers examples/papers --authors examples/authors.csv \
-  --checks layout,sigsoft,hidden-text --html report.html
-peercheck --profile examples/venue.yaml reviews examples/reviews --canaries examples/canaries.csv --html reviews.html
-```
+These two report pages show PeerCheck on the made-up papers and reviews in [`examples/`](examples/), whose README
+gives the commands.
 
 > [!TIP]
 > The [live demo](https://aalramadan.github.io/PeerCheck/) shows the full reports with their Excel workbooks,
