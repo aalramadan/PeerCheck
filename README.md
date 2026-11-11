@@ -238,7 +238,12 @@ Run any command with `--help` for every option.
 
 ## 🏛️ Venue profiles
 
-PeerCheck is tuned for software engineering venues and ships with these profiles.
+- PeerCheck reads the exports of EasyChair and HotCRP unchanged. It therefore works for any conference on either
+  system.
+- A **profile** holds the rules of one conference, such as its page limit, template, and margins. The format check
+  compares each paper with these rules.
+- PeerCheck is tuned for software engineering venues and ships with three profiles. Two of them copy the calls for papers
+  of ICSE 2027 and FSE 2027. Each file links its call. The third shows a made-up venue on EasyChair.
 
 | Profile | Venue | Format | Pages |
 |---|---|---|---|
@@ -246,11 +251,23 @@ PeerCheck is tuned for software engineering venues and ships with these profiles
 | fse-2027 | FSE 2027 Research Track | ACM acmsmall, one column | 18 plus 4 of references |
 | example-easychair | an example venue on EasyChair | IEEE, two columns, US Letter | 10 plus 2 of references |
 
-Any other venue gets a profile in three steps.
+#### ➕ Add a venue
 
-1. Copy a file of `profiles/`, such as `example-easychair.yaml` for a venue on EasyChair.
-2. Change its values.
+1. Copy the profile closest to the venue into the folder of the conference as `venue.yaml`, such as
+   `profiles/example-easychair.yaml` for a venue on EasyChair or `profiles/icse-2027.yaml` for a venue on HotCRP.
+2. Set its values from the call for papers of the venue. The comments in the file explain each value. This table names
+   the main ones.
 3. Pass the copy by path, such as `peercheck --profile venue.yaml papers submissions/`.
+
+| Value | Sets | Example |
+|---|---|---|
+| `name`, `source` | the name of the venue and the address of its call for papers | `Example Conference 2026` |
+| `file_pattern` | how the conference system names the PDFs, with the paper ID in parentheses | `'_paper_(\d+)\.pdf$'` for EasyChair |
+| `id_column` | the column of the submission sheet that holds the paper ID | `'#'` for EasyChair, `'ID'` for HotCRP |
+| `format.main_pages`, `format.reference_pages` | the page limit and the extra pages for references only | `10` and `2` |
+| `format.style`, `format.columns`, `format.paper_size` | the template, its columns, and the paper size in points | `IEEE`, `2`, and `[792, 612]` for US Letter |
+| `format.margins`, `format.body_font_max` | the margins in points and the largest font size of the body text | `[52, 48, 72, 48]` and `10.5` |
+| `checks` | the options of single checks, such as the hosts that links may name | the comments in each file |
 
 ## 🧪 Tests
 
