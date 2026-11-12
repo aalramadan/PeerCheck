@@ -14,9 +14,12 @@ Options under ``checks.references`` of a profile:
 - ``enabled`` (default true): the pipeline runs the check only when the profile leaves it on.
 - ``online`` (default true): look up references online beside the local databases. False keeps the check
   offline, with no network connection, whatever ``online_titles`` says.
-- ``online_titles`` (default true): send the titles of references to every online source of Hallucinator, such
-  as CrossRef, arXiv, Semantic Scholar, OpenAlex, Europe PMC, PubMed, and Open Library, and pass the keys
-  CROSSREF_MAILTO, S2_API_KEY, and OPENALEX_KEY. The title of a fabricated reference is text of the submission,
+- ``online_titles`` (default true): send the titles of the references that the local databases do not hold to
+  every online source of Hallucinator, such as CrossRef, arXiv, Semantic Scholar, OpenAlex, Europe PMC, PubMed, and
+  Open Library, and pass the keys CROSSREF_MAILTO, S2_API_KEY, and OPENALEX_KEY. The check first looks every reference
+  up offline, since the local DBLP copy answers within seconds while each online source answers slowly and limits its
+  requests. Only the references that stay unverified then go online. The title of a fabricated reference is text
+  of the submission,
   therefore organizers who keep that text in house set this option to false. The check then looks up only the
   DOI of a reference at doi.org, which forwards the request to the agency of the DOI such as Crossref, and its
   arXiv ID at export.arxiv.org. These lookups send public identifiers only.
@@ -154,7 +157,9 @@ def check(paper: Paper, profile: Profile, workdir: Path) -> list[Finding]:
     try:
         folder.mkdir(parents=True, exist_ok=True)
         refs = _hallucinator(settings, paper.pdf, folder, f"paper-{paper.paper_id}", _disabled(settings))
-        if settings.online and not settings.online_titles and "arXiv" not in settings.offline:
+        if settings.online_titles:
+            refs = _online_lookups(settings, refs, folder, f"paper-{paper.paper_id}")
+        elif settings.online and "arXiv" not in settings.offline:
             refs = _arxiv_lookups(settings, refs, folder, f"paper-{paper.paper_id}")
     except (tools.ToolError, OSError, ValueError, KeyError, subprocess.SubprocessError) as exc:
         return [Finding("references.error", Severity.WARNING, f"The reference check did not run: {exc}")]
@@ -217,12 +222,8 @@ def install_tools(cache: Path | None = None, dblp_dump: Path | None = None, retr
 
 
 def _disabled(settings: Settings) -> list[str]:
-    if settings.online_titles:
-        allowed = set(ONLINE_SOURCES)
-    elif settings.online:
-        allowed = {"DOI"}
-    else:
-        allowed = set()
+    """Return the online sources of the first run, which allows only the DOI lookups of the identifier mode."""
+    allowed = {"DOI"} if settings.online and not settings.online_titles else set()
     return [name for name in ONLINE_SOURCES if name not in allowed and name not in settings.offline]
 
 
@@ -303,7 +304,24 @@ def _arxiv_lookups(settings: Settings, refs: list[Reference], folder: Path, stem
     bib = folder / f"{stem}-arxiv.bib"
     bib.write_text("".join(_bib_entry(i, ref) for i, ref in enumerate(pending, 1)), encoding="utf-8")
     others = [name for name in ONLINE_SOURCES if name != "arXiv"]
-    answers = _hallucinator(settings, bib, folder, f"{stem}-arxiv", others, offline=False)
+    return _merged(refs, pending, _hallucinator(settings, bib, folder, f"{stem}-arxiv", others, offline=False))
+
+
+def _online_lookups(settings: Settings, refs: list[Reference], folder: Path, stem: str) -> list[Reference]:
+    """Look up online the references that the local databases leave unverified, with their titles and identifiers.
+
+    The online sources that a local database replaces, such as DBLP, stay off, since the first run asked them."""
+    pending = [ref for ref in refs if ref.status in UNVERIFIED]
+    if not pending:
+        return refs
+    bib = folder / f"{stem}-online.bib"
+    bib.write_text("".join(_bib_entry(i, ref, with_doi=True) for i, ref in enumerate(pending, 1)), encoding="utf-8")
+    local = [name for name in ONLINE_SOURCES if name in settings.offline]
+    return _merged(refs, pending, _hallucinator(settings, bib, folder, f"{stem}-online", local, offline=False))
+
+
+def _merged(refs: list[Reference], pending: list[Reference], answers: list[Reference]) -> list[Reference]:
+    """Return the references with the answers of a second run, whose numbers count the pending references from 1."""
     updated = {ref.number: ref for ref in refs}
     for answer in answers:
         if 0 < answer.number <= len(pending) and answer.status not in ("skipped", ""):
@@ -316,10 +334,14 @@ def _arxiv_lookups(settings: Settings, refs: list[Reference], folder: Path, stem
     return [updated[ref.number] for ref in refs]
 
 
-def _bib_entry(key: int, ref: Reference) -> str:
+def _bib_entry(key: int, ref: Reference, with_doi: bool = False) -> str:
     authors = " and ".join(name.translate(BIB_ESCAPES) for name in ref.authors)
-    return (f"@misc{{ref{key},\n  title = {{{ref.title.translate(BIB_ESCAPES)}}},\n"
-            f"  author = {{{authors}}},\n  eprint = {{{ref.arxiv_id}}},\n  archivePrefix = {{arXiv}},\n}}\n")
+    fields = [f"  title = {{{ref.title.translate(BIB_ESCAPES)}}}", f"  author = {{{authors}}}"]
+    if ref.arxiv_id:
+        fields += [f"  eprint = {{{ref.arxiv_id}}}", "  archivePrefix = {arXiv}"]
+    if with_doi and ref.dois:
+        fields.append(f"  doi = {{{ref.dois[0]}}}")
+    return f"@misc{{ref{key},\n" + ",\n".join(fields) + ",\n}\n"
 
 
 def _lookup_findings(ref: Reference) -> list[Finding]:

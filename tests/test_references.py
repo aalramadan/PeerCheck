@@ -165,15 +165,36 @@ def test_titles_off_merges_the_arxiv_answers_into_the_findings(tmp_path, cache, 
         "Hallucinator checked 3 references with DOI and arXiv ID lookups against DBLP: 1 found, 1 not found")
 
 
-def test_default_run_sends_titles_to_every_online_source_beside_the_local_dblp(tmp_path, cache, monkeypatch):
+def test_default_run_looks_up_offline_first_and_sends_only_the_unverified_titles_online(tmp_path, cache, monkeypatch):
     monkeypatch.setenv("S2_API_KEY", "not-a-real-key")
     fake = FakeHallucinator("online-run.json")
     run(tmp_path, cache, fake, monkeypatch)
-    command = fake.calls[0][0]
-    assert fake.disabled() == []
-    assert command[command.index("--dblp-offline") + 1] == str(cache / "hallucinator" / "dblp.db")
-    assert fake.calls[0][1]["env"]["S2_API_KEY"] == "not-a-real-key"
+    first, second = fake.calls[0][0], fake.calls[1][0]
+    assert set(fake.disabled(0)) == set(references.ONLINE_SOURCES) - {"DBLP"}
+    assert first[first.index("--dblp-offline") + 1] == str(cache / "hallucinator" / "dblp.db")
+    assert fake.disabled(1) == ["DBLP"] and "--dblp-offline" not in second
+    bib = Path(second[-1]).read_text(encoding="utf-8")
+    assert bib.count("@misc") == 2 and "Self-healing test oracles" in bib
+    assert fake.calls[1][1]["env"]["S2_API_KEY"] == "not-a-real-key"
+
+
+def test_no_online_pass_when_the_local_databases_confirm_every_reference(tmp_path, cache, monkeypatch):
+    report = json.loads((FIXTURES / "online-run.json").read_text(encoding="utf-8"))
+    for entry in report[0]["references"]:
+        entry["status"] = "verified"
+    fake = FakeHallucinator(report)
+    run(tmp_path, cache, fake, monkeypatch)
     assert len(fake.calls) == 1
+
+
+def test_online_answers_replace_the_unverified_references(tmp_path, cache, monkeypatch):
+    findings = run(tmp_path, cache, FakeHallucinator("online-run.json", "arxiv-run.json"), monkeypatch)
+    [mismatch] = by_check(findings, "references.author-mismatch")
+    assert mismatch.message.startswith("Reference [2] ")
+    [missing] = by_check(findings, "references.not-found")
+    assert missing.message.startswith("Reference [3] ")
+    assert by_check(findings, "references.summary")[0].message.startswith(
+        "Hallucinator checked 3 references with online title lookups against DBLP: 1 found, 1 not found")
 
 
 def test_online_false_keeps_titles_offline_even_when_online_titles_is_true(tmp_path, cache, monkeypatch):
@@ -184,13 +205,13 @@ def test_online_false_keeps_titles_offline_even_when_online_titles_is_true(tmp_p
     assert "S2_API_KEY" not in fake.calls[0][1]["env"]
 
 
-def test_online_titles_option_allows_every_title_source(tmp_path, cache, monkeypatch):
+def test_online_pass_allows_every_title_source_and_passes_their_keys(tmp_path, cache, monkeypatch):
     monkeypatch.setenv("CROSSREF_MAILTO", "chair@example.org")
     fake = FakeHallucinator("online-run.json")
     run(tmp_path, cache, fake, monkeypatch, online_titles=True)
-    assert fake.disabled() == []
-    assert fake.calls[0][1]["env"]["CROSSREF_MAILTO"] == "chair@example.org"
-    assert len(fake.calls) == 1
+    assert fake.disabled(1) == ["DBLP"]
+    assert fake.calls[1][1]["env"]["CROSSREF_MAILTO"] == "chair@example.org"
+    assert len(fake.calls) == 2
 
 
 def test_offline_arxiv_database_replaces_the_online_arxiv_source(tmp_path, cache, monkeypatch):
