@@ -38,8 +38,8 @@ peercheck setup                                         # download the reference
 ```
 
 > [!NOTE]
-> EditLens needs a free [Hugging Face token](https://huggingface.co/settings/tokens) in `HF_TOKEN` and its accepted
-> [non-commercial license](https://huggingface.co/pangram/editlens_roberta-large). Without a token, PeerCheck skips EditLens.
+> EditLens needs a free [Hugging Face token](https://huggingface.co/settings/tokens) in `HF_TOKEN`. Without a token,
+> PeerCheck skips EditLens.
 
 ## 🐳 Docker
 
