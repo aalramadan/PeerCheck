@@ -26,7 +26,7 @@
 
 ## Checks
 
-| Command | Check (section in `venue.yaml`) | Finds | Built on |
+| Command | Check (template key) | Finds | Built on |
 |---|---|---|---|
 | `papers` | Format (`layout`) | page size, columns, margins, font size, line spacing, page limits (without exempt sections such as Data Availability), page numbers, and missing sections; template fonts, title size, and fonts that are not embedded; content that runs into the margins; and papers far denser than the rest of the batch | the format checker of HotCRP, a conference system, and checks of PeerCheck with PyMuPDF, with the Times fonts of aclpubcheck, the format checker of ACL |
 | `papers` | File and text (`layout`) | locked, damaged, or unreadable files; garbled or scanned text that the other checks cannot read; broken references such as Section ??; a title that differs from the submission sheet; missing line numbers at a venue that asks for them; images too large or too coarse and a file above the size limit of the venue; and notes on accessibility when a profile asks for them | checks of PeerCheck with PyMuPDF and pikepdf, with the title comparison of aclpubcheck, the line count of the SIGSOFT checker, the English stop words of Snowball, and five rules of the PDF/UA-1 profile of veraPDF |

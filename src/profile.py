@@ -1,4 +1,4 @@
-"""Venue profiles that set the limits and the options of every check."""
+"""Templates, the files that set the rules of a venue and the options of every check."""
 
 from __future__ import annotations
 
@@ -27,9 +27,9 @@ FORMAT_KEYS = {
 OPTIONAL_FORMAT_KEYS = {"paper_size_tolerance", "margins", "margin_tolerance", "body_font_max", "body_font_min",
                         "leading_min", "reference_font_min", "page_numbers", "required_headings", "require_abstract",
                         "exempt_sections", "exempt_pages_max"}
-# A wheel holds the shipped profiles in peercheck/profiles/, and a source checkout keeps them in profiles/ beside src/.
+# A wheel holds the shipped templates in peercheck/templates/, and a source checkout keeps them in templates/ beside src/.
 _PACKAGE = Path(__file__).resolve().parent
-PROFILES = _PACKAGE / "profiles" if (_PACKAGE / "profiles").is_dir() else _PACKAGE.parent / "profiles"
+PROFILES = _PACKAGE / "templates" if (_PACKAGE / "templates").is_dir() else _PACKAGE.parent / "templates"
 # Options of the checks that hold a list of strings.
 LIST_OPTIONS = {"anonymity": ("allowed_hosts",), "hidden_text": ("extra_phrases",)}
 
@@ -103,34 +103,34 @@ def load(name_or_path: str) -> Profile:
         return parse(yaml.safe_load(path.read_text(encoding="utf-8")), path.stem)
     resource = PROFILES / f"{name_or_path}.yaml"
     if not resource.is_file():
-        raise ProfileError(f"unknown profile {name_or_path!r}; shipped profiles: {', '.join(available())}")
+        raise ProfileError(f"unknown template {name_or_path!r}; shipped templates: {', '.join(available())}")
     return parse(yaml.safe_load(resource.read_text(encoding="utf-8")), name_or_path)
 
 
 def parse(data: Any, key: str) -> Profile:
     """Check the keys and the values of a loaded profile and return the profile."""
     if data is None:
-        raise ProfileError(f"profile {key} holds no values; copy profiles/{DEFAULT}.yaml and set the rules of the venue")
+        raise ProfileError(f"template {key} holds no values; copy templates/{DEFAULT}.yaml and set the rules of the venue")
     if not isinstance(data, dict):
-        raise ProfileError(f"profile {key}: the file must hold a mapping")
-    _keys(data, TOP_KEYS, REQUIRED_TOP_KEYS, f"profile {key}")
+        raise ProfileError(f"template {key}: the file must hold a mapping")
+    _keys(data, TOP_KEYS, REQUIRED_TOP_KEYS, f"template {key}")
     rules = data["format"]
     if not isinstance(rules, dict):
-        raise ProfileError(f"profile {key}: format must be a mapping")
-    _keys(rules, FORMAT_KEYS, FORMAT_KEYS - OPTIONAL_FORMAT_KEYS, f"profile {key}, format")
+        raise ProfileError(f"template {key}: format must be a mapping")
+    _keys(rules, FORMAT_KEYS, FORMAT_KEYS - OPTIONAL_FORMAT_KEYS, f"template {key}, format")
     pattern = None if data.get("file_pattern") is None else str(data["file_pattern"])
     if pattern is not None:
         try:
             groups = re.compile(pattern).groups
         except re.error as exc:
-            raise ProfileError(f"profile {key}: file_pattern does not compile ({exc})") from exc
+            raise ProfileError(f"template {key}: file_pattern does not compile ({exc})") from exc
         if groups != 1:
-            raise ProfileError(f"profile {key}: file_pattern needs exactly one group for the paper ID")
+            raise ProfileError(f"template {key}: file_pattern needs exactly one group for the paper ID")
     if rules.get("page_numbers", "ignore") not in PAGE_NUMBER_POLICIES:
-        raise ProfileError(f"profile {key}: page_numbers must be one of {', '.join(PAGE_NUMBER_POLICIES)}")
+        raise ProfileError(f"template {key}: page_numbers must be one of {', '.join(PAGE_NUMBER_POLICIES)}")
     checks = data.get("checks") or {}
     if not isinstance(checks, dict):
-        raise ProfileError(f"profile {key}: checks must be a mapping")
+        raise ProfileError(f"template {key}: checks must be a mapping")
     return Profile(
         key=key,
         name=str(data["name"]),
@@ -152,13 +152,13 @@ def parse(data: Any, key: str) -> Profile:
             reference_font_min=_optional_number(rules.get("reference_font_min")),
             page_numbers=str(rules.get("page_numbers", "ignore")),
             required_headings=tuple(
-                h.lower() for h in strings(rules.get("required_headings"), f"profile {key}: required_headings")),
+                h.lower() for h in strings(rules.get("required_headings"), f"template {key}: required_headings")),
             require_abstract=bool(rules.get("require_abstract", True)),
             exempt_sections=tuple(
-                s.lower() for s in strings(rules.get("exempt_sections"), f"profile {key}: exempt_sections")),
+                s.lower() for s in strings(rules.get("exempt_sections"), f"template {key}: exempt_sections")),
             exempt_pages_max=_optional_number(rules.get("exempt_pages_max")),
         ),
-        checks={str(name): _check_options(str(name), options, f"profile {key}: checks.{name}")
+        checks={str(name): _check_options(str(name), options, f"template {key}: checks.{name}")
                 for name, options in checks.items()},
     )
 
@@ -200,7 +200,7 @@ def _keys(data: dict, allowed: set[str], required: set[str], where: str) -> None
 
 def _numbers(value: Any, size: int, key: str, name: str) -> tuple:
     if not isinstance(value, (list, tuple)) or len(value) != size:
-        raise ProfileError(f"profile {key}: {name} must list {size} numbers")
+        raise ProfileError(f"template {key}: {name} must list {size} numbers")
     return tuple(float(v) for v in value)
 
 

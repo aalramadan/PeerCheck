@@ -1,4 +1,4 @@
-# An example: profiles/default.yaml set to the rules of the ICSE 2027 Research Track.
+# An example: templates/default.yaml set to the rules of the ICSE 2027 Research Track.
 # Rules: https://conf.researchr.org/track/icse-2027/icse-2027-research-track
 name: ICSE 2027 Research Track
 source: https://conf.researchr.org/track/icse-2027/icse-2027-research-track

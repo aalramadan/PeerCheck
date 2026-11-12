@@ -1,4 +1,4 @@
-# A made-up venue for the examples, a copy of profiles/default.yaml with its values.
+# A made-up venue for the examples, a copy of templates/default.yaml with its values.
 name: Example Conference 2027
 source: https://example.org/call-for-papers
 

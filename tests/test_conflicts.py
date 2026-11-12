@@ -262,7 +262,7 @@ class TestCommand:
                          "checks:\n  conflicts:\n    coauthor_years: 0\n", encoding="utf-8")
         options = []
         monkeypatch.setattr(conflicts, "find_conflicts", lambda *args: options.append(args[-1]) or [])
-        assert cli.main(["--profile", str(venue), *command]) == 0
+        assert cli.main(["--template", str(venue), *command]) == 0
         assert options[0]["coauthor_years"] == 0
 
     def test_save_index_without_a_dump_is_refused(self, command, tmp_path, capsys):

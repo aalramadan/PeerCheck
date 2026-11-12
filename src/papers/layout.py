@@ -2,7 +2,7 @@
 
 banal reports the paper size, the margins, the columns, the fonts, the headings, and a type for each page
 (body, bib, appendix, figure, or blank). This module turns that report into page counts and checks them
-against the format rules of the venue profile. Pages that banal types as bib from the start of the
+against the format rules of the template. Pages that banal types as bib from the start of the
 references on count as reference-only pages, and every other page counts toward the main text, as in the
 ICSE 2027 rule of 10 pages plus up to 2 pages that contain only references.
 """

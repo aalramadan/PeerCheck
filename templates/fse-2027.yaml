@@ -1,4 +1,4 @@
-# An example: profiles/default.yaml set to the rules of the FSE 2027 Research Track.
+# An example: templates/default.yaml set to the rules of the FSE 2027 Research Track.
 # Rules: https://conf.researchr.org/track/fse-2027/fse-2027-papers
 name: FSE 2027 Research Track
 source: https://conf.researchr.org/track/fse-2027/fse-2027-papers
@@ -18,7 +18,7 @@ format:
   # PeerCheck warns when the exempt section runs longer than a page, which may hold text moved out of the limit.
   exempt_pages_max: 1
   # Margins of an acmart v2.20 acmsmall paper with the review and anonymous options, as banal
-  # measures them (top, right, bottom, left), with the tolerance of the IEEE profiles.
+  # measures them (top, right, bottom, left), with the tolerance of the IEEE templates.
   margins: [84, 42, 36, 44]
   margin_tolerance: 18
   # acmsmall sets the body in 10 pt and the references in 8 pt, which banal reports as 10.3 and 8.3 pt.

@@ -17,12 +17,12 @@ from peercheck.papers import pipeline, references
 COMMANDS = ("papers", "reviews", "conflicts", "canary", "setup", "gui")
 # The options that each command reads. Any other option beside a command is a mistake that stops the run.
 OPTIONS = {
-    "papers": {"profile", "out", "json", "submissions", "authors"},
-    "reviews": {"profile", "out", "json", "canaries", "dblp_index"},
-    "conflicts": {"profile", "out", "authors", "pc", "dblp_dump", "dblp_index", "save_index"},
-    "canary": {"profile", "out", "canaries"},
+    "papers": {"template", "out", "json", "submissions", "authors"},
+    "reviews": {"template", "out", "json", "canaries", "dblp_index"},
+    "conflicts": {"template", "out", "authors", "pc", "dblp_dump", "dblp_index", "save_index"},
+    "canary": {"template", "out", "canaries"},
     "setup": {"dblp_dump", "retraction_csv", "refresh"},
-    "gui": {"profile", "host", "port", "no_browser"},
+    "gui": {"template", "host", "port", "no_browser"},
 }
 EXPECTED_ERRORS = (inputs.InputError, profiles.ProfileError, tools.ToolError, ValueError, OSError,
                    argparse.ArgumentTypeError)
@@ -60,8 +60,8 @@ def parser() -> argparse.ArgumentParser:
     commands.add_argument("--gui", action="store_true", help="open the browser interface")
 
     options = top.add_argument_group("options")
-    options.add_argument("--profile", metavar="FILE", help="the rules and settings of the venue, a copy of "
-                         "profiles/default.yaml or an example such as icse-2027 (default profiles/default.yaml)")
+    options.add_argument("--template", metavar="FILE", help="the template of the venue, a copy of "
+                         "templates/default.yaml or an example such as icse-2027 (default templates/default.yaml)")
     options.add_argument("--out", type=Path, metavar="PATH", help="the Excel report, with the HTML report beside it "
                          "(default report.xlsx, reviews.xlsx, or conflicts.xlsx), or the folder of the PDFs of --canary")
     options.add_argument("--json", type=Path, metavar="FILE", help="JSON output of --papers or --reviews")
@@ -119,12 +119,12 @@ def _option(flag: str, value: Path | str | None) -> list[str]:
 
 def run_papers(args: argparse.Namespace) -> int:
     """Check a folder of submission PDFs and write the report."""
-    venue = profiles.load(args.profile or profiles.DEFAULT)
-    if not args.profile:
+    venue = profiles.load(args.template or profiles.DEFAULT)
+    if not args.template:
         rules = venue.format
-        print(f"The default rules of profiles/default.yaml apply: {rules.style}, {rules.columns} columns, "
+        print(f"The default template templates/default.yaml applies: {rules.style}, {rules.columns} columns, "
               f"{rules.main_pages} pages plus {rules.reference_pages} for references. Copy the file to set the rules "
-              "of the venue and pass the copy with --profile.", file=sys.stderr)
+              "of the venue and pass the copy with --template.", file=sys.stderr)
     out = args.out or Path("report.xlsx")
     run = pipeline.run_papers(args.papers, venue, args.submissions, args.authors)
     # The JSON file and the page come first, since the workbook can fail, such as when it is open in Excel.
@@ -146,7 +146,7 @@ def run_reviews(args: argparse.Namespace) -> int:
     """Run the review checks in their own process, since they load PyTorch and the detector models."""
     if importlib.util.find_spec("torch") is None:
         raise tools.ToolError("the review checks need PyTorch, which pip install . installs with PeerCheck")
-    options = [*_option("--profile", args.profile), *_option("--canaries", args.canaries),
+    options = [*_option("--template", args.template), *_option("--canaries", args.canaries),
                *_option("--dblp-index", args.dblp_index), *_option("--out", args.out), *_option("--json", args.json)]
     # The double dash keeps a folder whose name starts with a dash from reading as an option.
     return subprocess.call([sys.executable, "-m", "peercheck.reviews", *options, "--", str(args.reviews)])
@@ -159,7 +159,7 @@ def run_conflicts(args: argparse.Namespace) -> int:
     if args.save_index and (args.dblp_index or not args.dblp_dump):
         raise inputs.InputError("--save-index saves the index built from --dblp-dump; give --dblp-dump without "
                                 "--dblp-index")
-    venue = profiles.load(args.profile or profiles.DEFAULT)
+    venue = profiles.load(args.template or profiles.DEFAULT)
     out = args.out or Path("conflicts.xlsx")
     authors = inputs.read_people(args.authors, with_paper=True)
     committee = inputs.read_people(args.pc, with_paper=False)
@@ -177,7 +177,7 @@ def run_conflicts(args: argparse.Namespace) -> int:
         if args.save_index:
             index.save(args.save_index)
     found = conflicts.find_conflicts(authors, committee, index, venue.options("conflicts"))
-    report.write_sheets(out, {"Conflicts": conflicts.rows(found)}, [], [("Profile", venue.name),
+    report.write_sheets(out, {"Conflicts": conflicts.rows(found)}, [], [("Template", venue.name),
                                           ("DBLP", "used" if index is not None else "not used")], key="Paper")
     print(f"{len(found)} possible conflicts. Report: {out}")
     return 0
@@ -187,7 +187,7 @@ def run_canary(args: argparse.Namespace) -> int:
     """Write a copy of each submission PDF with its hidden citation and update the key file."""
     if not args.out or not args.canaries:
         raise inputs.InputError("--canary needs the folder of the marked PDFs in --out and the key file in --canaries")
-    venue = profiles.load(args.profile or profiles.DEFAULT)
+    venue = profiles.load(args.template or profiles.DEFAULT)
     count, skipped = canary.mark_folder(args.canary, args.out, args.canaries, venue)
     print(f"{count} PDFs marked in {args.out}. Key: {args.canaries}")
     for name in skipped:
@@ -207,10 +207,10 @@ def run_gui(args: argparse.Namespace) -> int:
     # The Docker image sets both variables, since a container must listen on every address of a known port.
     host = args.host or _gui_host(os.environ.get("PEERCHECK_GUI_HOST") or "127.0.0.1")
     port = args.port if args.port is not None else _port(os.environ.get("PEERCHECK_GUI_PORT") or "0")
-    # The page offers the profile of the session first, therefore a profile that does not load stops here.
-    if args.profile:
-        profiles.load(args.profile)
-    return gui.serve(args.profile, port, not args.no_browser, host)
+    # The page offers the template of the session first, therefore a template that does not load stops here.
+    if args.template:
+        profiles.load(args.template)
+    return gui.serve(args.template, port, not args.no_browser, host)
 
 
 RUNNERS = {"papers": run_papers, "reviews": run_reviews, "conflicts": run_conflicts, "canary": run_canary,

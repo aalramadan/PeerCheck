@@ -1,4 +1,4 @@
-"""Tests of loading and validating venue profiles."""
+"""Tests of loading and validating templates."""
 
 import importlib.util
 import shutil
@@ -16,13 +16,13 @@ def _shipped(key):
 
 
 def test_source_checkout_reads_the_profiles_from_the_folder_beside_src():
-    assert profile.PROFILES == Path(profile.__file__).resolve().parent.parent / "profiles"
+    assert profile.PROFILES == Path(profile.__file__).resolve().parent.parent / "templates"
 
 
-def test_installed_package_finds_the_profiles_that_its_wheel_holds(tmp_path, monkeypatch):
+def test_installed_package_finds_the_templates_that_its_wheel_holds(tmp_path, monkeypatch):
     package = tmp_path / "site-packages" / "peercheck"
-    (package / "profiles").mkdir(parents=True)
-    shutil.copy(profile.PROFILES / "fse-2027.yaml", package / "profiles" / "fse-2027.yaml")
+    (package / "templates").mkdir(parents=True)
+    shutil.copy(profile.PROFILES / "fse-2027.yaml", package / "templates" / "fse-2027.yaml")
     shutil.copy(profile.__file__, package / "profile.py")
     spec = importlib.util.spec_from_file_location("installed_profile", package / "profile.py")
     installed = importlib.util.module_from_spec(spec)
@@ -73,7 +73,7 @@ def test_default_rules_load_and_stay_out_of_the_examples():
 def test_profile_without_values_names_the_default_file(tmp_path):
     empty = tmp_path / "venue.yaml"
     empty.write_text("# only comments\n", encoding="utf-8")
-    with pytest.raises(profile.ProfileError, match="copy profiles/default.yaml"):
+    with pytest.raises(profile.ProfileError, match="copy templates/default.yaml"):
         profile.load(str(empty))
 
 

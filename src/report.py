@@ -232,7 +232,7 @@ def _findings_sheet(workbook, title: str, key: str, items: list[tuple[object, Fi
 
 def _about(workbook, profile: Profile, extra: list[tuple[str, str]]) -> None:
     sheet = workbook.create_sheet("About")
-    for row in [("PeerCheck version", __version__), ("Profile", profile.name), ("Rules", profile.source),
+    for row in [("PeerCheck version", __version__), ("Template", profile.name), ("Rules", profile.source),
                 ("Created", datetime.date.today().isoformat())] + extra:
         _append(sheet, row)
 

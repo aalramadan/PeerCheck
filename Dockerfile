@@ -11,7 +11,7 @@ WORKDIR /opt/peercheck
 # Only the files of the package, since a working clone may also hold submissions, reviews, and reports.
 COPY pyproject.toml README.md LICENSE NOTICE.md ./
 COPY src src
-COPY profiles profiles
+COPY templates templates
 COPY external external
 # The editable install keeps src/ beside external/, where the checks find the tools of other authors. The CPU build
 # of PyTorch keeps the image small.

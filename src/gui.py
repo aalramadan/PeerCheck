@@ -49,7 +49,7 @@ class RequestError(ValueError):
 
 def command(kind: str, options: dict, folder: Path) -> list[str]:
     """Return the arguments of peercheck for one run of the page, with the files uploaded to its folder."""
-    venue = ["--profile", options["profile"]] if options.get("profile") else []
+    venue = ["--template", options["profile"]] if options.get("profile") else []
 
     def single(field: str) -> list[str]:
         files = sorted((folder / field).iterdir()) if (folder / field).is_dir() else []
@@ -109,7 +109,7 @@ class Server(ThreadingHTTPServer):
         folder = self.run_folder(str(request.get("run", "")))
         kind = str(request.get("kind", ""))
         if request.get("profile", "") not in {p["key"] for p in self.profiles()}:
-            raise RequestError("unknown venue profile")
+            raise RequestError("unknown template")
         arguments = command(kind, request, folder)
         if not self.running.acquire(blocking=False):
             raise RequestError("another check is running; wait for it to end")

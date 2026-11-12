@@ -46,7 +46,7 @@ def parser() -> argparse.ArgumentParser:
     top = argparse.ArgumentParser(prog="peercheck --reviews",
                                   description="Check the reviews of a folder or a file.")
     top.add_argument("folder", help="folder or file of the reviews")
-    top.add_argument("--profile", help="the rules of the venue and the settings of the review checks")
+    top.add_argument("--template", help="the template of the venue, with the settings of the review checks")
     top.add_argument("--canaries", type=Path, help="key file of peercheck --canary, to find reviews that contain the "
                                                    "citation hidden in their paper")
     top.add_argument("--dblp-index", type=Path, help="dblp index saved by peercheck --conflicts, to match "
@@ -58,7 +58,7 @@ def parser() -> argparse.ArgumentParser:
 
 def run(args: argparse.Namespace) -> int:
     """Check every review of a folder and write the report."""
-    venue = profiles.load(args.profile or profiles.DEFAULT)
+    venue = profiles.load(args.template or profiles.DEFAULT)
     detectors, skipped = _detectors(venue)
     checks = tuple(name for name in CHECKS if _options(venue, name).get("enabled", True))
     key = canary.read_key(args.canaries) if args.canaries else None

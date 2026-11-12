@@ -22,20 +22,20 @@ def _used_venue(monkeypatch):
 def test_papers_command_without_a_profile_applies_the_default_rules(monkeypatch, tmp_path, capsys):
     used = _used_venue(monkeypatch)
     assert cli.main(["--papers", str(tmp_path), "--out", str(tmp_path / "r.xlsx")]) == 0
-    assert used[0][1].name == "Default rules"
-    assert "profiles/default.yaml" in capsys.readouterr().err
+    assert used[0][1].name == "Default template"
+    assert "templates/default.yaml" in capsys.readouterr().err
 
 
 def test_profile_may_come_before_or_after_the_command(monkeypatch, tmp_path):
     used = _used_venue(monkeypatch)
-    assert cli.main(["--papers", str(tmp_path), "--profile", "icse-2027", "--out", str(tmp_path / "r.xlsx")]) == 0
-    assert cli.main(["--profile", "fse-2027", "--papers", str(tmp_path), "--out", str(tmp_path / "r.xlsx")]) == 0
+    assert cli.main(["--papers", str(tmp_path), "--template", "icse-2027", "--out", str(tmp_path / "r.xlsx")]) == 0
+    assert cli.main(["--template", "fse-2027", "--papers", str(tmp_path), "--out", str(tmp_path / "r.xlsx")]) == 0
     assert [args[1].name for args in used] == ["ICSE 2027 Research Track", "FSE 2027 Research Track"]
 
 
 def test_papers_command_leaves_the_choice_of_checks_to_the_venue_rules(monkeypatch, tmp_path):
     used = _used_venue(monkeypatch)
-    assert cli.main(["--profile", "icse-2027", "--papers", str(tmp_path), "--out", str(tmp_path / "r.xlsx")]) == 0
+    assert cli.main(["--template", "icse-2027", "--papers", str(tmp_path), "--out", str(tmp_path / "r.xlsx")]) == 0
     assert len(used[0]) == 4
 
 
@@ -63,7 +63,7 @@ def test_command_line_refuses_an_abbreviated_option():
 
 def test_papers_command_writes_the_html_page_beside_the_workbook_by_default(monkeypatch, tmp_path):
     monkeypatch.setattr(cli.pipeline, "run_papers", _papers_run)
-    assert cli.main(["--profile", "icse-2027", "--papers", str(tmp_path), "--out", str(tmp_path / "venue.xlsx")]) == 0
+    assert cli.main(["--template", "icse-2027", "--papers", str(tmp_path), "--out", str(tmp_path / "venue.xlsx")]) == 0
     assert (tmp_path / "venue.xlsx").is_file() and (tmp_path / "venue.html").is_file()
 
 
@@ -73,7 +73,7 @@ def test_papers_command_writes_the_json_and_html_reports_when_the_workbook_fails
 
     monkeypatch.setattr(cli.pipeline, "run_papers", _papers_run)
     monkeypatch.setattr(cli.report, "write_papers", locked)
-    argv = ["--profile", "icse-2027", "--papers", str(tmp_path), "--out", str(tmp_path / "report.xlsx"),
+    argv = ["--template", "icse-2027", "--papers", str(tmp_path), "--out", str(tmp_path / "report.xlsx"),
             "--json", str(tmp_path / "report.json")]
     assert cli.main(argv) == 2
     assert (tmp_path / "report.json").is_file() and (tmp_path / "report.html").is_file()
@@ -89,8 +89,8 @@ def _review_command(monkeypatch, argv):
 
 
 def test_reviews_command_hands_its_options_and_its_folder_to_the_review_checks(monkeypatch):
-    argv = ["--profile", "fse-2027", "--reviews", "exports", "--canaries", "key.csv"]
-    assert _review_command(monkeypatch, argv) == ["--profile", "fse-2027", "--canaries", "key.csv", "--", "exports"]
+    argv = ["--template", "fse-2027", "--reviews", "exports", "--canaries", "key.csv"]
+    assert _review_command(monkeypatch, argv) == ["--template", "fse-2027", "--canaries", "key.csv", "--", "exports"]
 
 
 def test_reviews_folder_whose_name_starts_with_a_dash_stays_a_folder(monkeypatch):
@@ -111,8 +111,8 @@ def _served(monkeypatch):
 
 def test_gui_with_an_unknown_profile_stops_before_the_page_starts(monkeypatch, capsys):
     served = _served(monkeypatch)
-    assert cli.main(["--profile", "no-such-venue", "--gui", "--no-browser"]) == 2
-    assert not served and "unknown profile 'no-such-venue'" in capsys.readouterr().err
+    assert cli.main(["--template", "no-such-venue", "--gui", "--no-browser"]) == 2
+    assert not served and "unknown template 'no-such-venue'" in capsys.readouterr().err
 
 
 @pytest.mark.parametrize("value", ["abc", "70000"])

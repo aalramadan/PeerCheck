@@ -57,7 +57,7 @@ def test_papers_command_passes_the_uploaded_files_and_leaves_the_checks_to_the_v
     (tmp_path / "authors").mkdir()
     (tmp_path / "authors" / "authors.csv").write_text("paper,first,last,email,affiliation\n")
     arguments = gui.command("papers", {"profile": "fse-2027"}, tmp_path)
-    assert arguments[:4] == ["--profile", "fse-2027", "--papers", str(tmp_path / "pdfs")]
+    assert arguments[:4] == ["--template", "fse-2027", "--papers", str(tmp_path / "pdfs")]
     assert arguments[arguments.index("--authors") + 1] == str(tmp_path / "authors" / "authors.csv")
     assert "--checks" not in arguments and "--submissions" not in arguments
 
@@ -74,7 +74,7 @@ def test_page_offers_the_profile_of_the_session_first_and_each_choice_once(tmp_p
 
 def test_reviews_command_leaves_the_detectors_and_checks_to_the_venue_rules(tmp_path):
     arguments = gui.command("reviews", {"profile": "icse-2027"}, tmp_path)
-    assert arguments[:3] == ["--profile", "icse-2027", "--reviews"]
+    assert arguments[:3] == ["--template", "icse-2027", "--reviews"]
     assert "--detectors" not in arguments and "--checks" not in arguments
 
 
@@ -119,7 +119,7 @@ def test_page_and_profiles_load_without_the_token(server):
 
 def test_profile_outside_the_offered_list_is_refused(server, tmp_path):
     status, data = start_run(server, [], {"kind": "conflicts", "profile": str(tmp_path / "venue.yaml")})
-    assert status == 400 and data["error"] == "unknown venue profile"
+    assert status == 400 and data["error"] == "unknown template"
 
 
 def test_files_of_an_unknown_run_or_name_are_not_served(server):

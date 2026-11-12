@@ -16,7 +16,7 @@
 
 > [!TIP]
 > The [live demo](https://aalramadan.github.io/PeerCheck/) shows the reports of PeerCheck on the files of
-> [`examples/`](examples/). [`external/README.md`](external/README.md) lists every check with the tools and the papers
+> [`examples/`](examples/). [`external/README.md`](external/README.md) names every check with the tools and the papers
 > it builds on.
 
 ## 📦 Requirements
@@ -34,7 +34,7 @@ cd PeerCheck                                            # enter the repository f
 python3 -m venv .venv                                   # create a virtual environment
 source .venv/bin/activate                               # activate the virtual environment
 pip install .                                           # install PeerCheck and its two AI detectors
-peercheck --setup                                       # download Hallucinator, DBLP, and the Retraction Watch list
+peercheck --setup                                       # download Hallucinator, DBLP, and the Retraction Watch data
 ```
 
 > [!NOTE]
@@ -48,139 +48,24 @@ The image `ghcr.io/aalramadan/peercheck` contains PeerCheck and its requirements
 ```bash
 docker pull ghcr.io/aalramadan/peercheck   # pull or update the image
 alias peercheck='docker run --rm -v "$PWD:/data" -v peercheck-cache:/cache -e HF_TOKEN ghcr.io/aalramadan/peercheck'  # run PeerCheck inside the container
-peercheck --setup                          # download Hallucinator, DBLP, and the Retraction Watch list
+peercheck --setup                          # download Hallucinator, DBLP, and the Retraction Watch data
 ```
 
 ## 🚀 Usage
 
-PeerCheck reads the submission PDFs or the XML and CSV review files of a conference, checks them against the rules of
-the venue, and writes an HTML report together with an Excel workbook of every detail.
+PeerCheck reads the submission PDFs or the XML and CSV review files of a conference, checks them against the template
+of the venue, and writes an HTML report together with an Excel workbook of every detail.
 
-For example, these commands check the submissions and the reviews of a conference whose files are stored in the
-folder `my-conference`.
+### Templates
 
-```bash
-my-conference/
-  venue.yaml     # the rules of the venue, a copy of profiles/default.yaml
-  submissions/   # the PDFs of the submissions
-  reviews/       # the reviews, as the XML files of a review export or one CSV file
-```
+A template is a YAML file with the rules of a venue, such as its format and page limits, and the settings of every
+check. `templates/default.yaml` holds every rule and setting with its default and applies when no `--template` is
+given, with IEEE, two columns, US Letter, and 10 pages plus 2 for references.
 
-```bash
-cd my-conference
-peercheck --profile venue.yaml --papers submissions/   # check the PDFs
-peercheck --profile venue.yaml --reviews reviews/      # check the reviews
-```
-
-The first command writes `report.html` and `report.xlsx`. The second writes `reviews.html` and `reviews.xlsx`.
-
-PeerCheck takes the paper number from the PDF name, such as 12 in `CONF_2027_paper_12.pdf`.
-
-> [!NOTE]
-> Without `--profile`, PeerCheck applies the default rules of `profiles/default.yaml`, which set IEEE, two columns,
-> US Letter, and 10 pages plus 2 for references.
-
-### Checks
-
-Each check has a section in `venue.yaml`, where `enabled: false` turns it off.
-
-#### Papers (`--papers`)
-
-| Check | Section | Detects |
-|---|---|---|
-| Format | `layout` | Page size, columns, margins, fonts, page limits, unusual density, damaged files, unresolved references, title mismatches, and oversized images |
-| Anonymity and template | `sigsoft` | Author names, email addresses, affiliations, and identifying links in the text and the metadata, and a wrong template |
-| Hidden text | `hidden_text` | White, invisible, or tiny text, hidden prompts, and embedded scripts |
-| References | `references` | Unconfirmed and retracted references |
-
-#### Reviews (`--reviews`)
-
-| Check | Section | Detects |
-|---|---|---|
-| AI detection | `cocodet`, `editlens` | Reviews likely written or edited by a language model |
-| Copied text | `duplicates` | Paragraphs shared between reviews |
-| Citation requests | `citations` | Requests to cite works, including works of the reviewer |
-| Planted citation | `canary` | Reviews that cite the planted work |
-
-#### Conflicts of interest (`--conflicts`)
-
-| Check | Section | Detects |
-|---|---|---|
-| Conflicts of interest | `conflicts` | Co-authorship, shared email domains, and matching affiliations |
-
-### Commands
-
-| Command | Description |
-|---|---|
-| `--papers <folder>` | Checks the submission PDFs (`.pdf`) of a folder |
-| `--reviews <folder or file>` | Checks the reviews (`.xml`, `.csv`) |
-| `--conflicts` | Finds conflicts of interest |
-| `--canary <folder>` | Inserts a fictitious citation into each PDF of a folder |
-| `--setup` | Downloads Hallucinator, DBLP, and the Retraction Watch list |
-| `--gui` | Opens the browser interface |
-| `--profile <file>` | Venue rules and settings (`.yaml`) |
-| `--out <file or folder>` | Excel report (`.xlsx`) with the HTML report (`.html`) beside it, or the folder of the marked PDFs of `--canary` |
-| `--json <file>` | JSON output (`.json`) |
-| `--submissions <file>` | Submission sheet (`.csv`, `.xlsx`) |
-| `--authors <file>` | Author list (`.csv`, `.xlsx`) |
-| `--pc <file>` | Committee list (`.csv`, `.xlsx`) |
-| `--canaries <file>` | Canary key file (`.csv`) that `--canary` writes and `--reviews` reads |
-| `--dblp-dump <file>` | DBLP dump (`.xml.gz`) from dblp.org/xml |
-| `--save-index <file>` | Co-author index (`.json.gz`) to save from the DBLP dump |
-| `--dblp-index <file>` | Co-author index (`.json.gz`) saved by an earlier run |
-| `--retraction-csv <file>` | Local Retraction Watch list (`.csv`) for `--setup` |
-| `--refresh` | New download of every file of `--setup` |
-| `--host <address>` | Address of the browser interface |
-| `--port <number>` | Port of the browser interface |
-| `--no-browser` | Browser interface without a browser window |
-| `--help` | Help of a command |
-
-### Lists
-
-Each list is a CSV or Excel file with a header row and one row per entry. Common variants of the header names are
-accepted, such as `First Name` or `Submission #`. The corresponding files in [`examples/`](examples/) serve as
-templates.
-
-| List | One row per | Columns |
-|---|---|---|
-| Author list (`--authors`) | Author of a paper | `paper` (paper number), `first`, `last`, `email`, and `affiliation` |
-| Committee list (`--pc`) | Committee member | `first`, `last`, `email`, `affiliation`, and an optional `dblp` (DBLP person ID) |
-| Submission sheet (`--submissions`) | Paper | `paper` and `title` |
-| Reviews (`--reviews`) | Review | `paper`, `review` (review ID, such as A), and one column per field of the review form |
-
-Fields intended for the committee only, such as `Comments for PC`, are excluded from AI detection.
-
-```bash
-# authors.csv, the author list for --authors, as examples/authors.csv
-paper,first,last,email,affiliation
-1,Maria,Okafor,maria.okafor@lakeside.example,Lakeside Institute of Technology
-
-# pc.csv, the committee list for --pc, as examples/committee.csv, with an optional dblp person ID
-first,last,email,affiliation,dblp
-Paul,Meier,paul.meier@uni-nowhere.edu,University of Nowhere,
-
-# submissions.csv, the submission sheet for --submissions
-paper,title
-1,A Study of Flaky Tests
-
-# reviews.csv, reviews as one CSV file, as examples/reviews.csv, with one column per field of the review form
-paper,review,Comments for authors
-1,A,"The paper proposes ..."
-```
-
-`--canary` generates the key file of `--canaries`.
-
-### Venue rules
-
-The file `venue.yaml` contains the rules of the venue, such as its template and page limit, and every setting of the
-checks. `profiles/default.yaml` lists each rule and setting with its default.
-
-1. Copy `profiles/default.yaml` into the folder of the conference as `venue.yaml`.
+1. Copy `templates/default.yaml` into the folder of the conference as `template.yaml`.
 2. Set each value according to the call for papers. A line that starts with `#` is inactive until the `#` is
    removed.
-3. Pass the copy with `--profile venue.yaml`.
-
-Every check runs unless its section sets `enabled: false`, as in this excerpt of a `venue.yaml`.
+3. Pass the copy with `--template template.yaml`.
 
 ```yaml
 checks:
@@ -192,29 +77,142 @@ checks:
     coauthor_years: 2      # count joint papers of the last two years
 ```
 
-Two venues serve as examples, each with the address of its call for papers.
+Two templates of real venues serve as examples, each with the address of its call for papers.
 
-| Profile | Venue | Format | Pages |
+| Template | Venue | Format | Pages |
 |---|---|---|---|
 | `icse-2027` | ICSE 2027 Research Track | IEEE, two columns, US Letter | 10 plus 2 for references |
 | `fse-2027` | FSE 2027 Research Track | ACM acmsmall, one column | 18 plus 4 for references |
 
-### Other commands
+Each check has a key in the template. The line `enabled: false` under that key turns the check off.
+
+#### Papers (`--papers`)
+
+| Check | Template key | Detects |
+|---|---|---|
+| Format | `layout` | Page size, columns, margins, fonts, page limits, unusual density, damaged files, unresolved references, title mismatches, and oversized images |
+| Anonymity and template | `sigsoft` | Author names, email addresses, affiliations, and identifying links in the text and the metadata, and a wrong template |
+| Hidden text | `hidden_text` | White, invisible, or tiny text, hidden prompts, and embedded scripts |
+| References | `references` | Unconfirmed and retracted references |
+
+#### Reviews (`--reviews`)
+
+| Check | Template key | Detects |
+|---|---|---|
+| AI detection | `cocodet`, `editlens` | Reviews likely written or edited by a language model |
+| Copied text | `duplicates` | Paragraphs shared between reviews |
+| Citation requests | `citations` | Requests to cite works, including works of the reviewer |
+| Planted citation | `canary` | Reviews that cite the planted work |
+
+#### Conflicts of interest (`--conflicts`)
+
+| Check | Template key | Detects |
+|---|---|---|
+| Conflicts of interest | `conflicts` | Co-authorship, shared email domains, and matching affiliations |
+
+### Commands
+
+#### Regular use
+
+| Command | Description |
+|---|---|
+| `--papers <folder>` | Checks the submission PDFs (`.pdf`) of a folder |
+| `--reviews <folder or file>` | Checks the reviews (`.xml`, `.csv`) |
+| `--conflicts` | Finds conflicts of interest between the authors and the committee |
+| `--canary <folder>` | Inserts a fictitious citation into each PDF of a folder |
+| `--template <file>` | Template of the venue (`.yaml`) |
+| `--out <file or folder>` | Excel report (`.xlsx`) with the HTML report (`.html`) beside it, or the output folder of `--canary` |
+| `--submissions <file>` | Submissions file (`.csv`, `.xlsx`) |
+| `--authors <file>` | Authors file (`.csv`, `.xlsx`) |
+| `--pc <file>` | Committee file (`.csv`, `.xlsx`) |
+| `--canaries <file>` | Canary key file (`.csv`) that `--canary` writes and `--reviews` reads |
+
+#### Setup
+
+| Command | Description |
+|---|---|
+| `--setup` | Downloads Hallucinator, DBLP, and the Retraction Watch data |
+| `--refresh` | New download of every file of `--setup` |
+| `--retraction-csv <file>` | Local Retraction Watch file (`.csv`) for `--setup` |
+
+#### Extras
+
+| Command | Description |
+|---|---|
+| `--gui` | Opens the browser interface |
+| `--host <address>`, `--port <number>` | Address and port of the browser interface |
+| `--no-browser` | Browser interface without a browser window |
+| `--json <file>` | JSON output (`.json`) |
+| `--dblp-dump <file>` | DBLP dump (`.xml.gz`) for the co-author check of `--conflicts`, or for `--setup` without download |
+| `--save-index <file>` | Co-author index (`.json.gz`) to save from the DBLP dump |
+| `--dblp-index <file>` | Co-author index (`.json.gz`) saved by an earlier run |
+| `--help`, `--version` | Help and version of PeerCheck |
+
+### Input format
+
+PDFs may carry any names. PeerCheck takes the paper number from the name, such as 12 in `CONF_2027_paper_12.pdf`.
+
+The other inputs are CSV or Excel files with a header row and one row per entry. Common variants of the header names
+are accepted, such as `First Name` or `Submission #`. The matching files in [`examples/`](examples/) serve as starting
+points.
+
+| File | One row per | Columns |
+|---|---|---|
+| Authors file (`--authors`) | Author of a paper | `paper` (paper number), `first`, `last`, `email`, and `affiliation` |
+| Committee file (`--pc`) | Committee member | `first`, `last`, `email`, `affiliation`, and an optional `dblp` (DBLP person ID) |
+| Submissions file (`--submissions`) | Paper | `paper` and `title` |
+| Reviews file (`--reviews`) | Review | `paper`, `review` (review ID, such as A), and one column per field of the review form |
+
+Reviews may also come as the XML files of a review export. Fields intended for the committee only, such as
+`Comments for PC`, are excluded from AI detection. `--canary` generates the key file of `--canaries`.
 
 ```bash
-peercheck --conflicts --authors authors.csv --pc pc.csv --dblp-dump dblp.xml.gz   # find conflicts of interest
-peercheck --canary submissions/ --out marked/ --canaries canaries.csv               # insert a fictitious citation into each PDF
-peercheck --profile venue.yaml --reviews reviews/ --canaries canaries.csv           # find reviews that cite the planted work
-peercheck --gui                                                                     # open the browser interface
+# authors.csv, the authors file for --authors, as examples/authors.csv
+paper,first,last,email,affiliation
+1,Maria,Okafor,maria.okafor@lakeside.example,Lakeside Institute of Technology
+
+# pc.csv, the committee file for --pc, as examples/committee.csv, with an optional dblp person ID
+first,last,email,affiliation,dblp
+Paul,Meier,paul.meier@uni-nowhere.edu,University of Nowhere,
+
+# submissions.csv, the submissions file for --submissions
+paper,title
+1,A Study of Flaky Tests
+
+# reviews.csv, the reviews file for --reviews, as examples/reviews.csv, with one column per field of the review form
+paper,review,Comments for authors
+1,A,"The paper proposes ..."
 ```
 
-With Docker, the browser interface requires a published port, as in `docker run --rm -p 127.0.0.1:8765:8765 -v
+### Examples
+
+These commands check a conference whose files are stored in the folder `my-conference`.
+
+```bash
+my-conference/
+  template.yaml   # the template of the venue, a copy of templates/default.yaml
+  submissions/    # the PDFs of the submissions
+  reviews/        # the reviews, as the XML files of a review export or one CSV file
+```
+
+```bash
+cd my-conference
+peercheck --template template.yaml --papers submissions/                       # check the PDFs
+peercheck --template template.yaml --reviews reviews/                          # check the reviews
+peercheck --conflicts --authors authors.csv --pc pc.csv --dblp-dump dblp.xml.gz  # find conflicts of interest
+peercheck --canary submissions/ --out marked/ --canaries canaries.csv            # insert a fictitious citation into each PDF
+peercheck --template template.yaml --reviews reviews/ --canaries canaries.csv  # find reviews that cite the planted work
+peercheck --gui                                                                # open the browser interface
+```
+
+The first command writes `report.html` and `report.xlsx`. The second writes `reviews.html` and `reviews.xlsx`. With
+Docker, the browser interface requires a published port, as in `docker run --rm -p 127.0.0.1:8765:8765 -v
 peercheck-cache:/cache -e HF_TOKEN ghcr.io/aalramadan/peercheck --gui`.
 
 > [!TIP]
-> Check the original PDFs with `--papers` before `--canary`, since the hidden-text check reports the
-> planted citation. Then upload the marked copies to the conference system in place of the originals, before the
-> reviewers download the papers.
+> Check the original PDFs with `--papers` before `--canary`, since the hidden-text check reports the planted
+> citation. Then upload the marked copies to the conference system in place of the originals, before the reviewers
+> download the papers.
 
 > [!WARNING]
 > Keep the key file of `--canary` private, since it reveals the planted citation of each paper.
@@ -261,7 +259,7 @@ We tested the two AI detectors on 1,409 reviews of ICLR 2017 papers, in three gr
 
 The tests reside in `tests/` and run offline. GitHub Actions runs the full suite on every push.
 
-- **Check tests** run each check on the small PDFs, review files, and lists of `tests/fixtures/` and on the example
+- **Check tests** run each check on the small PDFs, review files, and CSV files of `tests/fixtures/` and on the example
   papers.
 - **Command tests** run the commands and check their reports and their messages.
 - **Interface tests** start the browser interface and run checks through its forms.
@@ -285,7 +283,7 @@ editable mode. The group `[dev]` adds pytest and ruff.
 
 - PeerCheck runs all checks locally, including the two AI detectors.
 - The reference check first looks up each cited work in a local copy of DBLP.
-- Two settings under `references` in `venue.yaml` control the data that PeerCheck sends to online databases. Each
+- Two settings under `references` in the template control the data that PeerCheck sends to online databases. Each
   is `true` by default.
 
 | Setting | Data sent | Destination |
@@ -296,6 +294,6 @@ editable mode. The group `[dev]` adds pytest and ruff.
 
 ## 📜 License
 
-PeerCheck is free software under the GNU General Public License version 3, as `LICENSE` states. `NOTICE.md` lists
+PeerCheck is free software under the GNU General Public License version 3, as `LICENSE` states. `NOTICE.md` names
 the tools and the data of other authors with their licenses. To cite PeerCheck, use *Cite this repository* on
 GitHub, which reads `CITATION.cff`.

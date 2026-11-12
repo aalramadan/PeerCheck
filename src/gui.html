@@ -42,7 +42,7 @@ pre{white-space:pre-wrap;word-break:break-word;color:var(--muted);font-size:.8re
 <body>
 <header>
   <h1>PeerCheck</h1>
-  <label>Venue profile <select id="profile"></select></label>
+  <label>Template <select id="profile"></select></label>
   <button id="theme" type="button">Light or dark</button>
 </header>
 <main>
@@ -62,7 +62,7 @@ pre{white-space:pre-wrap;word-break:break-word;color:var(--muted);font-size:.8re
     <div class="field"><label for="submissions">Submission sheet (optional)</label>
       <input id="submissions" name="submissions" type="file" accept=".csv,.xlsx">
       <small>A CSV or Excel list with the number and the title of each paper, which the report extends.</small></div>
-    <p><small>The venue rules decide which checks run. The reference check needs <code>peercheck --setup</code>
+    <p><small>The template decides which checks run. The reference check needs <code>peercheck --setup</code>
       first.</small></p>
     <button class="run" type="submit">Check the submissions</button>
   </form>
@@ -75,7 +75,7 @@ pre{white-space:pre-wrap;word-break:break-word;color:var(--muted);font-size:.8re
       <input id="canaries" name="canaries" type="file" accept=".csv">
       <small>The key file of <code>peercheck --canary</code>, to find reviews that cite the made-up work hidden in
         their paper.</small></div>
-    <p><small>The venue rules decide which checks run. EditLens runs when a Hugging Face token is set, as the README
+    <p><small>The template decides which checks run. EditLens runs when a Hugging Face token is set, as the README
       describes.</small></p>
     <button class="run" type="submit">Check the reviews</button>
   </form>

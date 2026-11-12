@@ -10,7 +10,7 @@ leaves the machine.
 PeerCheck adds what pdfguardrail misses on the fixtures of tests/fixtures/hidden. First, text cut away by a clipping
 path that lies over visible text, found with the TEXT_CLIP flag of PyMuPDF. Second, instructions to a human reviewer,
 such as "Reviewers should rate ...", which pdfguardrail labels as unknown or harmless in hidden text and leaves out
-of short metadata values. Third, the reviewing phrases of PhantomLint and the phrases of the venue profile.
+of short metadata values. Third, the reviewing phrases of PhantomLint and the phrases of the template.
 
 pdfguardrail keeps two renders of every page in memory. The scan therefore runs in a child process that stops at
 MAX_PAGES pages, SCAN_SECONDS seconds, and, on Linux, MEMORY_BYTES of added memory. A page that MuPDF cannot read gets a
