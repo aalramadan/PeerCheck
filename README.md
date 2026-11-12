@@ -75,12 +75,27 @@ peercheck --profile venue.yaml reviews reviews/      # check the reviews
 The first command writes `report.html` and `report.xlsx`. The second writes `reviews.html` and `reviews.xlsx`.
 
 - A number after paper or submission in a PDF name becomes the paper number, such as 12 in `CONF_2027_paper_12.pdf`.
-- A review CSV file holds the columns paper and review (the review ID, such as A) and one column per field of the
-  review form, such as the text of the review.
 
 > [!NOTE]
 > Without `--profile`, PeerCheck applies the default rules of `profiles/default.yaml`, which set IEEE, two columns,
 > US Letter, and 10 pages plus 2 for references.
+
+### Checks
+
+Each check has a section in `venue.yaml`, where `enabled: false` turns it off.
+
+| Check | Section | Finds |
+|---|---|---|
+| Format | `layout` | page size, columns, margins, fonts, line spacing, page limits, and papers far denser than the rest |
+| File and text | `layout` | locked, damaged, or unreadable files, references such as Section ??, a title that differs from the submission sheet, and oversized images |
+| Anonymity and template | `sigsoft` | author names, email addresses, affiliations, and links that reveal the authors, also in the PDF metadata, and a template other than that of the venue |
+| Hidden text | `hidden_text` | white, invisible, or tiny text, prompts hidden for AI tools, and scripts that run on opening |
+| References | `references` | references that no bibliographic database confirms, and retracted references |
+| AI detection | `cocodet`, `editlens` | reviews that a language model may have written or edited |
+| Copied text | `duplicates` | paragraphs that reviews share |
+| Citation requests | `citations` | works that reviewers ask the authors to cite, their own included |
+| Planted citation | `canary` | reviews that cite the made-up work hidden in their paper |
+| Conflicts of interest | `conflicts` | co-authorship, shared email domains, and matching affiliations of authors and committee members |
 
 ### Options
 
@@ -89,16 +104,50 @@ The first command writes `report.html` and `report.xlsx`. The second writes `rev
 | `--profile` | all, before the command | The rules and settings of the venue, a copy of `profiles/default.yaml` or an example such as `icse-2027` |
 | `--out` | all | The Excel report, with the HTML page beside it, or the folder of marked PDFs for `canary` |
 | `--json` | papers, reviews | Also writes the results as JSON |
-| `--submissions` | papers | A CSV or Excel file with the columns paper and title, for the title check |
-| `--authors` | papers, conflicts | A CSV or Excel file with the columns paper, first, last, email, and affiliation, for the author names in the PDFs and the conflict check |
+| `--submissions` | papers | The submission sheet of Lists, for the title check |
+| `--authors` | papers, conflicts | The author list of Lists, for the author names in the PDFs and the conflict check |
 | `--canaries` | reviews | The key file of `canary`, for the check of the planted citations |
-| `--pc` | conflicts | A CSV or Excel file with the columns first, last, email, affiliation, and an optional dblp (the DBLP person ID) |
+| `--pc` | conflicts | The committee list of Lists, for the conflict check |
 | `--dblp-dump` | conflicts, setup | The DBLP download `dblp.xml.gz` from dblp.org/xml, for the co-author check or the DBLP copy of `setup` |
 | `--dblp-index`, `--save-index` | reviews, conflicts | An index of co-authors that `--save-index` keeps for later runs |
 | `--key` | canary | The private file that lists the planted citation of each paper |
 | `--retraction-csv`, `--refresh` | setup | A local Retraction Watch list, or a new download of every file |
 | `--host`, `--port`, `--no-browser` | gui | The address of the browser page |
 | `--help` | all | Prints the options of a command |
+
+### Lists
+
+The lists are CSV or Excel files with a header row and one row per entry. Common header names also work, such as
+`First Name` or `Submission #`, and the matching files of [`examples/`](examples/) can serve as starting points.
+
+| List | One row per | Columns |
+|---|---|---|
+| Author list (`--authors`) | author of a paper | `paper` (the paper number of the PDF name), `first` and `last` (the name), `email`, and `affiliation` |
+| Committee list (`--pc`) | committee member | `first`, `last`, `email`, `affiliation`, and an optional `dblp` (the DBLP person ID, such as `12/3456`) |
+| Submission sheet (`--submissions`) | paper | `paper` (the paper number) and `title` (the title that the authors entered) |
+| Reviews (`reviews`) | review | `paper` (the paper number), `review` (the review ID, such as A), and one column per field of the review form, such as `Comments for authors` |
+
+A field meant for the committee alone, such as `Comments for PC`, stays out of the AI detectors.
+
+```bash
+# authors.csv, the author list for --authors, as examples/authors.csv
+paper,first,last,email,affiliation
+1,Maria,Okafor,maria.okafor@lakeside.example,Lakeside Institute of Technology
+
+# pc.csv, the committee list for --pc, as examples/committee.csv, with an optional dblp person ID
+first,last,email,affiliation,dblp
+Paul,Meier,paul.meier@uni-nowhere.edu,University of Nowhere,
+
+# submissions.csv, the submission sheet for --submissions
+paper,title
+1,A Study of Flaky Tests
+
+# reviews.csv, reviews as one CSV file, as examples/reviews.csv, with one column per field of the review form
+paper,review,Comments for authors
+1,A,"The paper proposes ..."
+```
+
+`peercheck canary` writes the key file of `--canaries` itself.
 
 ### Venue rules
 

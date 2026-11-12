@@ -37,13 +37,17 @@ format:
 checks:                                             # every check runs unless its section sets enabled: false
   layout:
     enabled: true                                   # default true: the format check, with fonts, margins, and the other layout notes
+    # Runs with it: the PDF integrity check, unresolved references such as Section ??, unreadable text, and the
+    # checks that the sections fonts, margins, line_numbers, images, accessibility, title, and density set.
   sigsoft:
     enabled: true                                   # default true: the anonymity and template check
+    # Runs with it: author names and home folders hidden in the PDF metadata. The section anonymity sets both.
   anonymity:
     flag_acknowledgments: true                      # default true: report an acknowledgments section
     # allowed_hosts: [anonymous.4open.science, zenodo.org, figshare.com, osf.io, doi.org]   # default none: hosts that links may name
   hidden_text:
     enabled: true                                   # default true: the hidden-text check
+    # Runs with it: scripts and other active content, which the section active_content sets.
     min_font_size: 2.0                              # default 2.0: text smaller than this counts as hidden, in points
     # extra_phrases: [ignore all previous instructions]   # default none: more phrases of hidden prompts
   references:
