@@ -22,10 +22,9 @@ OPTIONS = {
     "conflicts": {"template", "out", "authors", "pc", "dblp_dump", "dblp_index", "save_index"},
     "canary": {"template", "out", "canaries"},
     "setup": {"dblp_dump", "retraction_csv", "refresh"},
-    "gui": {"template", "host", "port", "no_browser"},
+    "gui": {"template"},
 }
-EXPECTED_ERRORS = (inputs.InputError, profiles.ProfileError, tools.ToolError, ValueError, OSError,
-                   argparse.ArgumentTypeError)
+EXPECTED_ERRORS = (inputs.InputError, profiles.ProfileError, tools.ToolError, ValueError, OSError)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -48,7 +47,7 @@ def parser() -> argparse.ArgumentParser:
     """Build the parser of the command line, with one command per run."""
     top = argparse.ArgumentParser(prog="peercheck", allow_abbrev=False,
                                   description="Check the submissions, the reviews, and the conflicts of interest of a "
-                                              "conference or a journal.")
+                                              "publication venue.")
     commands = top.add_argument_group("commands, one per run").add_mutually_exclusive_group()
     commands.add_argument("--papers", type=Path, metavar="FOLDER", help="check the submission PDFs of a folder")
     commands.add_argument("--reviews", type=Path, metavar="PATH", help="check the reviews of a folder or a file")
@@ -82,10 +81,6 @@ def parser() -> argparse.ArgumentParser:
     options.add_argument("--retraction-csv", type=Path, metavar="FILE",
                          help="local Retraction Watch list for --setup, in place of its download")
     options.add_argument("--refresh", action="store_true", help="download every file of --setup again")
-    options.add_argument("--host", type=_gui_host, help=f"address of --gui: {', '.join(gui.LISTEN_ADDRESSES)} "
-                                                       "(default 127.0.0.1)")
-    options.add_argument("--port", type=_port, help="port of --gui (default a free port)")
-    options.add_argument("--no-browser", action="store_true", help="start --gui without opening a browser")
     top.add_argument("--version", action="version", version=f"PeerCheck {__version__}")
     return top
 
@@ -99,18 +94,18 @@ def _check_options(args: argparse.Namespace, command: str) -> None:
         raise inputs.InputError(f"{flags} does not work with --{command}")
 
 
-def _gui_host(text: str) -> str:
-    """Return an address that the page can listen on, or refuse it."""
-    if text not in gui.LISTEN_ADDRESSES:
-        raise argparse.ArgumentTypeError(f"invalid address {text!r}; choose {', '.join(gui.LISTEN_ADDRESSES)}")
-    return text
+def _gui_address() -> tuple[str, int]:
+    """Return the address and the port of the page: 127.0.0.1 and a free port, unless the environment sets them.
 
-
-def _port(text: str) -> int:
-    """Return a port number from 0 to 65535, or refuse it."""
-    if not text.isdecimal() or int(text) > 65535:
-        raise argparse.ArgumentTypeError(f"invalid port {text!r}; choose 0 to 65535, where 0 picks a free port")
-    return int(text)
+    The Docker image sets PEERCHECK_GUI_HOST and PEERCHECK_GUI_PORT, since a container must listen on every address of
+    a known port."""
+    host = os.environ.get("PEERCHECK_GUI_HOST") or "127.0.0.1"
+    if host not in gui.LISTEN_ADDRESSES:
+        raise inputs.InputError(f"PEERCHECK_GUI_HOST holds {host!r}; choose {', '.join(gui.LISTEN_ADDRESSES)}")
+    port = os.environ.get("PEERCHECK_GUI_PORT") or "0"
+    if not port.isdecimal() or int(port) > 65535:
+        raise inputs.InputError(f"PEERCHECK_GUI_PORT holds {port!r}; choose 0 to 65535, where 0 picks a free port")
+    return host, int(port)
 
 
 def _option(flag: str, value: Path | str | None) -> list[str]:
@@ -125,6 +120,9 @@ def run_papers(args: argparse.Namespace) -> int:
         print(f"The default template templates/default.yaml applies: {rules.style}, {rules.columns} columns, "
               f"{rules.main_pages} pages plus {rules.reference_pages} for references. Copy the file to set the rules "
               "of the venue and pass the copy with --template.", file=sys.stderr)
+    off = [key for key in pipeline.PROFILE_KEYS.values() if not venue.runs(key)]
+    if off:
+        print(f"The template turns off {', '.join(off)}.", file=sys.stderr)
     out = args.out or Path("report.xlsx")
     run = pipeline.run_papers(args.papers, venue, args.submissions, args.authors)
     # The JSON file and the page come first, since the workbook can fail, such as when it is open in Excel.
@@ -160,6 +158,8 @@ def run_conflicts(args: argparse.Namespace) -> int:
         raise inputs.InputError("--save-index saves the index built from --dblp-dump; give --dblp-dump without "
                                 "--dblp-index")
     venue = profiles.load(args.template or profiles.DEFAULT)
+    if not venue.runs("conflicts"):
+        raise inputs.InputError("the template turns the conflict check off; remove the # before the key conflicts")
     out = args.out or Path("conflicts.xlsx")
     authors = inputs.read_people(args.authors, with_paper=True)
     committee = inputs.read_people(args.pc, with_paper=False)
@@ -204,13 +204,12 @@ def run_setup(args: argparse.Namespace) -> int:
 
 def run_gui(args: argparse.Namespace) -> int:
     """Serve the checks as a page in the browser until Ctrl+C."""
-    # The Docker image sets both variables, since a container must listen on every address of a known port.
-    host = args.host or _gui_host(os.environ.get("PEERCHECK_GUI_HOST") or "127.0.0.1")
-    port = args.port if args.port is not None else _port(os.environ.get("PEERCHECK_GUI_PORT") or "0")
+    host, port = _gui_address()
     # The page offers the template of the session first, therefore a template that does not load stops here.
     if args.template:
         profiles.load(args.template)
-    return gui.serve(args.template, port, not args.no_browser, host)
+    # A container listens on every address and holds no browser, therefore only a local address opens one.
+    return gui.serve(args.template, port, host in gui.LOCAL_NAMES, host)
 
 
 RUNNERS = {"papers": run_papers, "reviews": run_reviews, "conflicts": run_conflicts, "canary": run_canary,

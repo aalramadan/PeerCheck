@@ -11,7 +11,6 @@ author name that holds a named entity.
 
 Options under ``checks.references`` of a profile:
 
-- ``enabled`` (default true): the pipeline runs the check only when the profile leaves it on.
 - ``online`` (default true): look up references online beside the local databases. False keeps the check
   offline, with no network connection, whatever ``online_titles`` says.
 - ``online_titles`` (default true): send the titles of the references that the local databases do not hold to

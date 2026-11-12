@@ -60,8 +60,13 @@ def run(args: argparse.Namespace) -> int:
     """Check every review of a folder and write the report."""
     venue = profiles.load(args.template or profiles.DEFAULT)
     detectors, skipped = _detectors(venue)
-    checks = tuple(name for name in CHECKS if _options(venue, name).get("enabled", True))
-    key = canary.read_key(args.canaries) if args.canaries else None
+    checks = tuple(name for name in CHECKS if _runs(venue, name))
+    off = [name for name in (*DETECTORS, *CHECKS) if not _runs(venue, name)]
+    if args.canaries and not _runs(venue, "canary"):
+        off.append("canary")
+    if off:
+        print(f"The template turns off {', '.join(off)}.", file=sys.stderr)
+    key = canary.read_key(args.canaries) if args.canaries and _runs(venue, "canary") else None
     reviews, found = _unique_ids(inputs.read_reviews(Path(args.folder)))
     rows = {r.review_id: _row(r) for r in reviews}
     texts = [r.author_text for r in reviews]
@@ -72,7 +77,7 @@ def run(args: argparse.Namespace) -> int:
         lens = lenses[index] if lenses else None
         rows[review.review_id].update(_detector_columns(verdict, lens))
         found[review.review_id].extend(_detector_findings(verdict, lens))
-    canaries = [("Canaries", str(args.canaries) if args.canaries else "none")]
+    canaries = [("Canaries", str(args.canaries) if key is not None else "none")]
     if key is not None:
         for review_id, items in canary.check_reviews(reviews, key, _options(venue, "canary")).items():
             found[review_id].extend(items)
@@ -142,8 +147,8 @@ def _panel_options(args: argparse.Namespace) -> dict[str, object]:
 
 
 def _detectors(venue) -> tuple[tuple[str, ...], list[str]]:
-    """Return the detectors that the venue leaves on and a note for EditLens when no Hugging Face token is set."""
-    detectors = tuple(name for name in DETECTORS if _options(venue, name).get("enabled", True))
+    """Return the detectors whose keys stand in the template and a note when no Hugging Face token is set."""
+    detectors = tuple(name for name in DETECTORS if _runs(venue, name))
     if "editlens" in detectors and not editlens.has_token():
         note = "EditLens skipped, since no Hugging Face token is set. The README describes EditLens access."
         print(note, file=sys.stderr)
@@ -200,3 +205,7 @@ def _canary_state(items: list[Finding]) -> str:
 
 def _options(venue, check: str) -> dict:
     return venue.options(check) if venue else {}
+
+
+def _runs(venue, check: str) -> bool:
+    return venue.runs(check) if venue else True

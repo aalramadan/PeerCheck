@@ -12,9 +12,9 @@ import yaml
 PAGE_NUMBER_POLICIES = ("ignore", "warning", "error")
 TOP_KEYS = {"name", "source", "file_pattern", "id_column", "format", "checks"}
 REQUIRED_TOP_KEYS = {"name", "source", "format"}
-# The shipped file that lists every option for a new venue, which holds no values of its own.
+# The shipped template that applies when a command names no --template.
 DEFAULT = "default"
-# Conference systems name a downloaded PDF with its number after paper or submission, such as CONF_2027_paper_12.pdf
+# Submission systems name a downloaded PDF with its number after paper or submission, such as CONF_2027_paper_12.pdf
 # or conf27-paper12.pdf. A name may also be the number alone, such as 12.pdf.
 PAPER_NUMBER = (re.compile(r"(?:paper|submission)[\W_]*(\d+)", re.IGNORECASE),
                 re.compile(r"^#?(\d+)\.pdf$", re.IGNORECASE))
@@ -80,6 +80,10 @@ class Profile:
     def options(self, check: str) -> dict[str, Any]:
         """Return the options of one check, empty if the profile sets none."""
         return self.checks.get(check) or {}
+
+    def runs(self, check: str) -> bool:
+        """Return whether a check runs, which holds while its key stands in the template."""
+        return check in self.checks
 
 
 def paper_number(filename: str, pattern: str | None = None) -> int | None:
@@ -175,15 +179,13 @@ def strings(value: Any, where: str) -> tuple[str, ...]:
 
 
 def _check_options(name: str, options: Any, where: str) -> dict[str, Any]:
-    """Return the options of one check, where true or false alone switches the check on or off."""
+    """Return the options of one check, which hold no switch, since a commented-out key turns the check off."""
     if options is None:
         return {}
-    if isinstance(options, bool):
-        return {"enabled": options}
     if not isinstance(options, dict):
-        raise ProfileError(f"{where} must be a mapping, true, or false")
-    if not isinstance(options.get("enabled", True), bool):
-        raise ProfileError(f"{where}.enabled must be true or false")
+        raise ProfileError(f"{where} must hold settings or nothing; a # before the key {name} turns the check off")
+    if "enabled" in options:
+        raise ProfileError(f"{where}.enabled is no setting; a # before the key {name} turns the check off")
     lists = {option: list(strings(options[option], f"{where}.{option}"))
              for option in LIST_OPTIONS.get(name, ()) if option in options}
     return {**options, **lists}

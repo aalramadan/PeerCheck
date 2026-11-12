@@ -24,13 +24,13 @@ UNTAGGED = ["accessibility.untagged", "accessibility.no-language", "accessibilit
 
 
 def run(pdf: Path, **options) -> list:
-    """Run the check, switched on, on a PDF under the ICSE 2027 profile with the given accessibility options."""
+    """Run the check, with its key in the template, on a PDF under the ICSE 2027 template with the given options."""
     profile = load("icse-2027")
-    profile = dataclasses.replace(profile, checks={**profile.checks, "accessibility": {"enabled": True, **options}})
+    profile = dataclasses.replace(profile, checks={**profile.checks, "accessibility": options})
     return accessibility.check(Paper(1, pdf), profile, pdf.parent)
 
 
-def test_check_stays_silent_unless_the_profile_switches_it_on():
+def test_check_stays_silent_while_the_template_leaves_out_its_key():
     assert accessibility.check(Paper(1, TEXT / "clean.pdf"), load("icse-2027"), TEXT) == []
 
 

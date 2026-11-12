@@ -50,7 +50,7 @@ BENIGN = ["b01-ieeetran-paper", "b02-dark-box-label", "b03-table-subscripts", "b
 def run(case: str | Path, **options) -> list:
     """Run the check on one fixture or PDF with the given hidden_text options of the FSE 2027 profile."""
     profile = load("fse-2027")
-    profile = dataclasses.replace(profile, checks={**profile.checks, "hidden_text": {"enabled": True, **options}})
+    profile = dataclasses.replace(profile, checks={**profile.checks, "hidden_text": options})
     pdf = case if isinstance(case, Path) else FIXTURES / f"{case}.pdf"
     return hidden_text.check(Paper(1, pdf), profile, pdf.parent)
 
@@ -140,8 +140,12 @@ def test_extra_phrases_accepts_one_string():
     assert flagged(findings) == {("hidden-text.white-text", Severity.ERROR)}
 
 
-def test_scan_runs_when_called_whatever_the_enabled_option_says():
-    assert flagged(run("h01-white", enabled=False)) == {("hidden-text.white-text", Severity.ERROR)}
+def test_scan_runs_when_called_although_the_template_leaves_out_its_key():
+    profile = load("fse-2027")
+    profile = dataclasses.replace(profile, checks={k: v for k, v in profile.checks.items() if k != "hidden_text"})
+    pdf = FIXTURES / "h01-white.pdf"
+    found = hidden_text.check(Paper(1, pdf), profile, pdf.parent)
+    assert flagged(found) == {("hidden-text.white-text", Severity.ERROR)}
 
 
 def test_file_that_is_no_pdf_gives_error_warning(tmp_path):

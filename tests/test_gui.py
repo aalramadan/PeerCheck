@@ -157,8 +157,9 @@ def test_page_offers_only_the_list_formats_that_peercheck_reads():
 
 @pytest.mark.parametrize("number", [signal.SIGTERM, signal.SIGHUP], ids=lambda number: number.name)
 def test_page_deletes_the_folder_of_uploads_when_a_signal_stops_it(tmp_path, number):
-    command = [sys.executable, "-m", "peercheck", "--gui", "--no-browser", "--host", "127.0.0.1", "--port", "0"]
-    environment = {**os.environ, "TMPDIR": str(tmp_path)}
+    command = [sys.executable, "-m", "peercheck", "--gui"]
+    # The command true stands in for the browser that the page opens.
+    environment = {**os.environ, "TMPDIR": str(tmp_path), "BROWSER": "true"}
     with subprocess.Popen(command, stdout=subprocess.PIPE, text=True, env=environment) as page:
         try:
             assert "PeerCheck runs at" in page.stdout.readline()
@@ -202,10 +203,10 @@ def test_server_in_a_container_listens_on_every_address_but_answers_only_local_n
         running.server_close()
 
 
-def test_gui_command_takes_its_address_and_port_from_the_environment_of_the_docker_image(monkeypatch):
+def test_gui_in_the_docker_image_listens_on_its_address_and_port_without_a_browser(monkeypatch):
     monkeypatch.setenv("PEERCHECK_GUI_HOST", "0.0.0.0")
     monkeypatch.setenv("PEERCHECK_GUI_PORT", "8765")
     served = []
     monkeypatch.setattr(cli.gui, "serve", lambda *args: served.append(args) or 0)
-    assert cli.main(["--gui", "--no-browser"]) == 0
-    assert (served[0][3], served[0][1]) == ("0.0.0.0", 8765)
+    assert cli.main(["--gui"]) == 0
+    assert served == [(None, 8765, False, "0.0.0.0")]

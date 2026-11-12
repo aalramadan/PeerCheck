@@ -2,7 +2,7 @@
 
 [![Tests](https://github.com/aalramadan/PeerCheck/actions/workflows/tests.yml/badge.svg)](https://github.com/aalramadan/PeerCheck/actions/workflows/tests.yml) ![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-3776AB?logo=python&logoColor=white) [![Release](https://img.shields.io/github/v/release/aalramadan/PeerCheck)](https://github.com/aalramadan/PeerCheck/releases/latest) [![License](https://img.shields.io/badge/license-GPL--3.0-blue)](LICENSE)
 
-**PeerCheck** checks the **submissions**, the **reviews**, and the **conflicts of interest** of a conference or a journal.
+**PeerCheck** checks the **submissions**, the **reviews**, and the **conflicts of interest** of a publication venue.
 
 - 📄 For **papers**, it checks the format and page limits, anonymity leaks, hidden text and prompts, and references
   that no bibliographic database confirms.
@@ -53,16 +53,15 @@ peercheck --setup                          # download Hallucinator, DBLP, and th
 
 ## 🚀 Usage
 
-PeerCheck reads the submission PDFs or the XML and CSV review files of a conference, checks them against the template
-of the venue, and writes an HTML report together with an Excel workbook of every detail.
+PeerCheck reads the submission PDFs or the XML and CSV review files of a venue, checks them against its template, and
+writes an HTML report together with an Excel workbook of every detail.
 
 ### Templates
 
-A template is a YAML file with the rules of a venue, such as its format and page limits, and the settings of every
-check. `templates/default.yaml` holds every rule and setting with its default and applies when no `--template` is
-given, with IEEE, two columns, US Letter, and 10 pages plus 2 for references.
+A template is a YAML file with the rules of a venue and the settings of every check. `templates/default.yaml` holds
+every rule and setting with its default and applies when no `--template` is given.
 
-1. Copy `templates/default.yaml` into the folder of the conference as `template.yaml`.
+1. Copy `templates/default.yaml` into the folder of the venue as `template.yaml`.
 2. Set each value according to the call for papers. A line that starts with `#` is inactive until the `#` is
    removed.
 3. Pass the copy with `--template template.yaml`.
@@ -71,8 +70,7 @@ given, with IEEE, two columns, US Letter, and 10 pages plus 2 for references.
 checks:
   references:
     online_titles: false   # send only DOIs and arXiv IDs, never titles
-  editlens:
-    enabled: false         # turn the AI detector EditLens off
+  # editlens:              # skip the AI detector EditLens
   conflicts:
     coauthor_years: 2      # count joint papers of the last two years
 ```
@@ -84,7 +82,8 @@ Two templates of real venues serve as examples, each with the address of its cal
 | `icse-2027` | ICSE 2027 Research Track | IEEE, two columns, US Letter | 10 plus 2 for references |
 | `fse-2027` | FSE 2027 Research Track | ACM acmsmall, one column | 18 plus 4 for references |
 
-Each check has a key in the template. The line `enabled: false` under that key turns the check off.
+Each check has a key in the template and runs while the key is present. Commenting out the key and its settings turns
+the check off.
 
 #### Papers (`--papers`)
 
@@ -140,8 +139,6 @@ Each check has a key in the template. The line `enabled: false` under that key t
 | Command | Description |
 |---|---|
 | `--gui` | Opens the browser interface |
-| `--host <address>`, `--port <number>` | Address and port of the browser interface |
-| `--no-browser` | Browser interface without a browser window |
 | `--json <file>` | JSON output (`.json`) |
 | `--dblp-dump <file>` | DBLP dump (`.xml.gz`) for the co-author check of `--conflicts`, or for `--setup` without download |
 | `--save-index <file>` | Co-author index (`.json.gz`) to save from the DBLP dump |
@@ -186,17 +183,17 @@ paper,review,Comments for authors
 
 ### Examples
 
-These commands check a conference whose files are stored in the folder `my-conference`.
+These commands check a venue whose files are stored in the folder `my-venue`.
 
 ```bash
-my-conference/
+my-venue/
   template.yaml   # the template of the venue, a copy of templates/default.yaml
   submissions/    # the PDFs of the submissions
   reviews/        # the reviews, as the XML files of a review export or one CSV file
 ```
 
 ```bash
-cd my-conference
+cd my-venue
 peercheck --template template.yaml --papers submissions/                       # check the PDFs
 peercheck --template template.yaml --reviews reviews/                          # check the reviews
 peercheck --conflicts --authors authors.csv --pc pc.csv --dblp-dump dblp.xml.gz  # find conflicts of interest
@@ -211,7 +208,7 @@ peercheck-cache:/cache -e HF_TOKEN ghcr.io/aalramadan/peercheck --gui`.
 
 > [!TIP]
 > Check the original PDFs with `--papers` before `--canary`, since the hidden-text check reports the planted
-> citation. Then upload the marked copies to the conference system in place of the originals, before the reviewers
+> citation. Then upload the marked copies to the submission system in place of the originals, before the reviewers
 > download the papers.
 
 > [!WARNING]

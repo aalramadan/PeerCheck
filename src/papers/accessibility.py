@@ -42,15 +42,15 @@ class Figure:
 def check(paper: Paper, profile: Profile, workdir: Path) -> list[Finding]:
     """Return a note for each part of the structure test that the PDF fails, or an error under the profile option.
 
-    enabled (default false): true for a venue that asks for accessible PDFs, which turns the notes on.
+    The notes appear only while the key accessibility stands in the template, for a venue that asks for accessible
+    PDFs. The default template leaves the key commented out.
     required (default false): true for a venue that requires accessible PDFs, which turns each note into an error.
     """
-    options = profile.options(CHECK)
-    required = options.get("required", False)
+    if not profile.runs(CHECK):
+        return []
+    required = profile.options(CHECK).get("required", False)
     if not isinstance(required, bool):
         raise ProfileError(f"{CHECK}.required must be true or false")
-    if not (required or options.get("enabled", False)):
-        return []
     severity = Severity.ERROR if required else Severity.INFO
     try:
         with pikepdf.open(paper.pdf) as pdf:

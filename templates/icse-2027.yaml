@@ -12,7 +12,7 @@ format:
   # At most 10 pages including appendices, plus 2 pages of references only.
   main_pages: 10
   reference_pages: 2
-  # The same IEEEtran conference margins as the example profile.
+  # The IEEEtran margins, as in examples/template.yaml.
   margins: [52, 48, 72, 48]
   margin_tolerance: 18
   # The call warns that altered spacing or font size may lead to desk rejection.
@@ -28,20 +28,24 @@ format:
   require_abstract: true
 
 checks:
+  layout:
   fonts:
     # The call asks for the "title in 24pt font and full text in 10pt type".
     title_size: 24
   density:
-    # banal counts 6,422 characters per text page on the full pages of an IEEEtran conference paper of continuous
-    # text (tests/fixtures/density/template-ieee.pdf).
+    # banal counts 6,422 characters per text page on the full pages of an IEEEtran paper of continuous text
+    # (tests/fixtures/density/template-ieee.pdf).
     template_characters: 6422
   sigsoft:
-    enabled: true
   anonymity:
     allowed_hosts: [anonymous.4open.science, zenodo.org, figshare.com, osf.io, doi.org]
     flag_acknowledgments: true
   hidden_text:
-    enabled: true
   references:
     # The call checks submissions "for hallucinated, fabricated, or unverifiable references".
-    enabled: true
+  cocodet:
+  editlens:
+  duplicates:
+  citations:
+  canary:
+  conflicts:

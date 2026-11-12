@@ -1,4 +1,4 @@
-"""Near-duplicate paragraphs across the reviews of a conference, found with MinHash LSH.
+"""Near-duplicate paragraphs across the reviews of a venue, found with MinHash LSH.
 
 The check follows the MinHash LSH search of Day (Scientometrics 2022, arXiv:2202.03310), which
 found referee comments copied across referee accounts of 19 SAGE journals. Each paragraph of

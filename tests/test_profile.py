@@ -54,7 +54,7 @@ def test_example_profile_states_the_page_rule():
     ("CONF_2026_paper_0108.pdf", 108), ("conf_2026_PAPER_12.PDF", 12), ("CONF_2026_paper_0041 (1).pdf", 41),
     ("CONF27_paper__11.pdf", 11), ("icse2027-paper123.pdf", 123), ("submission-9.pdf", 9), ("12.pdf", 12),
     ("Smith2025.pdf", None), ("notes.pdf", None)])
-def test_paper_number_comes_from_the_names_that_conference_systems_give(name, number):
+def test_paper_number_comes_from_the_names_that_submission_systems_give(name, number):
     assert profile.paper_number(name) == number
 
 
@@ -128,16 +128,26 @@ def test_lower_limits_for_the_body_font_and_the_line_spacing_are_optional(tmp_pa
     assert (rules.body_font_min, rules.leading_min) == (None, None)
 
 
-def test_false_in_place_of_the_options_turns_a_check_off(tmp_path):
+def test_a_check_runs_while_its_key_stands_in_the_template(tmp_path):
     data = _shipped("icse-2027")
-    data["checks"]["hidden_text"] = False
-    assert _load(tmp_path, data).options("hidden_text") == {"enabled": False}
+    del data["checks"]["references"]
+    venue = _load(tmp_path, data)
+    assert venue.runs("hidden_text") and venue.options("hidden_text") == {}
+    assert not venue.runs("references")
 
 
-def test_enabled_must_be_true_or_false(tmp_path):
+def test_every_check_of_the_default_template_runs_except_the_accessibility_notes():
+    venue = profile.load(profile.DEFAULT)
+    keys = ("layout", "sigsoft", "hidden_text", "references", "cocodet", "editlens", "duplicates", "citations",
+            "canary", "conflicts")
+    assert all(venue.runs(key) for key in keys) and not venue.runs("accessibility")
+
+
+@pytest.mark.parametrize("settings", [False, True, {"enabled": False}], ids=["false", "true", "enabled"])
+def test_a_switch_in_place_of_a_commented_out_key_is_refused_with_the_way_to_turn_a_check_off(tmp_path, settings):
     data = _shipped("icse-2027")
-    data["checks"]["references"]["enabled"] = "no"
-    with pytest.raises(profile.ProfileError, match="enabled"):
+    data["checks"]["references"] = settings
+    with pytest.raises(profile.ProfileError, match="a # before the key references turns the check off"):
         _load(tmp_path, data)
 
 
@@ -162,6 +172,6 @@ def test_one_allowed_host_given_as_a_string_stays_one_host(tmp_path):
 
 def test_a_list_option_that_holds_a_mapping_is_rejected(tmp_path):
     data = _shipped("icse-2027")
-    data["checks"]["hidden_text"]["extra_phrases"] = [{"phrase": "accept"}]
+    data["checks"]["hidden_text"] = {"extra_phrases": [{"phrase": "accept"}]}
     with pytest.raises(profile.ProfileError, match="extra_phrases"):
         _load(tmp_path, data)

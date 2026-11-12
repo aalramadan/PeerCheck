@@ -39,6 +39,23 @@ def test_papers_command_leaves_the_choice_of_checks_to_the_venue_rules(monkeypat
     assert len(used[0]) == 4
 
 
+def test_papers_command_names_the_checks_that_the_template_turns_off(monkeypatch, tmp_path, capsys):
+    _used_venue(monkeypatch)
+    template = tmp_path / "template.yaml"
+    template.write_text((cli.profiles.PROFILES / "icse-2027.yaml").read_text(encoding="utf-8")
+                        .replace("  references:\n", "  # references:\n"), encoding="utf-8")
+    assert cli.main(["--template", str(template), "--papers", str(tmp_path), "--out", str(tmp_path / "r.xlsx")]) == 0
+    assert "The template turns off references." in capsys.readouterr().err
+
+
+def test_conflicts_command_stops_while_the_template_leaves_out_the_key_conflicts(tmp_path, capsys):
+    template = tmp_path / "template.yaml"
+    template.write_text((cli.profiles.PROFILES / "icse-2027.yaml").read_text(encoding="utf-8")
+                        .replace("  conflicts:\n", ""), encoding="utf-8")
+    assert cli.main(["--template", str(template), "--conflicts", "--authors", "a.csv", "--pc", "pc.csv"]) == 2
+    assert "remove the # before the key conflicts" in capsys.readouterr().err
+
+
 def test_only_one_command_runs_at_a_time():
     with pytest.raises(SystemExit):
         cli.parser().parse_args(["--papers", "submissions", "--reviews", "reviews"])
@@ -111,7 +128,7 @@ def _served(monkeypatch):
 
 def test_gui_with_an_unknown_profile_stops_before_the_page_starts(monkeypatch, capsys):
     served = _served(monkeypatch)
-    assert cli.main(["--template", "no-such-venue", "--gui", "--no-browser"]) == 2
+    assert cli.main(["--template", "no-such-venue", "--gui"]) == 2
     assert not served and "unknown template 'no-such-venue'" in capsys.readouterr().err
 
 
@@ -120,33 +137,36 @@ def test_wrong_gui_port_in_the_environment_stops_only_the_gui_command(monkeypatc
     monkeypatch.setenv("PEERCHECK_GUI_PORT", value)
     served = _served(monkeypatch)
     assert cli.parser().parse_args(["--setup"]).setup
-    assert cli.main(["--gui", "--no-browser"]) == 2
+    assert cli.main(["--gui"]) == 2
     assert not served
 
 
 def test_empty_gui_port_in_the_environment_picks_a_free_port(monkeypatch):
     monkeypatch.setenv("PEERCHECK_GUI_PORT", "")
     served = _served(monkeypatch)
-    assert cli.main(["--gui", "--no-browser"]) == 0
+    assert cli.main(["--gui"]) == 0
     assert served[0][1] == 0
 
 
-@pytest.mark.parametrize("port", ["70000", "-1"])
-def test_gui_port_outside_0_to_65535_is_a_usage_error(port):
-    with pytest.raises(SystemExit) as stop:
-        cli.parser().parse_args(["--gui", "--port", port])
-    assert stop.value.code == 2
-
-
-def test_gui_listens_only_on_the_addresses_whose_page_a_browser_can_open(monkeypatch):
-    assert [cli.parser().parse_args(["--gui", "--host", host]).host
-            for host in ("127.0.0.1", "localhost", "0.0.0.0")] == ["127.0.0.1", "localhost", "0.0.0.0"]
+@pytest.mark.parametrize("option", [["--host", "0.0.0.0"], ["--port", "8765"], ["--no-browser"]])
+def test_gui_takes_no_address_port_or_browser_option(option):
     with pytest.raises(SystemExit):
-        cli.parser().parse_args(["--gui", "--host", "192.168.1.5"])
+        cli.parser().parse_args(["--gui", *option])
+
+
+def test_gui_opens_the_browser_at_a_local_address_and_a_free_port(monkeypatch):
+    monkeypatch.delenv("PEERCHECK_GUI_HOST", raising=False)
+    monkeypatch.delenv("PEERCHECK_GUI_PORT", raising=False)
+    served = _served(monkeypatch)
+    assert cli.main(["--gui"]) == 0
+    assert served == [(None, 0, True, "127.0.0.1")]
+
+
+def test_gui_refuses_an_address_in_the_environment_whose_page_a_browser_cannot_open(monkeypatch, capsys):
     monkeypatch.setenv("PEERCHECK_GUI_HOST", "192.168.1.5")
     served = _served(monkeypatch)
-    assert cli.main(["--gui", "--no-browser"]) == 2
-    assert not served
+    assert cli.main(["--gui"]) == 2
+    assert not served and "PEERCHECK_GUI_HOST" in capsys.readouterr().err
 
 
 def test_installed_package_finds_the_external_files_that_its_wheel_holds(tmp_path):

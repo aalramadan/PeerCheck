@@ -1,1 +1,1 @@
-"""Checks that run on the reviews of a conference."""
+"""Checks that run on the reviews of a venue."""

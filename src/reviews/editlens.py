@@ -39,7 +39,7 @@ AI_FROM = 0.997
 # The training data of EditLens keeps texts of 75 words or more (configs/roberta.yaml, min_words).
 MIN_WORDS = 75
 GATED = (f"EditLens is gated: accept its terms at https://huggingface.co/{MODEL_REPO} while logged in, then run "
-         "hf auth login on this machine, or set enabled: false under editlens in the template")
+         "hf auth login on this machine, or comment out the key editlens in the template")
 
 
 class ModelError(RuntimeError):

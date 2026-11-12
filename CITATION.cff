@@ -1,7 +1,7 @@
 cff-version: 1.2.0
 message: "If you use PeerCheck, please cite it as below."
 title: "PeerCheck"
-abstract: "Automatic checks of submissions, reviews, and conflicts of interest for software engineering conferences."
+abstract: "Automatic checks of the submissions, the reviews, and the conflicts of interest of a publication venue."
 type: software
 authors:
   - family-names: "Al-Ramadan"

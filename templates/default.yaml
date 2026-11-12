@@ -1,6 +1,6 @@
 # The default rules of PeerCheck, which apply when a command names no --template.
 #
-# The format below is a common conference format: IEEE, two columns, US Letter, and 10 pages plus 2 for references.
+# The format below is IEEE, two columns, US Letter, and 10 pages plus 2 for references.
 # For a venue, copy this file, such as to template.yaml, set each value from the call for papers, and pass the copy
 # with --template template.yaml. Each comment names the meaning of its line and its default. A line that starts with #
 # holds a rule that stays unchecked until the # goes.
@@ -34,24 +34,20 @@ format:
 # file_pattern: 'sub-(\d+)\.pdf$'                   # default none: a pattern whose one group is the paper number
 # id_column: Submission                             # default none: the column of the submission sheet with the numbers
 
-checks:                                             # every check runs unless its section sets enabled: false
-  layout:
-    enabled: true                                   # default true: the format check, with fonts, margins, and the other layout notes
+checks:                                             # a check runs while its key stands here; a # before the key and its settings turns it off
+  layout:                                           # the format check, with fonts, margins, and the other layout notes
     # Runs with it: the PDF integrity check, unresolved references such as Section ??, unreadable text, and the
     # checks that the sections fonts, margins, line_numbers, images, accessibility, title, and density set.
-  sigsoft:
-    enabled: true                                   # default true: the anonymity and template check
+  sigsoft:                                          # the anonymity and template check
     # Runs with it: author names and home folders hidden in the PDF metadata. The section anonymity sets both.
   anonymity:
     flag_acknowledgments: true                      # default true: report an acknowledgments section
     # allowed_hosts: [anonymous.4open.science, zenodo.org, figshare.com, osf.io, doi.org]   # default none: hosts that links may name
-  hidden_text:
-    enabled: true                                   # default true: the hidden-text check
+  hidden_text:                                      # the hidden-text check
     # Runs with it: scripts and other active content, which the section active_content sets.
     min_font_size: 2.0                              # default 2.0: text smaller than this counts as hidden, in points
     # extra_phrases: [ignore all previous instructions]   # default none: more phrases of hidden prompts
-  references:
-    enabled: true                                   # default true: the reference check, after peercheck --setup
+  references:                                       # the reference check, after peercheck --setup
     online: true                                    # default true: look up online what the local DBLP copy lacks, false keeps the check offline
     online_titles: true                             # default true: send those titles online, false sends only their DOIs and arXiv IDs
     timeout: 600                                    # default 600: the seconds before the check of one PDF stops
@@ -68,9 +64,8 @@ checks:                                             # every check runs unless it
     max_megapixels: 34                              # default 34: the largest image in megapixels
     min_ppi: 50                                     # default 50: the lowest resolution of a picture in pixels per inch
     # max_file_mb: 20                               # default none: the largest PDF in megabytes
-  accessibility:
-    enabled: false                                  # default false: notes on tags, language, title, and figure descriptions
-    required: false                                 # default false: true turns these notes into errors
+  # accessibility:                                  # off by default: notes on tags, language, title, and figure descriptions
+  #   required: false                               # default false: true turns these notes into errors
   title:
     similarity_min: 70                              # default 70: how close, from 0 to 100, the PDF title and the sheet title must be
   density:
@@ -79,19 +74,15 @@ checks:                                             # every check runs unless it
     # template_characters: 6422                     # default none: characters per full text page of the template
   active_content:
     severity: warning                               # default warning: the severity of scripts and other active content
-  cocodet:
-    enabled: true                                   # default true: the AI detector CoCoDet on each review
-  editlens:
-    enabled: true                                   # default true: the AI detector EditLens, skipped without a Hugging Face token
-  duplicates:
-    enabled: true                                   # default true: copied text between reviews
+  cocodet:                                          # the AI detector CoCoDet on each review
+  editlens:                                         # the AI detector EditLens, skipped without a Hugging Face token
+  duplicates:                                       # copied text between reviews
     threshold: 0.5                                  # default 0.5: how alike two review paragraphs are, from 0 to 1
     min_chars: 150                                  # default 150: the shortest paragraph to compare
-  citations:
-    enabled: true                                   # default true: the citation requests of the reviews
+  citations:                                        # the citation requests of the reviews
     title_min: 90                                   # default 90: how close, from 0 to 100, a cited title must be
-  canary:
+  canary:                                           # the planted citation, with --canaries
     fwer: 0.001                                     # default 0.001: the chance of any wrong hit among all reviews
-  conflicts:
+  conflicts:                                        # the conflict check of --conflicts
     coauthor_years: 3                               # default 3: the years of co-authorship that make a conflict
     affiliation_min: 90                             # default 90: how close, from 0 to 100, two affiliations must be

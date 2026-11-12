@@ -18,13 +18,12 @@ editlens = pytest.importorskip("peercheck.reviews.editlens")
 EASYCHAIR = Path(__file__).parent / "fixtures" / "easychair"
 
 
-def _venue(tmp_path: Path, editlens_on: bool = False) -> str:
-    """Write venue rules that turn the review checks off, and EditLens unless asked, which keeps a run free of models."""
+def _venue(tmp_path: Path, editlens_on: bool = False, canary_on: bool = True) -> str:
+    """Write a template whose only keys are the canary check and EditLens if asked, which keeps a run free of models."""
     path = tmp_path / "venue.yaml"
     path.write_text("name: Test\nsource: https://example.org\nformat:\n  style: IEEE\n  paper_size: [792, 612]\n"
-                    "  columns: 2\n  main_pages: 10\n  reference_pages: 2\nchecks:\n  cocodet: {enabled: false}\n"
-                    f"  editlens: {{enabled: {str(editlens_on).lower()}}}\n"
-                    "  duplicates: {enabled: false}\n  citations: {enabled: false}\n", encoding="utf-8")
+                    "  columns: 2\n  main_pages: 10\n  reference_pages: 2\nchecks:\n"
+                    + ("  canary:\n" if canary_on else "") + ("  editlens:\n" if editlens_on else ""), encoding="utf-8")
     return str(path)
 
 
@@ -69,9 +68,9 @@ def test_editlens_is_skipped_with_a_note_without_a_token(monkeypatch, capsys):
     assert "EditLens skipped" in capsys.readouterr().err
 
 
-def test_the_venue_turns_a_detector_off(monkeypatch):
+def test_a_detector_whose_key_the_template_leaves_out_does_not_run(monkeypatch):
     monkeypatch.setattr(editlens, "has_token", lambda: True)
-    venue = SimpleNamespace(options=lambda name: {"enabled": False} if name == "cocodet" else {})
+    venue = SimpleNamespace(runs=lambda name: name != "cocodet")
     assert cli._detectors(venue) == (("editlens",), [])
 
 
@@ -102,6 +101,18 @@ def test_canary_check_runs_without_any_model_and_fills_its_column(tmp_path):
     sheet = openpyxl.load_workbook(out).worksheets[0]
     header = [cell.value for cell in sheet[1]]
     assert {row[header.index("Canary")] for row in sheet.iter_rows(min_row=2, values_only=True)} == {"no"}
+
+
+def test_canary_check_stays_off_while_the_template_leaves_out_its_key(tmp_path, capsys):
+    key = tmp_path / "canaries.csv"
+    canary.write_key(key, {7: "Smith et al. (2019)"})
+    out = tmp_path / "reviews.xlsx"
+    venue = _venue(tmp_path, canary_on=False)
+    assert cli.main([str(EASYCHAIR), "--template", venue, "--canaries", str(key), "--out", str(out)]) == 0
+    assert "The template turns off cocodet, editlens, duplicates, citations, canary." in capsys.readouterr().err
+    book = openpyxl.load_workbook(out)
+    about = {row[0]: row[1] for row in book["About"].iter_rows(values_only=True)}
+    assert about["Canaries"] == "none" and "Canary" not in next(book["Reviews"].iter_rows(values_only=True))
 
 
 def test_reviews_command_writes_the_html_page_beside_the_workbook_by_default(tmp_path):

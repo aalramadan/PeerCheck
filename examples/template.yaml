@@ -1,5 +1,5 @@
 # A made-up venue for the examples, a copy of templates/default.yaml with its values.
-name: Example Conference 2027
+name: Example Venue 2027
 source: https://example.org/call-for-papers
 
 format:
@@ -18,15 +18,18 @@ format:
   require_abstract: true
 
 checks:
+  layout:
   fonts:
     title_size: 24
   sigsoft:
-    enabled: true
   anonymity:
     allowed_hosts: [anonymous.4open.science, zenodo.org, figshare.com, osf.io, doi.org]
     flag_acknowledgments: true
   hidden_text:
-    enabled: true
-  references:
-    # Off for the demo. After peercheck --setup, set true to see the reference check on paper 5.
-    enabled: false
+  # references:   # off for the demo; after peercheck --setup, remove the # to see the reference check on paper 5
+  cocodet:
+  editlens:
+  duplicates:
+  citations:
+  canary:
+  conflicts:

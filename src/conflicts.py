@@ -1,6 +1,6 @@
 """Conflicts of interest between the authors of each paper and the program committee.
 
-The check reuses the methods of the conflict tools of large conferences, applied to plain lists of the authors
+The check reuses the methods of the conflict tools of large venues, applied to plain lists of the authors
 and of the committee.
 
 - HotCRP (github.com/kohler/hotcrp, Click license), the system of the ICSE 2027 research track, lists

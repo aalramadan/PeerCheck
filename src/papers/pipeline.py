@@ -31,8 +31,8 @@ from peercheck.papers import (
 from peercheck.profile import Profile
 
 PAPER_CHECKS = ("layout", "sigsoft", "hidden-text", "references")
-# Profile keys of the checks that a profile can turn off with enabled: false.
-PROFILE_KEYS = {"sigsoft": "sigsoft", "hidden-text": "hidden_text", "references": "references"}
+# The template key of each check. A check runs only while its key stands in the template.
+PROFILE_KEYS = {"layout": "layout", "sigsoft": "sigsoft", "hidden-text": "hidden_text", "references": "references"}
 SINGLE_CHECKS = {"hidden-text": hidden_text.check, "references": references.check}
 # Checks of PeerCheck that run with a check of an external tool and share its switch, under their own code prefix.
 COMPANION_CHECKS = {
@@ -69,15 +69,14 @@ class PapersRun:
 
 
 def selected_checks(requested: list[str] | None, profile: Profile) -> tuple[str, ...]:
-    """Return the checks to run: the requested ones, or every check the profile leaves on."""
+    """Return the checks to run: the requested ones, or every check whose key stands in the template."""
     names = requested or list(PAPER_CHECKS)
     unknown = sorted(set(names) - set(PAPER_CHECKS))
     if unknown:
         raise ValueError(f"unknown checks {', '.join(unknown)}; choose from {', '.join(PAPER_CHECKS)}")
     if requested:
         return tuple(names)
-    return tuple(name for name in names
-                 if profile.options(PROFILE_KEYS.get(name, name)).get("enabled", True))
+    return tuple(name for name in names if profile.runs(PROFILE_KEYS[name]))
 
 
 def run_papers(pdf_folder: Path, profile: Profile, submissions: Path | None = None, authors: Path | None = None,

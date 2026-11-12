@@ -35,6 +35,7 @@ format:
   require_abstract: false
 
 checks:
+  layout:
   line_numbers:
     # The call states "We also strongly encourage the use of the review, screen, and anonymous options as well." The
     # review option of acmart prints line numbers.
@@ -44,7 +45,6 @@ checks:
     # options and continuous text (tests/fixtures/density/template-acmsmall.pdf).
     template_characters: 4234
   sigsoft:
-    enabled: true
   anonymity:
     allowed_hosts: [anonymous.4open.science, zenodo.org, figshare.com, osf.io, doi.org]
     # The call encourages authors to omit acknowledgments.
@@ -52,6 +52,10 @@ checks:
   hidden_text:
     # The call prohibits "prompt injection or hidden instructions intended to manipulate
     # reviewers or AI systems".
-    enabled: true
   references:
-    enabled: true
+  cocodet:
+  editlens:
+  duplicates:
+  citations:
+  canary:
+  conflicts:
