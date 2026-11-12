@@ -1,5 +1,6 @@
 """Tests of the CoCoDet port with a small fake encoder, offline."""
 
+import logging
 from types import SimpleNamespace
 
 import pytest
@@ -56,3 +57,31 @@ def test_weights_with_a_wrong_checksum_are_refused(tmp_path, monkeypatch):
     monkeypatch.setattr(cocodet, "hf_hub_download", lambda *args, **kwargs: str(fake))
     with pytest.raises(cocodet.ModelError, match="SHA-256"):
         cocodet.weights()
+
+
+def test_detector_hides_the_report_on_unused_weights_of_the_base_model(tmp_path, monkeypatch):
+    from transformers.utils import logging as transformers_logging
+
+    def encoder(*args, **kwargs):
+        transformers_logging.get_logger("transformers.modeling_utils").warning("LOAD REPORT: head.dense.weight")
+        return FakeEncoder()
+
+    saved = tmp_path / "CoCoDet.bin"
+    torch.save(cocodet.CoCoDetModel(FakeEncoder()).state_dict(), saved)
+    monkeypatch.setattr(cocodet, "AutoTokenizer", SimpleNamespace(from_pretrained=lambda *args, **kwargs: None))
+    monkeypatch.setattr(cocodet, "AutoModel", SimpleNamespace(from_pretrained=encoder))
+    monkeypatch.setattr(cocodet, "weights", lambda: saved)
+    shown = []
+    handler = logging.Handler()
+    handler.emit = shown.append
+    library = logging.getLogger("transformers")
+    verbosity = transformers_logging.get_verbosity()
+    transformers_logging.set_verbosity_warning()
+    library.addHandler(handler)
+    try:
+        cocodet.Detector(device="cpu")
+        assert transformers_logging.get_verbosity() == transformers_logging.WARNING
+    finally:
+        library.removeHandler(handler)
+        transformers_logging.set_verbosity(verbosity)
+    assert not shown

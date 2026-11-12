@@ -22,6 +22,7 @@ import torch.nn.functional as F
 from huggingface_hub import hf_hub_download
 from torch import nn
 from transformers import AutoModel, AutoTokenizer
+from transformers.utils import logging as transformers_logging
 
 MODEL_REPO = "khaaaaaan/CoCoDet"
 MODEL_FILE = "CoCoDet.bin"
@@ -106,7 +107,14 @@ class Detector:
     def __init__(self, device: str | None = None) -> None:
         self.device = torch.device(device or ("cuda" if torch.cuda.is_available() else "cpu"))
         self.tokenizer = AutoTokenizer.from_pretrained(BASE_MODEL, revision=BASE_REVISION)
-        encoder = AutoModel.from_pretrained(BASE_MODEL, revision=BASE_REVISION)
+        # The encoder leaves out the masked-language head of the base checkpoint, which transformers
+        # reports as unexpected weights.
+        verbosity = transformers_logging.get_verbosity()
+        transformers_logging.set_verbosity_error()
+        try:
+            encoder = AutoModel.from_pretrained(BASE_MODEL, revision=BASE_REVISION)
+        finally:
+            transformers_logging.set_verbosity(verbosity)
         self.model = CoCoDetModel(encoder)
         state = torch.load(weights(), map_location="cpu", weights_only=True)
         try:
