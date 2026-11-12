@@ -96,23 +96,33 @@ Each check has a section in `venue.yaml`, where `enabled: false` turns it off.
 | Planted citation | `canary` | Reviews that cite the planted work |
 | Conflicts of interest | `conflicts` | Co-authorship, shared email domains, and matching affiliations |
 
-### Options
+### Commands
 
-| Option | Commands | Description |
-|---|---|---|
-| `--profile` | papers, reviews, conflicts, canary, gui | Venue rules and settings |
-| `--out` | papers, reviews, conflicts, canary | Report file, or output folder for `canary` |
-| `--json` | papers, reviews | JSON output |
-| `--submissions` | papers | Submission sheet |
-| `--authors` | papers, conflicts | Author list |
-| `--canaries` | reviews | Canary key file |
-| `--pc` | conflicts | Committee list |
-| `--dblp-dump` | conflicts, setup | Local DBLP dump (`dblp.xml.gz`) |
-| `--dblp-index`, `--save-index` | reviews, conflicts | Saved co-author index |
-| `--key` | canary | Private canary key file |
-| `--retraction-csv`, `--refresh` | setup | Local Retraction Watch list, fresh download |
-| `--host`, `--port`, `--no-browser` | gui | Interface address |
-| `--help` | every command | Command help |
+| Command | Description |
+|---|---|
+| `peercheck papers <folder>` | Checks the submission PDFs (`.pdf`) of a folder |
+| `peercheck reviews <folder or file>` | Checks the reviews (`.xml`, `.csv`) |
+| `peercheck conflicts` | Finds conflicts of interest |
+| `peercheck canary <folder>` | Inserts a fictitious citation into each PDF |
+| `peercheck setup` | Downloads Hallucinator, DBLP, and the Retraction Watch list |
+| `peercheck gui` | Opens the browser interface |
+| `--profile <file>` | Venue rules and settings (`.yaml`) |
+| `--out <file or folder>` | Excel report (`.xlsx`) with the HTML report (`.html`) beside it, or the folder of the marked PDFs of `canary` |
+| `--json <file>` | JSON output (`.json`) |
+| `--submissions <file>` | Submission sheet (`.csv`, `.xlsx`) |
+| `--authors <file>` | Author list (`.csv`, `.xlsx`) |
+| `--pc <file>` | Committee list (`.csv`, `.xlsx`) |
+| `--key <file>` | Canary key file (`.csv`) that `canary` writes |
+| `--canaries <file>` | Canary key file (`.csv`) that `reviews` reads |
+| `--dblp-dump <file>` | DBLP dump (`.xml.gz`) from dblp.org/xml |
+| `--save-index <file>` | Co-author index (`.json.gz`) to save from the DBLP dump |
+| `--dblp-index <file>` | Co-author index (`.json.gz`) saved by an earlier run |
+| `--retraction-csv <file>` | Local Retraction Watch list (`.csv`) for `setup` |
+| `--refresh` | New download of every file of `setup` |
+| `--host <address>` | Address of the browser interface |
+| `--port <number>` | Port of the browser interface |
+| `--no-browser` | Browser interface without a browser window |
+| `--help` | Help of a command |
 
 ### Lists
 
@@ -246,7 +256,7 @@ The tests reside in `tests/` and run offline. GitHub Actions runs the full suite
 - **Interface tests** start the browser interface and run checks through its forms.
 - The tests of the review checks require PyTorch, which `pip install` provides. One test requires a graphics card.
 
-### Commands
+### Test commands
 
 Run these commands in the repository folder after `pip install -e ".[dev]"`. The option `-e` installs PeerCheck in
 editable mode. The group `[dev]` adds pytest and ruff.
