@@ -171,7 +171,9 @@ def test_page_deletes_the_folder_of_uploads_when_a_signal_stops_it(tmp_path, num
     assert not list(tmp_path.glob("peercheck-gui-*"))
 
 
-def test_page_runs_the_conflict_check_and_returns_its_rows(server):
+def test_page_runs_the_conflict_check_and_returns_its_rows(server, monkeypatch, tmp_path):
+    # An empty cache keeps the run from the DBLP copy of the machine.
+    monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path / "cache"))
     status, outcome = start_run(server, [("authors", SAMPLES / "authors.csv"), ("pc", SAMPLES / "committee.csv")],
                                 {"kind": "conflicts", "profile": "icse-2027"})
     assert status == 200 and outcome["ok"], outcome["log"]

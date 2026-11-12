@@ -36,7 +36,7 @@
 | `reviews` | AI detection (`cocodet`, `editlens`) | potentially AI-generated reviews, with the label of each detector on its own | CoCoDet, trained on peer reviews, and EditLens, trained on AI-edited text |
 | `reviews` | Planted citation (`canary`) | reviews that cite the made-up work hidden in their paper | the method of Rao et al. that ICML 2026 used |
 | `reviews` | Copied text (`duplicates`) | paragraphs that reviews share, with at least half of their short character sequences alike | MinHash, a fast search for similar text, from the datasketch library |
-| `reviews` | Citation requests (`citations`) | works that reviewers ask the authors to cite, their own included, and requests for more works than the paper has pages | DBLP, for the works of the reviewers, through `--dblp-index` |
+| `reviews` | Citation requests (`citations`) | works that reviewers ask the authors to cite, their own included, and requests for more works than the paper has pages | DBLP, for the works of the reviewers, through the co-author index that `--conflicts` saves |
 | `conflicts` | Conflicts of interest | co-authorship within three years (the window of the ACM SIGSOFT Policy on Program Committees), shared email domains other than webmail, and affiliations that match (two universities of one city stay apart) | DBLP, the affiliation word lists of HotCRP, the webmail list of OpenReview, and the Public Suffix List |
 
 - Before the review period, `peercheck --canary` hides a request to cite a made-up work, such as Smith et al. (2019),

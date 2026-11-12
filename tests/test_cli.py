@@ -191,4 +191,4 @@ def test_setup_downloads_the_reference_database(monkeypatch, tmp_path):
     calls = []
     monkeypatch.setattr(cli.references, "install_tools", lambda *args: calls.append(args) or [tmp_path / "dblp.db"])
     assert cli.main(["--setup", "--refresh"]) == 0
-    assert calls == [(cli.tools.cache_dir(), None, None, True)]
+    assert calls == [(cli.tools.cache_dir(), None, True)]

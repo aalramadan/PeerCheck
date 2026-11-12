@@ -12,16 +12,17 @@ from pathlib import Path
 from peercheck import __version__, canary, conflicts, dblp, gui, inputs, report, tools
 from peercheck import profile as profiles
 from peercheck.findings import needs_review
+from peercheck.models import Person
 from peercheck.papers import pipeline, references
 
 COMMANDS = ("papers", "reviews", "conflicts", "canary", "setup", "gui")
 # The options that each command reads. Any other option beside a command is a mistake that stops the run.
 OPTIONS = {
     "papers": {"template", "out", "json", "submissions", "authors"},
-    "reviews": {"template", "out", "json", "canaries", "dblp_index"},
-    "conflicts": {"template", "out", "authors", "pc", "dblp_dump", "dblp_index", "save_index"},
+    "reviews": {"template", "out", "json", "canaries"},
+    "conflicts": {"template", "out", "authors", "pc"},
     "canary": {"template", "out", "canaries"},
-    "setup": {"dblp_dump", "retraction_csv", "refresh"},
+    "setup": {"retraction_csv", "refresh"},
     "gui": {"template"},
 }
 EXPECTED_ERRORS = (inputs.InputError, profiles.ProfileError, tools.ToolError, ValueError, OSError)
@@ -72,12 +73,6 @@ def parser() -> argparse.ArgumentParser:
                          "email, affiliation, and dblp, for --conflicts")
     options.add_argument("--canaries", type=Path, metavar="FILE",
                          help="canary key file, which --canary writes and --reviews reads")
-    options.add_argument("--dblp-dump", type=Path, metavar="FILE",
-                         help="DBLP dump dblp.xml.gz, for --conflicts or --setup")
-    options.add_argument("--dblp-index", type=Path, metavar="FILE",
-                         help="co-author index that an earlier --conflicts saved, for --conflicts or --reviews")
-    options.add_argument("--save-index", type=Path, metavar="FILE",
-                         help="file for the co-author index that --conflicts builds from --dblp-dump")
     options.add_argument("--retraction-csv", type=Path, metavar="FILE",
                          help="local Retraction Watch list for --setup, in place of its download")
     options.add_argument("--refresh", action="store_true", help="download every file of --setup again")
@@ -145,7 +140,7 @@ def run_reviews(args: argparse.Namespace) -> int:
     if importlib.util.find_spec("torch") is None:
         raise tools.ToolError("the review checks need PyTorch, which pip install . installs with PeerCheck")
     options = [*_option("--template", args.template), *_option("--canaries", args.canaries),
-               *_option("--dblp-index", args.dblp_index), *_option("--out", args.out), *_option("--json", args.json)]
+               *_option("--out", args.out), *_option("--json", args.json)]
     # The double dash keeps a folder whose name starts with a dash from reading as an option.
     return subprocess.call([sys.executable, "-m", "peercheck.reviews", *options, "--", str(args.reviews)])
 
@@ -154,9 +149,6 @@ def run_conflicts(args: argparse.Namespace) -> int:
     """Find conflicts of interest from the author and committee lists and write the report."""
     if not args.authors or not args.pc:
         raise inputs.InputError("--conflicts needs the author list of --authors and the committee list of --pc")
-    if args.save_index and (args.dblp_index or not args.dblp_dump):
-        raise inputs.InputError("--save-index saves the index built from --dblp-dump; give --dblp-dump without "
-                                "--dblp-index")
     venue = profiles.load(args.template or profiles.DEFAULT)
     if not venue.runs("conflicts"):
         raise inputs.InputError("the template turns the conflict check off; remove the # before the key conflicts")
@@ -164,23 +156,32 @@ def run_conflicts(args: argparse.Namespace) -> int:
     authors = inputs.read_people(args.authors, with_paper=True)
     committee = inputs.read_people(args.pc, with_paper=False)
     people = list(dict.fromkeys([person for group in authors.values() for person in group] + committee))
-    index = None
-    if args.dblp_index:
-        index = dblp.load_index(args.dblp_index)
-        missing = index.missing(people)
-        if missing:
-            raise inputs.InputError(f"the dblp index {args.dblp_index} lacks {len(missing)} of the {len(people)} "
-                                    f"people of the lists, such as {missing[0].name}; build it again with --dblp-dump "
-                                    "and --save-index")
-    elif args.dblp_dump:
-        index = dblp.build_index(args.dblp_dump, people)
-        if args.save_index:
-            index.save(args.save_index)
+    index = _coauthor_index(people)
     found = conflicts.find_conflicts(authors, committee, index, venue.options("conflicts"))
     report.write_sheets(out, {"Conflicts": conflicts.rows(found)}, [], [("Template", venue.name),
                                           ("DBLP", "used" if index is not None else "not used")], key="Paper")
     print(f"{len(found)} possible conflicts. Report: {out}")
     return 0
+
+
+def _coauthor_index(people: list[Person]) -> dblp.DblpIndex | None:
+    """Return the co-author index of the people from the DBLP copy of --setup, or None before --setup."""
+    dump, _dtd, saved = dblp.files(tools.cache_dir())
+    if not dump.is_file():
+        print("Co-authorship stays out of the check, since peercheck --setup has not downloaded DBLP.", file=sys.stderr)
+        return None
+    # An index saved from the same dump that holds every listed person spares the scan of the dump.
+    if saved.is_file() and saved.stat().st_mtime >= dump.stat().st_mtime:
+        try:
+            index = dblp.load_index(saved)
+        except (OSError, ValueError, KeyError):
+            index = None
+        if index is not None and not index.missing(people):
+            return index
+    print("Reading the co-authors of the listed people from DBLP.", file=sys.stderr)
+    index = dblp.build_index(dump, people)
+    index.save(saved)
+    return index
 
 
 def run_canary(args: argparse.Namespace) -> int:
@@ -197,7 +198,7 @@ def run_canary(args: argparse.Namespace) -> int:
 
 def run_setup(args: argparse.Namespace) -> int:
     """Download Hallucinator, the DBLP database, and the Retraction Watch list of the reference check."""
-    for path in references.install_tools(tools.cache_dir(), args.dblp_dump, args.retraction_csv, args.refresh):
+    for path in references.install_tools(tools.cache_dir(), args.retraction_csv, args.refresh):
         print(f"installed {path}")
     return 0
 

@@ -24,7 +24,7 @@
 - **Python 3.10** or newer with venv (`python3-venv`)
 - **Java 11** or newer (`default-jre`)
 - **Perl** (`perl`) and **poppler** (`poppler-utils`)
-- Approximately **3 GB** of disk space for DBLP and the two AI detectors
+- Approximately **4 GB** of disk space for DBLP and the two AI detectors
 
 ## 🔧 Installation
 
@@ -111,57 +111,70 @@ the check off.
 
 ### Commands
 
-#### Regular use
+PeerCheck has three main commands, `--papers`, `--reviews`, and `--conflicts`. Each table opens with a main command
+and names the options that the command takes.
+
+#### `--papers`
 
 | Command | Description |
 |---|---|
 | `--papers <folder>` | Checks the submission PDFs (`.pdf`) of a folder |
-| `--reviews <folder or file>` | Checks the reviews (`.xml`, `.csv`) |
-| `--conflicts` | Finds conflicts of interest between the authors and the committee |
-| `--canary <folder>` | Inserts a fictitious citation into each PDF of a folder |
-| `--template <file>` | Template of the venue (`.yaml`) |
-| `--out <file or folder>` | Excel report (`.xlsx`) with the HTML report (`.html`) beside it, or the output folder of `--canary` |
-| `--submissions <file>` | Submissions file (`.csv`, `.xlsx`) |
-| `--authors <file>` | Authors file (`.csv`, `.xlsx`) |
-| `--pc <file>` | Committee file (`.csv`, `.xlsx`) |
-| `--canaries <file>` | Canary key file (`.csv`) that `--canary` writes and `--reviews` reads |
-
-#### Setup
-
-| Command | Description |
-|---|---|
-| `--setup` | Downloads Hallucinator, DBLP, and the Retraction Watch data |
-| `--refresh` | New download of every file of `--setup` |
-| `--retraction-csv <file>` | Local Retraction Watch file (`.csv`) for `--setup` |
-
-#### Extras
-
-| Command | Description |
-|---|---|
-| `--gui` | Opens the browser interface |
+| `--template <file>` | Template of the venue (`.yaml`), `templates/default.yaml` by default |
+| `--submissions <file>` | Submissions file (`.csv`, `.xlsx`) for the title check |
+| `--authors <file>` | Authors file (`.csv`, `.xlsx`) for the anonymity check |
+| `--out <file>` | Excel report (`.xlsx`) with the HTML report (`.html`) beside it, `report.xlsx` by default |
 | `--json <file>` | JSON output (`.json`) |
-| `--dblp-dump <file>` | DBLP dump (`.xml.gz`) for the co-author check of `--conflicts`, or for `--setup` without download |
-| `--save-index <file>` | Co-author index (`.json.gz`) to save from the DBLP dump |
-| `--dblp-index <file>` | Co-author index (`.json.gz`) saved by an earlier run |
+
+#### `--reviews`
+
+| Command | Description |
+|---|---|
+| `--reviews <folder or file>` | Checks the reviews (`.xml`, `.csv`) of a folder or a file |
+| `--template <file>` | Template of the venue (`.yaml`), `templates/default.yaml` by default |
+| `--canaries <file>` | Canary key file (`.csv`) of `--canary` for the planted-citation check |
+| `--out <file>` | Excel report (`.xlsx`) with the HTML report (`.html`) beside it, `reviews.xlsx` by default |
+| `--json <file>` | JSON output (`.json`) |
+
+#### `--conflicts`
+
+| Command | Description |
+|---|---|
+| `--conflicts` | Finds conflicts of interest between the authors and the committee, with co-authorship from DBLP after `--setup` |
+| `--authors <file>` | Authors file (`.csv`, `.xlsx`), required |
+| `--pc <file>` | Committee file (`.csv`, `.xlsx`), required |
+| `--template <file>` | Template of the venue (`.yaml`), `templates/default.yaml` by default |
+| `--out <file>` | Excel report (`.xlsx`), `conflicts.xlsx` by default |
+
+#### Other commands
+
+| Command | Description |
+|---|---|
+| `--canary <folder> --out <folder> --canaries <file>` | Copies of the PDFs (`.pdf`) of a folder, each with a fictitious citation, and the canary key file (`.csv`) |
+| `--setup` | Downloads Hallucinator, DBLP, and the Retraction Watch data |
+| `--setup --refresh` | New download of every file of `--setup` |
+| `--setup --retraction-csv <file>` | Local Retraction Watch file (`.csv`) in place of its download |
+| `--gui` | Opens the browser interface |
 | `--help`, `--version` | Help and version of PeerCheck |
 
 ### Input format
 
 PDFs may carry any names. PeerCheck takes the paper number from the name, such as 12 in `CONF_2027_paper_12.pdf`.
 
-The other inputs are CSV or Excel files with a header row and one row per entry. Common variants of the header names
-are accepted, such as `First Name` or `Submission #`. The matching files in [`examples/`](examples/) serve as starting
-points.
+The other inputs are CSV or Excel files with a header row and one row per entry. `--conflicts` requires the authors
+file and the committee file. For `--papers`, the authors file and the submissions file are optional and enable the
+checks that the column Purpose names. Common variants of the header names are accepted, such as `First Name` or
+`Submission #`. The matching files in [`examples/`](examples/) serve as starting points.
 
-| File | One row per | Columns |
-|---|---|---|
-| Authors file (`--authors`) | Author of a paper | `paper` (paper number), `first`, `last`, `email`, and `affiliation` |
-| Committee file (`--pc`) | Committee member | `first`, `last`, `email`, `affiliation`, and an optional `dblp` (DBLP person ID) |
-| Submissions file (`--submissions`) | Paper | `paper` and `title` |
-| Reviews file (`--reviews`) | Review | `paper`, `review` (review ID, such as A), and one column per field of the review form |
+| File | Purpose | One row per | Columns |
+|---|---|---|---|
+| Authors file (`--authors`) | Author names for the anonymity check of `--papers`, and the authors for `--conflicts` | Author of a paper | `paper` (paper number), `first`, `last`, `email`, and `affiliation` |
+| Committee file (`--pc`) | Committee members for `--conflicts` | Committee member | `first`, `last`, `email`, `affiliation`, and an optional `dblp` (DBLP person ID) |
+| Submissions file (`--submissions`) | Paper titles for the title check of `--papers`, and the papers without a PDF | Paper | `paper` and `title` |
+| Reviews file (`--reviews`) | Reviews for `--reviews`, in place of the XML files of a review export | Review | `paper`, `review` (review ID, such as A), and one column per field of the review form |
 
-Reviews may also come as the XML files of a review export. Fields intended for the committee only, such as
-`Comments for PC`, are excluded from AI detection. `--canary` generates the key file of `--canaries`.
+A review form often holds a field for the authors and a field for the committee only, such as `Comments for authors`
+and `Comments for PC`. The reviews file gives each field a column. The AI detectors read only the fields for the
+authors. `--canary` generates the key file of `--canaries`.
 
 ```bash
 # authors.csv, the authors file for --authors, as examples/authors.csv
@@ -176,7 +189,7 @@ Paul,Meier,paul.meier@uni-nowhere.edu,University of Nowhere,
 paper,title
 1,A Study of Flaky Tests
 
-# reviews.csv, the reviews file for --reviews, as examples/reviews.csv, with one column per field of the review form
+# reviews.csv, the reviews file for --reviews, as examples/reviews/reviews.csv, with one column per field of the review form
 paper,review,Comments for authors
 1,A,"The paper proposes ..."
 ```
@@ -196,8 +209,8 @@ my-venue/
 cd my-venue
 peercheck --template template.yaml --papers submissions/                       # check the PDFs
 peercheck --template template.yaml --reviews reviews/                          # check the reviews
-peercheck --conflicts --authors authors.csv --pc pc.csv --dblp-dump dblp.xml.gz  # find conflicts of interest
-peercheck --canary submissions/ --out marked/ --canaries canaries.csv            # insert a fictitious citation into each PDF
+peercheck --conflicts --authors authors.csv --pc pc.csv                        # find conflicts of interest
+peercheck --canary submissions/ --out marked/ --canaries canaries.csv          # insert a fictitious citation into each PDF
 peercheck --template template.yaml --reviews reviews/ --canaries canaries.csv  # find reviews that cite the planted work
 peercheck --gui                                                                # open the browser interface
 ```

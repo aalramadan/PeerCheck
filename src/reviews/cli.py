@@ -14,7 +14,7 @@ from collections import Counter
 from dataclasses import replace
 from pathlib import Path
 
-from peercheck import canary, inputs, report, tools
+from peercheck import canary, dblp, inputs, report, tools
 from peercheck import profile as profiles
 from peercheck.findings import Finding, Severity, needs_review
 from peercheck.models import Review
@@ -49,8 +49,6 @@ def parser() -> argparse.ArgumentParser:
     top.add_argument("--template", help="the template of the venue, with the settings of the review checks")
     top.add_argument("--canaries", type=Path, help="key file of peercheck --canary, to find reviews that contain the "
                                                    "citation hidden in their paper")
-    top.add_argument("--dblp-index", type=Path, help="dblp index saved by peercheck --conflicts, to match "
-                                                     "requested citations against works of the reviewers")
     top.add_argument("--out", type=Path, default=Path("reviews.xlsx"), help="Excel report, with the HTML page for the browser beside it (default reviews.xlsx)")
     top.add_argument("--json", type=Path, help="also write the results as JSON")
     return top
@@ -86,7 +84,7 @@ def run(args: argparse.Namespace) -> int:
     pages = {"pages": venue.format.main_pages} if venue else {}
     options = {"duplicates": _options(venue, "duplicates"),
                "citations": {**pages, **_options(venue, "citations"),
-                             **_panel_options(args)}}
+                             **_panel_options()}}
     for name, module in (("duplicates", duplicates), ("citations", citations)):
         if name in checks:
             for review_id, items in module.check_reviews(reviews, options[name]).items():
@@ -142,8 +140,10 @@ def _key_coverage(reviews: list[Review], key: dict[int, str]) -> str:
     return f"{len(covered)} of {len(papers)}"
 
 
-def _panel_options(args: argparse.Namespace) -> dict[str, object]:
-    return {"dblp_index": args.dblp_index} if args.dblp_index else {}
+def _panel_options() -> dict[str, object]:
+    # The co-author index that --conflicts saved lets the citation check match requests with works of the reviewers.
+    _dump, _dtd, saved = dblp.files(tools.cache_dir())
+    return {"dblp_index": saved} if saved.is_file() else {}
 
 
 def _detectors(venue) -> tuple[tuple[str, ...], list[str]]:

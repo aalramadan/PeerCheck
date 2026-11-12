@@ -23,8 +23,8 @@ from typing import ClassVar
 
 import pytest
 
+from peercheck import dblp, tools
 from peercheck import profile as profile_module
-from peercheck import tools
 from peercheck.findings import Severity
 from peercheck.models import Paper
 from peercheck.papers import references, retraction_watch
@@ -317,7 +317,7 @@ DUMP = (b'<?xml version="1.0" encoding="ISO-8859-1"?>\n<dblp>\n<article key="x">
 
 
 def fake_release(monkeypatch, checksum=None):
-    """Serve the release archive, the DBLP dump, and the Retraction Watch CSV, and record each download.
+    """Serve the release archive, the DBLP dump and its DTD, and the Retraction Watch CSV, and record each download.
 
     The stand-in CLI of the archive copies the dump that update-dblp reads to the database path."""
     script = b'#!/bin/sh\n[ "$3" = update-dblp ] && cp "$6" "$4"\nexit 0\n'
@@ -334,6 +334,7 @@ def fake_release(monkeypatch, checksum=None):
     files = {
         f"{references.RELEASE_URL}/{name}": archive,
         references.DBLP_URL: gzip.compress(DUMP),
+        references.DBLP_DTD_URL: b"<!ELEMENT dblp ANY>",
         retraction_watch.CSV_URL: (FIXTURES / "retraction_watch.csv").read_bytes(),
     }
     fetched = []
@@ -348,28 +349,30 @@ def fake_release(monkeypatch, checksum=None):
 
 
 @pytest.mark.skipif(os.name == "nt", reason="the stand-in CLI is a shell script")
-def test_install_tools_installs_the_cli_and_builds_dblp_from_a_local_dump(tmp_path, monkeypatch):
+def test_install_tools_installs_the_cli_and_builds_dblp_from_the_dump_in_the_cache(tmp_path, monkeypatch):
     fetched = fake_release(monkeypatch)
-    dump = tmp_path / "dblp.xml.gz"
+    dump, dtd, _index = dblp.files(tmp_path / "cache")
+    dump.parent.mkdir(parents=True)
     dump.write_bytes(gzip.compress(DUMP))
-    binary, database, csv_file = references.install_tools(tmp_path / "cache", dblp_dump=dump,
-                                                          retraction_csv=FIXTURES / "retraction_watch.csv")
+    dtd.write_bytes(b"<!ELEMENT dblp ANY>")
+    binary, database, kept, csv_file = references.install_tools(tmp_path / "cache",
+                                                                retraction_csv=FIXTURES / "retraction_watch.csv")
     assert fetched == [f"{references.RELEASE_URL}/hallucinator-cli-x86_64-unknown-linux-gnu.tar.xz"]
     assert binary == tmp_path / "cache" / "hallucinator" / references.VERSION / "hallucinator-cli"
     assert os.access(binary, os.X_OK)
     assert b"<author>Ren&#233; Just</author>" in gzip.decompress(database.read_bytes())
     assert csv_file.read_bytes() == (FIXTURES / "retraction_watch.csv").read_bytes()
     assert sorted(p.name for p in database.parent.iterdir()) == ["0.2.4", "dblp.db", "hallucinator.toml"]
-    assert dump.is_file()
+    assert kept == dump and dump.is_file()
 
 
 @pytest.mark.skipif(os.name == "nt", reason="the stand-in CLI is a shell script")
-def test_install_tools_downloads_the_dblp_dump_and_the_retraction_data_without_local_files(tmp_path, monkeypatch):
+def test_install_tools_downloads_and_keeps_the_dblp_dump_for_the_conflict_check(tmp_path, monkeypatch):
     fetched = fake_release(monkeypatch)
-    _binary, database, csv_file = references.install_tools(tmp_path / "cache")
-    assert fetched[1:] == [references.DBLP_URL, retraction_watch.CSV_URL]
+    _binary, database, dump, csv_file = references.install_tools(tmp_path / "cache")
+    assert fetched[1:] == [references.DBLP_URL, references.DBLP_DTD_URL, retraction_watch.CSV_URL]
     assert database.is_file() and csv_file.is_file()
-    assert not (tmp_path / "cache" / "hallucinator" / "dblp.xml.gz").exists()
+    assert dump.is_file() and dump.with_name("dblp.dtd").is_file()
 
 
 def test_install_tools_rejects_an_archive_with_a_wrong_checksum(tmp_path, monkeypatch):
@@ -383,7 +386,7 @@ def test_install_tools_keeps_files_already_present(tmp_path, monkeypatch):
     fetched = fake_release(monkeypatch)
     cache = tmp_path / "cache"
     for path in (cache / "hallucinator" / references.VERSION / "hallucinator-cli", cache / "hallucinator" / "dblp.db",
-                 cache / "retraction_watch.csv"):
+                 cache / "retraction_watch.csv", *dblp.files(cache)[:2]):
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text("present", encoding="utf-8")
     references.install_tools(cache)

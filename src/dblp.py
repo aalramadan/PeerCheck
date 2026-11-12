@@ -166,6 +166,12 @@ def load_index(path: Path) -> DblpIndex:
     )
 
 
+def files(cache: Path) -> tuple[Path, Path, Path]:
+    """Return the dump, its DTD, and the saved co-author index in the cache of peercheck --setup and --conflicts."""
+    folder = cache / "dblp"
+    return folder / "dblp.xml.gz", folder / "dblp.dtd", folder / "coauthors.json.gz"
+
+
 def build_index(dump: Path, people: Iterable[Person], dtd: Path | None = None) -> DblpIndex:
     """Scan the dblp dump and index the publications of the given people."""
     people = list({person_key(p): p for p in people}.values())

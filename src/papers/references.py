@@ -4,8 +4,9 @@ Retraction Watch data marks cited works that carry a retraction notice.
 Hallucinator 0.2.4 (github.com/gianlucasb/hallucinator, AGPL-3.0) is the checker that the organizers of
 ACSAC 2025 and ICWSM 2026 ran. PeerCheck runs its unchanged command-line binary as a separate process and
 reads its JSON report. A reference matches a database record when the titles agree at a fuzzy ratio of at
-least 0.95 and the author lists overlap. ``install_tools`` downloads the binary, builds the offline DBLP
-database, and fetches the Retraction Watch CSV into the cache. Before the build it rewrites the named
+least 0.95 and the author lists overlap. ``install_tools`` downloads the binary, the DBLP dump with its DTD,
+and the Retraction Watch CSV into the cache and builds the offline DBLP database. The dump stays in the cache for the
+co-author check of the conflict check. Before the build it rewrites the named
 character entities of the DBLP dump as numeric references, since the builder of 0.2.4 drops every title and
 author name that holds a named entity.
 
@@ -56,7 +57,7 @@ import zipfile
 from dataclasses import dataclass
 from pathlib import Path
 
-from peercheck import tools
+from peercheck import dblp, tools
 from peercheck.findings import Finding, Severity
 from peercheck.models import Paper
 from peercheck.papers import retraction_watch
@@ -108,6 +109,7 @@ ARXIV_IN_TEXT = re.compile(
 UNVERIFIED = ("not_found", "inconclusive")
 # The dump that the DBLP builder of Hallucinator downloads when it gets no local file.
 DBLP_URL = "https://dblp.uni-trier.de/xml/dblp.xml.gz"
+DBLP_DTD_URL = "https://dblp.uni-trier.de/xml/dblp.dtd"
 # The DBLP dump of about 1.1 GB comes slowly, and a connection that drops resumes this many times.
 DOWNLOAD_ATTEMPTS = 20
 NAMED_ENTITY = re.compile(rb"&([A-Za-z][A-Za-z0-9]*);")
@@ -190,26 +192,24 @@ def settings_from(options: dict) -> Settings:
     )
 
 
-def install_tools(cache: Path | None = None, dblp_dump: Path | None = None, retraction_csv: Path | None = None,
-                  refresh: bool = False) -> list[Path]:
-    """Fill the cache with the Hallucinator CLI, its offline DBLP database, and the Retraction Watch CSV.
+def install_tools(cache: Path | None = None, retraction_csv: Path | None = None, refresh: bool = False) -> list[Path]:
+    """Fill the cache with the Hallucinator CLI, the DBLP dump and its offline database, and the Retraction Watch CSV.
 
-    The CLI archive must match the SHA-256 that the release states. A local dblp.xml.gz or CSV replaces the
-    download of that file. Files already present stay unless refresh is set. Returns the paths of the binary,
-    the database, and the CSV.
+    The CLI archive must match the SHA-256 that the release states. A local CSV replaces the download of the
+    Retraction Watch data. Files already present stay unless refresh is set. Returns the paths of the binary, the
+    database, the dump, and the CSV.
     """
     cache = Path(cache or tools.cache_dir()).expanduser()
     tool = cache / "hallucinator"
     binary, database, csv_file = tool / VERSION / _binary_name(), tool / "dblp.db", cache / "retraction_watch.csv"
     if refresh or not binary.is_file():
         _install_binary(binary)
+    dump, dtd, _index = dblp.files(cache)
+    for url, target in ((DBLP_URL, dump), (DBLP_DTD_URL, dtd)):
+        if refresh or not target.is_file():
+            _fetch(url, target)
     if refresh or not database.is_file():
-        dump = dblp_dump or tool / "dblp.xml.gz"
-        if not dblp_dump:
-            _fetch(DBLP_URL, dump)
         _build_dblp(binary, database, dump)
-        if not dblp_dump:
-            dump.unlink()
     if refresh or not csv_file.is_file():
         partial = csv_file.with_suffix(".partial")
         if retraction_csv:
@@ -217,7 +217,7 @@ def install_tools(cache: Path | None = None, dblp_dump: Path | None = None, retr
         else:
             _fetch(retraction_watch.CSV_URL, partial)
         partial.replace(csv_file)
-    return [binary, database, csv_file]
+    return [binary, database, dump, csv_file]
 
 
 def _disabled(settings: Settings) -> list[str]:

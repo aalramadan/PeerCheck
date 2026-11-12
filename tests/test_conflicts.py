@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+import gzip
+import shutil
 from pathlib import Path
 
+import openpyxl
 import pytest
 
 from peercheck import cli, conflicts, dblp
@@ -242,7 +245,9 @@ class TestRows:
 
 class TestCommand:
     @pytest.fixture
-    def command(self, tmp_path) -> list[str]:
+    def command(self, tmp_path, monkeypatch) -> list[str]:
+        # An empty cache of its own keeps each run from the DBLP copy of the machine.
+        monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path / "cache"))
         (tmp_path / "authors.csv").write_text(
             "paper,first,last,email,affiliation\n1,Robin,Okafor,robin@riverside.example,Riverside Research Lab\n",
             encoding="utf-8")
@@ -265,15 +270,42 @@ class TestCommand:
         assert cli.main(["--template", str(venue), *command]) == 0
         assert options[0]["coauthor_years"] == 0
 
-    def test_save_index_without_a_dump_is_refused(self, command, tmp_path, capsys):
-        assert cli.main([*command, "--save-index", str(tmp_path / "index.json.gz")]) == 2
-        assert "--dblp-dump" in capsys.readouterr().err
-        assert not (tmp_path / "index.json.gz").exists()
+    @staticmethod
+    def _setup_dblp(tmp_path) -> tuple[Path, Path]:
+        """Place the DBLP fixture where peercheck --setup keeps the dump and its DTD; return the dump and the index."""
+        dump, dtd, saved = dblp.files(tmp_path / "cache" / "peercheck")
+        dump.parent.mkdir(parents=True)
+        dump.write_bytes(gzip.compress(DUMP.read_bytes()))
+        shutil.copyfile(DUMP.with_name("dblp.dtd"), dtd)
+        return dump, saved
 
-    def test_saved_index_that_lacks_a_listed_person_is_refused(self, command, tmp_path, capsys):
+    @staticmethod
+    def _dblp_row(tmp_path) -> str:
+        about = openpyxl.load_workbook(tmp_path / "conflicts.xlsx")["About"].iter_rows(values_only=True)
+        return {row[0]: row[1] for row in about}["DBLP"]
+
+    def test_conflict_check_leaves_out_coauthorship_before_setup(self, command, tmp_path, capsys):
+        assert cli.main(command) == 0
+        assert "peercheck --setup" in capsys.readouterr().err
+        assert self._dblp_row(tmp_path) == "not used"
+
+    def test_conflict_check_reads_the_dblp_copy_of_setup_and_saves_the_coauthor_index(self, command, tmp_path):
+        _dump, saved = self._setup_dblp(tmp_path)
+        assert cli.main(command) == 0
+        assert self._dblp_row(tmp_path) == "used"
+        assert dblp.load_index(saved).identity(MULLER) is not None
+
+    def test_saved_index_that_holds_every_listed_person_spares_the_scan(self, command, tmp_path, monkeypatch):
+        self._setup_dblp(tmp_path)
+        assert cli.main(command) == 0
+        monkeypatch.setattr(dblp, "build_index", lambda *args: pytest.fail("the saved index covers everyone"))
+        assert cli.main(command) == 0
+        assert self._dblp_row(tmp_path) == "used"
+
+    def test_saved_index_that_lacks_a_listed_person_is_built_again(self, command, tmp_path):
+        _dump, saved = self._setup_dblp(tmp_path)
+        dblp.build_index(DUMP, [MULLER]).save(saved)
         okafor = Person("Robin", "Okafor", "robin@riverside.example", "Riverside Research Lab")
-        dblp.build_index(DUMP, [MULLER, okafor]).save(tmp_path / "full.json.gz")
-        assert cli.main([*command, "--dblp-index", str(tmp_path / "full.json.gz")]) == 0
-        dblp.build_index(DUMP, [MULLER]).save(tmp_path / "partial.json.gz")
-        assert cli.main([*command, "--dblp-index", str(tmp_path / "partial.json.gz")]) == 2
-        assert "Robin Okafor" in capsys.readouterr().err
+        assert dblp.load_index(saved).identity(okafor) is None
+        assert cli.main(command) == 0
+        assert dblp.load_index(saved).identity(okafor) is not None
