@@ -52,7 +52,7 @@ def parser() -> argparse.ArgumentParser:
     top = argparse.ArgumentParser(prog="peercheck", description="Screen submissions and reviews locally.",
                                   allow_abbrev=False)
     top.add_argument("--version", action="version", version=f"PeerCheck {__version__}")
-    top.add_argument("--profile", help="the rules of the venue, a filled copy of profiles/template.yaml or an example "
+    top.add_argument("--profile", help="the rules and settings of the venue, a copy of profiles/default.yaml or an example "
                                        "such as icse-2027; the paper checks need one")
     commands = top.add_subparsers(dest="command")
 
@@ -121,10 +121,12 @@ def _port(text: str) -> int:
 
 def run_papers(args: argparse.Namespace) -> int:
     """Check a folder of submission PDFs and write the report."""
+    venue = profiles.load(args.profile or profiles.DEFAULT)
     if not args.profile:
-        raise inputs.InputError("the paper checks need the rules of the venue; copy profiles/template.yaml, fill it "
-                                "in, and pass it with --profile, or pass an example such as --profile icse-2027")
-    venue = profiles.load(args.profile)
+        rules = venue.format
+        print(f"The default rules of profiles/default.yaml apply: {rules.style}, {rules.columns} columns, "
+              f"{rules.main_pages} pages plus {rules.reference_pages} for references. Copy the file to set the rules "
+              "of the venue and pass the copy with --profile.", file=sys.stderr)
     run = pipeline.run_papers(args.pdfs, venue, args.submissions, args.authors)
     # The JSON file and the page come first, since the workbook can fail, such as when it is open in Excel.
     page = args.out.with_suffix(".html")
@@ -151,7 +153,7 @@ def run_reviews(args: argparse.Namespace) -> int:
 
 def run_conflicts(args: argparse.Namespace) -> int:
     """Find conflicts of interest from the author and committee lists and write the report."""
-    venue = profiles.load(args.profile) if args.profile else None
+    venue = profiles.load(args.profile or profiles.DEFAULT)
     if args.save_index and (args.dblp_index or not args.dblp_dump):
         raise inputs.InputError("--save-index saves the index built from --dblp-dump; give --dblp-dump without "
                                 "--dblp-index")
@@ -172,7 +174,7 @@ def run_conflicts(args: argparse.Namespace) -> int:
             index.save(args.save_index)
     options = venue.options("conflicts") if venue else {}
     found = conflicts.find_conflicts(authors, committee, index, options)
-    report.write_sheets(args.out, {"Conflicts": conflicts.rows(found)}, [], [("Profile", venue.name if venue else "none"),
+    report.write_sheets(args.out, {"Conflicts": conflicts.rows(found)}, [], [("Profile", venue.name),
                                                ("DBLP", "used" if index is not None else "not used")], key="Paper")
     print(f"{len(found)} possible conflicts. Report: {args.out}")
     return 0
@@ -180,7 +182,7 @@ def run_conflicts(args: argparse.Namespace) -> int:
 
 def run_canary(args: argparse.Namespace) -> int:
     """Write a copy of each submission PDF with its hidden citation and update the key file."""
-    venue = profiles.load(args.profile) if args.profile else None
+    venue = profiles.load(args.profile or profiles.DEFAULT)
     count, skipped = canary.mark_folder(args.pdfs, args.out, args.key, venue)
     print(f"{count} PDFs marked in {args.out}. Key: {args.key}")
     for name in skipped:

@@ -8,13 +8,12 @@ from peercheck import cli, tools
 from peercheck.papers import pipeline
 
 
-def test_command_line_applies_no_venue_profile_by_default():
-    assert cli.parser().parse_args(["papers", "pdfs"]).profile is None
-
-
-def test_papers_command_without_a_profile_names_the_template(tmp_path, capsys):
-    assert cli.main(["papers", str(tmp_path)]) == 2
-    assert "profiles/template.yaml" in capsys.readouterr().err
+def test_papers_command_without_a_profile_applies_the_default_rules(monkeypatch, tmp_path, capsys):
+    used = []
+    monkeypatch.setattr(cli.pipeline, "run_papers", lambda *args: used.append(args[1]) or _papers_run())
+    assert cli.main(["papers", str(tmp_path), "--out", str(tmp_path / "r.xlsx")]) == 0
+    assert used[0].name == "Default rules"
+    assert "profiles/default.yaml" in capsys.readouterr().err
 
 
 def _review_command(monkeypatch, argv):

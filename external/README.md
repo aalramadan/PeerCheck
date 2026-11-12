@@ -44,8 +44,32 @@
 
 ## Not in this folder
 
-- Model weights and databases, which `peercheck setup` downloads. These are CoCoDet with ModernBERT-base, the
-  EditLens weights, DBLP, and the Retraction Watch list.
+- Model weights and databases. `peercheck setup` downloads DBLP and the Retraction Watch list. The first review run
+  downloads CoCoDet with ModernBERT-base and the EditLens weights.
 - Python dependencies, such as pdfguardrail and PyMuPDF, which install with pip.
 - Code of the canary check, since the paper of Rao et al. (arXiv 2503.15772) that the check follows comes without
   code.
+
+## References
+
+The papers that the checks of PeerCheck build on.
+
+1. CoCoDet: Chen et al. 2026. *CoCoNUTS: Concentrating on Content while Neglecting Uninformative Textual Styles
+   for AI-Generated Peer Review Detection.* ACL 2026.
+   [doi.org/10.18653/v1/2026.acl-long.1240](https://doi.org/10.18653/v1/2026.acl-long.1240)
+2. EditLens: Thai et al. 2026. *EditLens: Quantifying the Extent of AI Editing in Text.* ICLR 2026.
+   [arxiv.org/abs/2510.03154](https://arxiv.org/abs/2510.03154)
+3. Canary check: Rao et al. 2025. *Detecting LLM-generated peer reviews.* PLOS ONE.
+   [doi.org/10.1371/journal.pone.0331871](https://doi.org/10.1371/journal.pone.0331871)
+4. Canary check: ICML. 2026. *On Violations of LLM Review Policies.* ICML Blog.
+   [blog.icml.cc](https://blog.icml.cc/2026/03/18/on-violations-of-llm-review-policies/)
+5. Hidden-text phrases: Murray. 2025. *PhantomLint: Principled Detection of Hidden LLM Prompts in Structured
+   Documents.* arXiv preprint. [arxiv.org/abs/2508.17884](https://arxiv.org/abs/2508.17884)
+6. Duplicates check: Day. 2022. *Exploratory analysis of text duplication in peer-review reveals peer-review fraud
+   and paper mills.* Scientometrics 127(10), 5965–5987.
+   [doi.org/10.1007/s11192-022-04504-5](https://doi.org/10.1007/s11192-022-04504-5)
+7. Limit on citation requests: Wren et al. 2019. *Reviewer-coerced citation: case report, update on journal policy
+   and suggestions for future prevention.* Bioinformatics 35(18), 3217–3218.
+   [doi.org/10.1093/bioinformatics/btz071](https://doi.org/10.1093/bioinformatics/btz071)
+8. Citations of works of the reviewers: Barnett. 2025. *Are peer reviewers influenced by their work being cited?*
+   eLife 14. [doi.org/10.7554/eLife.108748](https://doi.org/10.7554/eLife.108748)

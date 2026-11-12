@@ -18,7 +18,7 @@
 | `reviews/` | eight reviews as the XML files of a review export, three by people, two that AI polished or extended, and three by AI | AI detection and a planted citation |
 | `canaries.csv` | the key of the planted citations of the eight reviews | |
 | `reviews.csv` | three reviews in one CSV file, a row per review | the CSV reader |
-| `venue.yaml` | the profile of a made-up venue, filled from `profiles/template.yaml` | a venue profile |
+| `venue.yaml` | the profile of a made-up venue, a copy of `profiles/default.yaml` with its values | a venue profile |
 | `reports/` | the reports of PeerCheck on these files, with the page of the live demo | the output of each command |
 
 - The commands below write the reports to [`reports/`](reports/), which the

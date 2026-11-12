@@ -64,13 +64,20 @@ def test_file_pattern_of_a_profile_reads_names_of_another_form(tmp_path):
     assert _load(tmp_path, data).paper_id("sub-7.pdf") == 7
 
 
-def test_template_holds_no_values_and_loads_only_once_filled():
-    with pytest.raises(profile.ProfileError, match="fill in the rules"):
-        profile.load(str(profile.PROFILES / "template.yaml"))
-    assert "template" not in profile.available()
+def test_default_rules_load_and_stay_out_of_the_examples():
+    rules = profile.load(profile.DEFAULT).format
+    assert (rules.style, rules.columns, rules.main_pages, rules.reference_pages) == ("IEEE", 2, 10, 2)
+    assert profile.DEFAULT not in profile.available()
 
 
-def test_template_lines_alone_that_it_marks_required_make_a_profile(tmp_path):
+def test_profile_without_values_names_the_default_file(tmp_path):
+    empty = tmp_path / "venue.yaml"
+    empty.write_text("# only comments\n", encoding="utf-8")
+    with pytest.raises(profile.ProfileError, match="copy profiles/default.yaml"):
+        profile.load(str(empty))
+
+
+def test_the_required_lines_alone_make_a_profile(tmp_path):
     data = {"name": "A venue", "source": "https://example.org", "format": {
         "style": "ACM", "paper_size": [792, 612], "columns": 2, "main_pages": 10, "reference_pages": 2}}
     rules = _load(tmp_path, data).format

@@ -57,8 +57,6 @@ def command(kind: str, options: dict, folder: Path) -> list[str]:
 
     reports = ["--out", str(folder / "report.xlsx")]
     if kind == "papers":
-        if not venue:
-            raise RequestError("choose the venue rules, which the paper checks need")
         return [*venue, "papers", str(folder / "pdfs"), *reports, *single("authors"), *single("submissions")]
     if kind == "reviews":
         return [*venue, "reviews", str(folder / "reviews"), *reports, *single("canaries")]
@@ -101,15 +99,10 @@ class Server(ThreadingHTTPServer):
         self.runs: set[str] = set()
 
     def profiles(self) -> list[dict[str, str]]:
-        """Return the choices of the page: the profile of the session, no venue rules, then the shipped examples."""
-        examples = [key for key in profiles.available() if key != self.profile]
+        """Return the choices of the page: the profile of the session, the default rules, then the shipped examples."""
+        keys = dict.fromkeys([self.profile or profiles.DEFAULT, profiles.DEFAULT, *profiles.available()])
         # A profile given as a path shows only its file name.
-        offered = [{"key": key, "name": profiles.load(key).name, "label": Path(key).name} for key in examples]
-        none = {"key": "", "name": "No venue rules", "label": "the paper checks need a profile"}
-        if not self.profile:
-            return [none] + offered
-        session = {"key": self.profile, "name": profiles.load(self.profile).name, "label": Path(self.profile).name}
-        return [session, none] + offered
+        return [{"key": key, "name": profiles.load(key).name, "label": Path(key).name} for key in keys]
 
     def start(self, request: dict) -> dict:
         """Run one command on the files of a run and return its outcome for the page."""

@@ -62,19 +62,14 @@ def test_papers_command_passes_the_uploaded_files_and_leaves_the_checks_to_the_v
     assert "--checks" not in arguments and "--submissions" not in arguments
 
 
-def test_papers_command_without_venue_rules_is_refused(tmp_path):
-    with pytest.raises(gui.RequestError, match="venue rules"):
-        gui.command("papers", {"profile": ""}, tmp_path)
-
-
-def test_reviews_command_without_venue_rules_runs_without_a_profile(tmp_path):
-    arguments = gui.command("reviews", {"profile": ""}, tmp_path)
-    assert arguments[0] == "reviews"
-
-
-def test_page_offers_no_venue_rules_before_the_shipped_examples(tmp_path):
+def test_page_offers_the_default_rules_before_the_shipped_examples(tmp_path):
     keys = [choice["key"] for choice in gui.Server(0, None, tmp_path).profiles()]
-    assert keys == ["", "fse-2027", "icse-2027"]
+    assert keys == ["default", "fse-2027", "icse-2027"]
+
+
+def test_page_offers_the_profile_of_the_session_first_and_each_choice_once(tmp_path):
+    keys = [choice["key"] for choice in gui.Server(0, "icse-2027", tmp_path).profiles()]
+    assert keys == ["icse-2027", "default", "fse-2027"]
 
 
 def test_reviews_command_leaves_the_detectors_and_checks_to_the_venue_rules(tmp_path):

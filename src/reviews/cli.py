@@ -58,7 +58,7 @@ def parser() -> argparse.ArgumentParser:
 
 def run(args: argparse.Namespace) -> int:
     """Check every review of a folder and write the report."""
-    venue = profiles.load(args.profile) if args.profile else None
+    venue = profiles.load(args.profile or profiles.DEFAULT)
     detectors, skipped = _detectors(venue)
     checks = tuple(name for name in CHECKS if _options(venue, name).get("enabled", True))
     key = canary.read_key(args.canaries) if args.canaries else None

@@ -1,94 +1,93 @@
-# The rules of one venue for PeerCheck, a conference or a journal.
+# The default rules of PeerCheck, which apply when a command names no --profile.
 #
-# 1. Copy this file, such as to venue.yaml.
-# 2. Remove the # before each line the venue needs and set its value from the call for papers. The lines marked
-#    "required" always stay, with the lines format: and checks: above their entries. Each other line keeps the
-#    default that its comment names, and a rule without a default goes unchecked.
-# 3. Pass the copy with --profile venue.yaml.
+# The format below is a common conference format: IEEE, two columns, US Letter, and 10 pages plus 2 for references.
+# For a venue, copy this file, such as to venue.yaml, set each value from the call for papers, and pass the copy
+# with --profile venue.yaml. Each comment names the meaning of its line and its default. A line that starts with #
+# holds a rule that stays unchecked until the # goes.
 #
-# profiles/icse-2027.yaml and profiles/fse-2027.yaml show two filled copies.
+# profiles/icse-2027.yaml and profiles/fse-2027.yaml show the rules of two venues.
 
-# name: Example Conference 2027                     # required: the venue, as the reports name it
-# source: https://example.org/call-for-papers       # required: the call for papers that the rules come from
+name: Default rules                                 # required: the venue, as the reports name it
+source: profiles/default.yaml                       # required: the call for papers that the rules come from
 
-# format:
-#   style: IEEE                                     # required: IEEE or ACM, the template of the venue
-#   paper_size: [792, 612]                          # required: height and width in points, 792 x 612 for US Letter, 842 x 595 for A4
-#   columns: 2                                      # required: the columns of the body text
-#   main_pages: 10                                  # required: the page limit of the main text, figures and appendices included
-#   reference_pages: 2                              # required: the extra pages for references only
-#   paper_size_tolerance: 5                         # default 5: the allowed difference from paper_size in points
-#   margins: [52, 48, 72, 48]                       # default none: top, right, bottom, and left margins in points
-#   margin_tolerance: 18                            # default 18: the allowed difference from margins in points
-#   body_font_max: 10.5                             # default none: the largest font size of the body text in points
-#   body_font_min: 9.8                              # default none: the smallest font size of the body text in points
-#   leading_min: 11.0                               # default none: the smallest distance between lines in points
-#   reference_font_min: 8.0                         # default none: the smallest font size of the references in points
-#   page_numbers: warning                           # default ignore: ignore, warning, or error for printed page numbers
-#   required_headings: [introduction, conclusion]   # default none: headings that each paper must hold
-#   require_abstract: true                          # default true: an abstract on the first page
-#   exempt_sections: [data availability]            # default none: sections after the main text that the limit leaves out
-#   exempt_pages_max: 1                             # default none: the most pages that the exempt sections may take
+format:
+  style: IEEE                                       # required: IEEE or ACM, the template of the venue
+  paper_size: [792, 612]                            # required: height and width in points, 792 x 612 for US Letter, 842 x 595 for A4
+  columns: 2                                        # required: the columns of the body text
+  main_pages: 10                                    # required: the page limit of the main text, figures and appendices included
+  reference_pages: 2                                # required: the extra pages for references only
+  paper_size_tolerance: 5                           # default 5: the allowed difference from paper_size in points
+  margin_tolerance: 18                              # default 18: the allowed difference from margins in points
+  page_numbers: ignore                              # default ignore: ignore, warning, or error for printed page numbers
+  require_abstract: true                            # default true: an abstract on the first page
+  # margins: [52, 48, 72, 48]                       # default none: top, right, bottom, and left margins in points
+  # body_font_max: 10.5                             # default none: the largest font size of the body text in points
+  # body_font_min: 9.8                              # default none: the smallest font size of the body text in points
+  # leading_min: 11.0                               # default none: the smallest distance between lines in points
+  # reference_font_min: 8.0                         # default none: the smallest font size of the references in points
+  # required_headings: [introduction, conclusion]   # default none: headings that each paper must hold
+  # exempt_sections: [data availability]           # default none: sections after the main text that the limit leaves out
+  # exempt_pages_max: 1                             # default none: the most pages that the exempt sections may take
 
 # Paper numbers come by themselves from names such as CONF_2027_paper_12.pdf, conf27-paper12.pdf, or 12.pdf, and
 # from a column # or ID of a submission sheet. Two lines change this for other names.
 # file_pattern: 'sub-(\d+)\.pdf$'                   # default none: a pattern whose one group is the paper number
 # id_column: Submission                             # default none: the column of the submission sheet with the numbers
 
-# checks:                                          # every check runs unless its section sets enabled: false
-#   layout:
-#     enabled: true                                 # default true: the format check, with fonts, margins, and the other layout notes
-#   sigsoft:
-#     enabled: true                                 # default true: the anonymity and template check
-#   anonymity:
-#     allowed_hosts: [anonymous.4open.science, zenodo.org, figshare.com, osf.io, doi.org]   # default none: hosts that links may name
-#     flag_acknowledgments: true                    # default true: report an acknowledgments section
-#   hidden_text:
-#     enabled: true                                 # default true: the hidden-text check
-#     min_font_size: 2.0                            # default 2.0: text smaller than this counts as hidden, in points
-#     extra_phrases: [ignore all previous instructions]   # default none: more phrases of hidden prompts
-#   references:
-#     enabled: true                                 # default true: the reference check, after peercheck setup
-#     online: true                                  # default true: look up references online, false keeps the check offline
-#     online_titles: true                           # default true: send reference titles online, false sends only DOIs and arXiv IDs
-#     timeout: 600                                  # default 600: the seconds before the check of one PDF stops
-#     local_corpus: ~/corpus                        # default none: a local corpus of Hallucinator with further known works
-#   fonts:
-#     title_size: 24                                # default none: the title size in points that the venue asks for
-#     title_tolerance: 1                            # default 1: the allowed difference from title_size in points
-#     families: [NimbusRomNo9L, Times]              # default the fonts of style: the accepted fonts of the body text
-#   margins:
-#     tolerance: 12                                 # default 12: points that content may run into a margin
-#   line_numbers:
-#     missing: ignore                               # default ignore: ignore, info, warning, or error for no line numbers
-#   images:
-#     max_file_mb: 20                               # default none: the largest PDF in megabytes
-#     max_megapixels: 34                            # default 34: the largest image in megapixels
-#     min_ppi: 50                                   # default 50: the lowest resolution of a picture in pixels per inch
-#   accessibility:
-#     enabled: false                                # default false: notes on tags, language, title, and figure descriptions
-#     required: false                               # default false: true turns these notes into errors
-#   title:
-#     similarity_min: 70                            # default 70: how close, from 0 to 100, the PDF title and the sheet title must be
-#   density:
-#     percentile: 95                                # default 95: the percentile of the batch that a dense paper exceeds
-#     min_batch: 30                                 # default 30: the fewest papers for this comparison
-#     template_characters: 6422                     # default none: characters per full text page of the template
-#   active_content:
-#     severity: warning                             # default warning: the severity of scripts and other active content
-#   cocodet:
-#     enabled: true                                 # default true: the AI detector CoCoDet on each review
-#   editlens:
-#     enabled: true                                 # default true: the AI detector EditLens, skipped without a Hugging Face token
-#   duplicates:
-#     enabled: true                                 # default true: copied text between reviews
-#     threshold: 0.5                                # default 0.5: how alike two review paragraphs are, from 0 to 1
-#     min_chars: 150                                # default 150: the shortest paragraph to compare
-#   citations:
-#     enabled: true                                 # default true: the citation requests of the reviews
-#     title_min: 90                                 # default 90: how close, from 0 to 100, a cited title must be
-#   canary:
-#     fwer: 0.001                                   # default 0.001: the chance of any wrong hit among all reviews
-#   conflicts:
-#     coauthor_years: 3                             # default 3: the years of co-authorship that make a conflict
-#     affiliation_min: 90                           # default 90: how close, from 0 to 100, two affiliations must be
+checks:                                             # every check runs unless its section sets enabled: false
+  layout:
+    enabled: true                                   # default true: the format check, with fonts, margins, and the other layout notes
+  sigsoft:
+    enabled: true                                   # default true: the anonymity and template check
+  anonymity:
+    flag_acknowledgments: true                      # default true: report an acknowledgments section
+    # allowed_hosts: [anonymous.4open.science, zenodo.org, figshare.com, osf.io, doi.org]   # default none: hosts that links may name
+  hidden_text:
+    enabled: true                                   # default true: the hidden-text check
+    min_font_size: 2.0                              # default 2.0: text smaller than this counts as hidden, in points
+    # extra_phrases: [ignore all previous instructions]   # default none: more phrases of hidden prompts
+  references:
+    enabled: true                                   # default true: the reference check, after peercheck setup
+    online: true                                    # default true: look up online what the local DBLP copy lacks, false keeps the check offline
+    online_titles: true                             # default true: send those titles online, false sends only their DOIs and arXiv IDs
+    timeout: 600                                    # default 600: the seconds before the check of one PDF stops
+    # local_corpus: ~/corpus                        # default none: a local corpus of Hallucinator with further known works
+  fonts:
+    title_tolerance: 1                              # default 1: the allowed difference from title_size in points
+    # title_size: 24                                # default none: the title size in points that the venue asks for
+    # families: [NimbusRomNo9L, Times]              # default the fonts of style: the accepted fonts of the body text
+  margins:
+    tolerance: 12                                   # default 12: points that content may run into a margin
+  line_numbers:
+    missing: ignore                                 # default ignore: ignore, info, warning, or error for no line numbers
+  images:
+    max_megapixels: 34                              # default 34: the largest image in megapixels
+    min_ppi: 50                                     # default 50: the lowest resolution of a picture in pixels per inch
+    # max_file_mb: 20                               # default none: the largest PDF in megabytes
+  accessibility:
+    enabled: false                                  # default false: notes on tags, language, title, and figure descriptions
+    required: false                                 # default false: true turns these notes into errors
+  title:
+    similarity_min: 70                              # default 70: how close, from 0 to 100, the PDF title and the sheet title must be
+  density:
+    percentile: 95                                  # default 95: the percentile of the batch that a dense paper exceeds
+    min_batch: 30                                   # default 30: the fewest papers for this comparison
+    # template_characters: 6422                     # default none: characters per full text page of the template
+  active_content:
+    severity: warning                               # default warning: the severity of scripts and other active content
+  cocodet:
+    enabled: true                                   # default true: the AI detector CoCoDet on each review
+  editlens:
+    enabled: true                                   # default true: the AI detector EditLens, skipped without a Hugging Face token
+  duplicates:
+    enabled: true                                   # default true: copied text between reviews
+    threshold: 0.5                                  # default 0.5: how alike two review paragraphs are, from 0 to 1
+    min_chars: 150                                  # default 150: the shortest paragraph to compare
+  citations:
+    enabled: true                                   # default true: the citation requests of the reviews
+    title_min: 90                                   # default 90: how close, from 0 to 100, a cited title must be
+  canary:
+    fwer: 0.001                                     # default 0.001: the chance of any wrong hit among all reviews
+  conflicts:
+    coauthor_years: 3                               # default 3: the years of co-authorship that make a conflict
+    affiliation_min: 90                             # default 90: how close, from 0 to 100, two affiliations must be

@@ -69,7 +69,7 @@ peercheck setup                                                # once, the refer
 
 ```text
 my-conference/
-  venue.yaml     the rules of the venue, a filled copy of profiles/template.yaml
+  venue.yaml     the rules of the venue, a copy of profiles/default.yaml with its values
   submissions/   the PDFs of the submissions
   reviews/       the reviews, as the XML files of a review export or one CSV file
 ```
@@ -82,13 +82,15 @@ peercheck --profile venue.yaml reviews reviews/      # every check of the review
 
 - The first command writes `report.html` for the browser and `report.xlsx` with every detail. The second writes
   `reviews.html` and `reviews.xlsx`.
+- Without `--profile`, PeerCheck applies `profiles/default.yaml`, which sets IEEE, two columns, US Letter, and 10
+  pages plus 2 for references.
 - With Docker, write `docker run --rm -v "$PWD:/data" -v peercheck-cache:/cache -e HF_TOKEN
   ghcr.io/aalramadan/peercheck` in place of `peercheck`.
 
 #### 🎛️ Customize
 
 - `venue.yaml` holds every setting beside the rules of the venue. Every check runs until its section sets
-  `enabled: false`. `profiles/template.yaml` lists each check with its settings.
+  `enabled: false`. `profiles/default.yaml` lists each check with its settings and their defaults.
 - The settings apply to a command that names `venue.yaml` with `--profile` before the command name.
 - The reference check looks up each cited work in the local copy of DBLP and online in CrossRef, arXiv, Semantic
   Scholar, OpenAlex, and other databases. Two lines of `venue.yaml` limit the online lookups.
@@ -201,7 +203,8 @@ We tested the two AI detectors on 1,409 reviews of ICLR 2017 papers, in three gr
 
 - A **profile** holds the rules of one venue, a conference or a journal, such as its template, page limit, and
   margins. It also decides which checks run and how strict each one is.
-- `profiles/template.yaml` lists every rule and option, each commented out with its meaning and its default.
+- `profiles/default.yaml` holds every rule and option with its default value. It applies when a command names no
+  `--profile`.
 - Two filled copies serve as examples. Each copies the call for papers of its venue and links the call.
 
 | Profile | Venue | Format | Pages |
@@ -211,9 +214,9 @@ We tested the two AI detectors on 1,409 reviews of ICLR 2017 papers, in three gr
 
 #### ➕ Add a venue
 
-1. Copy `profiles/template.yaml` into the folder of the conference as `venue.yaml`.
-2. Remove the `#` before each line that the venue needs and set its value from the call for papers. The lines marked
-   required always stay. Each other line names its default.
+1. Copy `profiles/default.yaml` into the folder of the conference as `venue.yaml`.
+2. Set each value from the call for papers. A line that starts with `#` holds a rule that stays unchecked until the
+   `#` goes.
 3. Pass the copy by path, such as `peercheck --profile venue.yaml papers submissions/`.
 
 | Value | Sets | Example |
@@ -234,37 +237,18 @@ mvn -f external/submission-checker/pom.xml package   # rebuilds the revised SIGS
 
 ## 🔒 Privacy
 
-- Every check and every model runs locally. The reference check is the only one that sends data out.
-- The reference check sends the titles, DOIs, and arXiv IDs of the cited works to CrossRef, arXiv, Semantic Scholar,
-  OpenAlex, and other databases. Setting `online_titles` to `false` in `venue.yaml` sends only DOIs and arXiv IDs,
-  while `online` set to `false` keeps the check offline.
-- `.gitignore` keeps PDFs, review XML files, spreadsheets, and CSV files out of git, except the test fixtures and
-  the examples.
+- Every check and the two AI detectors, CoCoDet and EditLens, run on the computer.
+- The reference check first looks up each cited work in a local copy of DBLP, which `peercheck setup` downloads.
+- Two lines under `references` in `venue.yaml` decide what goes online. Each line is `true` by default.
+
+| Setting | What leaves the computer | Where it goes |
+|---|---|---|
+| `online: true` and `online_titles: true` | the titles, DOIs, and arXiv IDs of the cited works that DBLP lacks | CrossRef, arXiv, Semantic Scholar, OpenAlex, PubMed, doi.org, and the other sources of Hallucinator, the reference checker |
+| `online: true` and `online_titles: false` | the DOIs that the cited works carry, and the arXiv IDs of those that DBLP lacks | doi.org and arXiv |
+| `online: false` | nothing | none |
 
 ## 📄 License
 
 - PeerCheck is licensed under the GNU General Public License version 3.
 - `NOTICE.md` lists the tools of other authors with their licenses.
 - To cite PeerCheck, use *Cite this repository* on GitHub, which reads `CITATION.cff`.
-
-## 📚 References
-
-1. CoCoDet: Chen et al. 2026. *CoCoNUTS: Concentrating on Content while Neglecting Uninformative Textual Styles
-   for AI-Generated Peer Review Detection.* ACL 2026.
-   [doi.org/10.18653/v1/2026.acl-long.1240](https://doi.org/10.18653/v1/2026.acl-long.1240)
-2. EditLens: Thai et al. 2026. *EditLens: Quantifying the Extent of AI Editing in Text.* ICLR 2026.
-   [arxiv.org/abs/2510.03154](https://arxiv.org/abs/2510.03154)
-3. Canary check: Rao et al. 2025. *Detecting LLM-generated peer reviews.* PLOS ONE.
-   [doi.org/10.1371/journal.pone.0331871](https://doi.org/10.1371/journal.pone.0331871)
-4. Canary check: ICML. 2026. *On Violations of LLM Review Policies.* ICML Blog.
-   [blog.icml.cc](https://blog.icml.cc/2026/03/18/on-violations-of-llm-review-policies/)
-5. Hidden-text phrases: Murray. 2025. *PhantomLint: Principled Detection of Hidden LLM Prompts in Structured
-   Documents.* arXiv preprint. [arxiv.org/abs/2508.17884](https://arxiv.org/abs/2508.17884)
-6. Duplicates check: Day. 2022. *Exploratory analysis of text duplication in peer-review reveals peer-review fraud
-   and paper mills.* Scientometrics 127(10), 5965–5987.
-   [doi.org/10.1007/s11192-022-04504-5](https://doi.org/10.1007/s11192-022-04504-5)
-7. Limit on citation requests: Wren et al. 2019. *Reviewer-coerced citation: case report, update on journal policy
-   and suggestions for future prevention.* Bioinformatics 35(18), 3217–3218.
-   [doi.org/10.1093/bioinformatics/btz071](https://doi.org/10.1093/bioinformatics/btz071)
-8. Citations of works of the reviewers: Barnett. 2025. *Are peer reviewers influenced by their work being cited?*
-   eLife 14. [doi.org/10.7554/eLife.108748](https://doi.org/10.7554/eLife.108748)

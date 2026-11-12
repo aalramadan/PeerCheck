@@ -13,7 +13,7 @@ PAGE_NUMBER_POLICIES = ("ignore", "warning", "error")
 TOP_KEYS = {"name", "source", "file_pattern", "id_column", "format", "checks"}
 REQUIRED_TOP_KEYS = {"name", "source", "format"}
 # The shipped file that lists every option for a new venue, which holds no values of its own.
-TEMPLATE = "template"
+DEFAULT = "default"
 # Conference systems name a downloaded PDF with its number after paper or submission, such as CONF_2027_paper_12.pdf
 # or conf27-paper12.pdf. A name may also be the number alone, such as 12.pdf.
 PAPER_NUMBER = (re.compile(r"(?:paper|submission)[\W_]*(\d+)", re.IGNORECASE),
@@ -93,7 +93,7 @@ def paper_number(filename: str, pattern: str | None = None) -> int | None:
 
 def available() -> list[str]:
     """Return the keys of the filled profiles that ship with PeerCheck."""
-    return sorted(item.stem for item in PROFILES.glob("*.yaml") if item.stem != TEMPLATE)
+    return sorted(item.stem for item in PROFILES.glob("*.yaml") if item.stem != DEFAULT)
 
 
 def load(name_or_path: str) -> Profile:
@@ -110,7 +110,7 @@ def load(name_or_path: str) -> Profile:
 def parse(data: Any, key: str) -> Profile:
     """Check the keys and the values of a loaded profile and return the profile."""
     if data is None:
-        raise ProfileError(f"profile {key} holds no values; copy profiles/{TEMPLATE}.yaml and fill in the rules of the venue")
+        raise ProfileError(f"profile {key} holds no values; copy profiles/{DEFAULT}.yaml and set the rules of the venue")
     if not isinstance(data, dict):
         raise ProfileError(f"profile {key}: the file must hold a mapping")
     _keys(data, TOP_KEYS, REQUIRED_TOP_KEYS, f"profile {key}")
