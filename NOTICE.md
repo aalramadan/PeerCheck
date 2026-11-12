@@ -26,6 +26,7 @@ port keeps the original untouched beside it and lists its changes in a `PORT.md`
 | veraPDF PDF/UA-1 validation profile | veraPDF Consortium | rules of the accessibility check | CC BY 4.0 | `PDF_UA/PDFUA-1.xml` of `veraPDF/veraPDF-validation-profiles` commit `fc5a92f`, unchanged in `external/verapdf/` with its license for reference |
 | PyMuPDF | Artifex | text and layout of PDFs | AGPL-3.0 or commercial | Python dependency |
 | datasketch, rapidfuzz, openpyxl, PyYAML, lxml, defusedxml, pikepdf | their authors | near-duplicate search, fuzzy matching, spreadsheets, profiles, XML, PDF structure | MIT, MIT, MIT, MIT, BSD-3-Clause, PSF, MPL-2.0 | Python dependencies |
+| ICLR 2017 official reviews | the anonymous reviewers of ICLR 2017 | the human and polished reviews of the demo | CC BY 4.0, per the Terms of Use of OpenReview | four reviews of `examples/reviews.csv`, from the ICLR 2017 part of PeerRead (`allenai/PeerRead`), which copies them from openreview.net. Rows 1A and 2A keep their text, and in rows 1C and 2C a model polished the text |
 | DBLP data | Schloss Dagstuhl, University of Trier | conflict check and reference check | CC0 1.0 | downloaded from `dblp.org/xml/` |
 | Retraction Watch data | Crossref, Retraction Watch | retracted references | no license stated in its README | downloaded from `gitlab.com/crossref/retraction-watch-data` |
 | CoCoNUTS test reviews | Chen et al. (icip-cas) | texts of the sample reviews | MIT | `examples/reviews/` and `examples/hotcrp-reviews.csv` |

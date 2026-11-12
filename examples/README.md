@@ -2,7 +2,9 @@
 
 - Made-up submissions and public reviews to try PeerCheck on, with the reports of PeerCheck on these files.
 - Every name, email address, and affiliation in these files is made up.
-- The review texts come from the public test set of CoCoNUTS (MIT license).
+- The review texts of `reviews/` come from the public test set of CoCoNUTS (MIT license).
+- The texts of `reviews.csv` come from the Benchmark of the main README. Four of them are official ICLR 2017
+  reviews from OpenReview under CC BY 4.0, two kept as written and two with text that a model polished.
 - The review of submission 106 holds a made-up planted citation.
 
 | Path | Holds | Shows |
@@ -17,7 +19,7 @@
 | `committee.csv` | a program committee with two conflicts | conflicts of interest |
 | `reviews/` | eight reviews as the XML files of a review export, three by people, two that AI polished or extended, and three by AI | AI detection and a planted citation |
 | `canaries.csv` | the key of the planted citations of the eight reviews | |
-| `reviews.csv` | three reviews in one CSV file, a row per review | the CSV reader |
+| `reviews.csv` | six real reviews of two ICLR 2017 papers from the Benchmark of the main README, a row per review: per paper, one by a person (A), one written by a model (B), and one by a person that a model polished (C) | the AI detectors on real reviews, and the CSV reader |
 | `venue.yaml` | the profile of a made-up venue, a copy of `profiles/default.yaml` with its values | a venue profile |
 | `reports/` | the reports of PeerCheck on these files, with the page of the live demo | the output of each command |
 

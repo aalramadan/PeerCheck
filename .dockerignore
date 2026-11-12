@@ -6,5 +6,4 @@ tests
 .pytest_cache
 .ruff_cache
 external/submission-checker/target
-resources
 examples

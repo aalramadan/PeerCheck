@@ -1,71 +1,68 @@
-<h1 align="center">PeerCheck</h1>
+# 🔎 PeerCheck
 
-<p align="center">PeerCheck automatically checks submissions, reviews, and conflicts of interest for conferences and journals.</p>
+[![Tests](https://github.com/aalramadan/PeerCheck/actions/workflows/tests.yml/badge.svg)](https://github.com/aalramadan/PeerCheck/actions/workflows/tests.yml) ![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-3776AB?logo=python&logoColor=white) [![Release](https://img.shields.io/github/v/release/aalramadan/PeerCheck)](https://github.com/aalramadan/PeerCheck/releases/latest) [![License](https://img.shields.io/badge/license-GPL--3.0-blue)](LICENSE)
 
-<p align="center">
-  <a href="https://github.com/aalramadan/PeerCheck/actions/workflows/tests.yml"><img alt="Tests" src="https://github.com/aalramadan/PeerCheck/actions/workflows/tests.yml/badge.svg"></a>
-  <img alt="Python 3.10 or newer" src="https://img.shields.io/badge/python-3.10%2B-3776AB">
-  <a href="https://github.com/aalramadan/PeerCheck/releases/latest"><img alt="Latest release" src="https://img.shields.io/github/v/release/aalramadan/PeerCheck"></a>
-  <a href="LICENSE"><img alt="License GPL-3.0" src="https://img.shields.io/badge/license-GPL--3.0-blue"></a>
-  <img alt="Runs locally" src="https://img.shields.io/badge/runs-locally-2ea44f">
-</p>
+**PeerCheck** checks the **submissions**, the **reviews**, and the **conflicts of interest** of a conference or a journal.
 
-It reports format violations, anonymity leaks, hidden text, unverifiable references, potentially AI-generated
-reviews, and conflicts of interest.
+A check is one test of a file, such as the page limit of a submission, an instruction to AI reviewers hidden in white
+text, a reference that no bibliographic database knows, or a review that a language model may have written. Two AI
+detectors, CoCoDet and EditLens, give the last of these tests their own labels.
 
 > [!IMPORTANT]
 > PeerCheck assists program chairs. A human should verify every flagged paper or review.
 
-## 🎬 Demo
-
-These two report pages show PeerCheck on the made-up papers and reviews in [`examples/`](examples/), whose README
-gives the commands.
-
 > [!TIP]
-> The [live demo](https://aalramadan.github.io/PeerCheck/) shows the full reports with their Excel workbooks,
-> together with reviews from a CSV file and the conflict check. The reports sit in [`examples/reports/`](examples/reports/).
+> The [live demo](https://aalramadan.github.io/PeerCheck/) shows the reports of PeerCheck on the files of
+> [`examples/`](examples/). [`external/README.md`](external/README.md) lists every check with the tools and the papers
+> it builds on.
 
-#### Papers
+## 📦 Requirements
 
-![HTML report of peercheck papers on five sample papers](resources/papers-report.png)
+- **Python 3.10** or newer
+- **Java 11** or newer, for the anonymity check
+- **Perl** and **poppler**, for the format check
+- About **3 GB** of disk, 1.1 GB for the reference database and 2 GB for the two AI detectors
 
-#### Reviews
+On Debian or Ubuntu, `sudo apt install python3-venv default-jre perl poppler-utils` installs these programs. PeerCheck is
+tested on Linux, including WSL on Windows.
 
-![HTML report of peercheck reviews on eight sample reviews](resources/reviews-report.png)
-
-## 📦 Install
-
-- PeerCheck is tested on Linux, including WSL on Windows.
-- The first review run downloads the two AI detectors, about 2 GB.
-
-#### 🐳 Docker
+## 🔧 Installation
 
 ```bash
-docker pull ghcr.io/aalramadan/peercheck   # includes Java, Perl, and poppler
-docker run --rm -v peercheck-cache:/cache ghcr.io/aalramadan/peercheck setup   # once, about 1.1 GB
+git clone https://github.com/aalramadan/PeerCheck.git  # download the source code
+cd PeerCheck                                            # go into the source folder
+python3 -m venv .venv && . .venv/bin/activate           # make a Python environment for PeerCheck
+pip install -e .                                        # install PeerCheck with its two AI detectors
+peercheck setup                                         # download the reference database, once
 ```
-
-#### 🐍 Python
-
-```bash
-sudo apt install python3-venv perl poppler-utils default-jre   # Debian or Ubuntu
-git clone https://github.com/aalramadan/PeerCheck.git && cd PeerCheck
-python3 -m venv .venv && . .venv/bin/activate                  # Python 3.10 or newer
-pip install -e .                                               # PeerCheck with its two AI detectors
-peercheck setup                                                # once, the reference database, about 1.1 GB
-```
-
-#### 🔑 EditLens access
 
 > [!NOTE]
 > EditLens needs a free Hugging Face token. Accept its license, which allows non-commercial use only, at
 > huggingface.co/pangram/editlens_roberta-large. Then create a read token at huggingface.co/settings/tokens and run
-> `export HF_TOKEN=<token>` before PeerCheck or `docker run`. Without a token, PeerCheck skips EditLens and notes
-> the skip in the report.
+> `export HF_TOKEN=<token>` before PeerCheck. Without a token, PeerCheck skips EditLens and notes the skip in the
+> report.
+
+## 🐳 Docker
+
+The image `ghcr.io/aalramadan/peercheck` holds PeerCheck with Java, Perl, and poppler, ready to run without the
+requirements or the installation. GitHub Actions rebuilds the image at every change of PeerCheck.
+
+```bash
+docker pull ghcr.io/aalramadan/peercheck   # get or update the image
+alias peercheck='docker run --rm -v "$PWD:/data" -v peercheck-cache:/cache -e HF_TOKEN ghcr.io/aalramadan/peercheck'
+peercheck setup                            # download the reference database, once
+```
+
+The commands of the usage example then run in the image, on the files of the current folder. The volume
+`peercheck-cache` keeps the reference database and the AI detectors between runs.
 
 ## 🚀 Usage
 
-#### ▶️ Run every check
+PeerCheck reads a folder of submission PDFs or the review files of a conference, checks them against the rules of the
+venue, and writes an HTML report for the browser with an Excel workbook of every detail.
+
+For example, these commands check the submissions and the reviews of a conference whose files sit in the folder
+`my-conference`.
 
 ```text
 my-conference/
@@ -76,70 +73,74 @@ my-conference/
 
 ```bash
 cd my-conference
-peercheck --profile venue.yaml papers submissions/   # every check of the PDFs, after the submission deadline
-peercheck --profile venue.yaml reviews reviews/      # every check of the reviews, once the reviews are in
+peercheck --profile venue.yaml papers submissions/   # check the PDFs, after the submission deadline
+peercheck --profile venue.yaml reviews reviews/      # check the reviews, once the reviews are in
 ```
 
-- The first command writes `report.html` for the browser and `report.xlsx` with every detail. The second writes
-  `reviews.html` and `reviews.xlsx`.
-- Without `--profile`, PeerCheck applies `profiles/default.yaml`, which sets IEEE, two columns, US Letter, and 10
-  pages plus 2 for references.
-- With Docker, write `docker run --rm -v "$PWD:/data" -v peercheck-cache:/cache -e HF_TOKEN
-  ghcr.io/aalramadan/peercheck` in place of `peercheck`.
+The first command writes `report.html` and `report.xlsx`. The second writes `reviews.html` and `reviews.xlsx`.
 
-#### 🎛️ Customize
+> [!NOTE]
+> Without `--profile`, PeerCheck applies the default rules of `profiles/default.yaml`, which set IEEE, two columns,
+> US Letter, and 10 pages plus 2 for references.
 
-- `venue.yaml` holds every setting beside the rules of the venue. Every check runs until its section sets
-  `enabled: false`. `profiles/default.yaml` lists each check with its settings and their defaults.
-- The settings apply to a command that names `venue.yaml` with `--profile` before the command name.
-- The reference check looks up each cited work in the local copy of DBLP and online in CrossRef, arXiv, Semantic
-  Scholar, OpenAlex, and other databases. Two lines of `venue.yaml` limit the online lookups.
+### Options
+
+| Option | Commands | Description |
+|---|---|---|
+| `--profile` | all, before the command | The rules and settings of the venue, a copy of `profiles/default.yaml` or an example such as `icse-2027` |
+| `--out` | all | The Excel report, with the HTML page beside it, or the folder of marked PDFs for `canary` |
+| `--json` | papers, reviews | Also writes the results as JSON |
+| `--submissions` | papers | A CSV or Excel list with the number and the title of each paper, for the title check |
+| `--authors` | papers, conflicts | A CSV or Excel list of the authors of each paper |
+| `--canaries` | reviews | The key file of `canary`, for the check of the planted citations |
+| `--pc` | conflicts | A CSV or Excel list of the program committee |
+| `--dblp-dump` | conflicts, setup | The DBLP download `dblp.xml.gz` from dblp.org/xml, for the co-author check or the reference database |
+| `--dblp-index`, `--save-index` | reviews, conflicts | An index of co-authors that `--save-index` keeps for later runs |
+| `--key` | canary | The private file that lists the planted citation of each paper |
+| `--retraction-csv`, `--refresh` | setup | A local Retraction Watch list, or a new download of every file |
+| `--host`, `--port`, `--no-browser` | gui | The address of the browser page |
+| `--help` | all | Prints the options of a command |
+
+### Venue rules
+
+The file `venue.yaml` holds the rules of the venue, such as its template and page limit, and every setting of the
+checks. `profiles/default.yaml` lists each rule and setting with its default.
+
+1. Copy `profiles/default.yaml` into the folder of the conference as `venue.yaml`.
+2. Set each value from the call for papers. A line that starts with `#` holds a rule that stays unchecked until the
+   `#` goes.
+3. Pass the copy with `--profile venue.yaml`.
+
+Every check runs until its section sets `enabled: false`, as in this part of a `venue.yaml`.
 
 ```yaml
 checks:
   references:
-    online_titles: false   # sends only DOIs and arXiv IDs, never the titles
-    online: false          # keeps the reference check offline
+    online_titles: false   # send only DOIs and arXiv IDs, never titles
   editlens:
-    enabled: false         # turns the AI detector EditLens off
+    enabled: false         # turn the AI detector EditLens off
   conflicts:
-    coauthor_years: 2      # counts joint papers of the last two years
+    coauthor_years: 2      # count joint papers of the last two years
 ```
 
-- The command line names the files, as in these commands.
+Two venues serve as examples, each with the address of its call for papers.
+
+| Profile | Venue | Format | Pages |
+|---|---|---|---|
+| `icse-2027` | ICSE 2027 Research Track | IEEE, two columns, US Letter | 10 plus 2 for references |
+| `fse-2027` | FSE 2027 Research Track | ACM acmsmall, one column | 18 plus 4 for references |
+
+### Other commands
 
 ```bash
-peercheck --profile venue.yaml papers submissions/ --submissions submissions.xlsx   # adds the title check
-peercheck --profile venue.yaml papers submissions/ --authors authors.csv            # finds author names in the PDFs
-peercheck --profile venue.yaml reviews reviews/ --canaries canaries.csv             # adds the canary check
+peercheck conflicts --authors authors.csv --pc pc.csv --dblp-dump dblp.xml.gz   # find conflicts of interest
+peercheck canary submissions/ --out marked/ --key canaries.csv                    # plant a made-up citation in each PDF
+peercheck --profile venue.yaml reviews reviews/ --canaries canaries.csv           # find reviews that cite it
+peercheck gui                                                                     # run the checks from a browser page
 ```
 
-| Option | Commands | What it does |
-|---|---|---|
-| `--profile` | all, before the command | names `venue.yaml`, the rules and settings of the venue, or an example such as `icse-2027`, which `papers` needs |
-| `--out` | all | names the Excel workbook, with the page for the browser beside it, or the folder of marked PDFs for `peercheck canary` |
-| `--json` | papers, reviews | also writes a JSON file |
-| `--authors` | papers, conflicts | reads the author list |
-| `--submissions` | papers | reads a submission sheet with paper numbers and titles |
-| `--canaries` | reviews | runs the planted-citation check with the key file of `peercheck canary` |
-| `--pc` | conflicts | reads the committee list |
-| `--dblp-dump` | conflicts | builds the co-author index from `dblp.xml.gz`, the full download of DBLP at dblp.org/xml |
-| `--dblp-index` | reviews, conflicts | reads the index that `--save-index` of `peercheck conflicts` wrote |
-| `--key` | canary | names the private file that lists the planted citation of each paper |
-
-Run any command with `--help` for every option.
-
-#### 🧰 More commands
-
-```bash
-peercheck conflicts --authors authors.csv --pc pc.csv --dblp-dump dblp.xml.gz   # dblp.xml.gz comes from dblp.org/xml
-peercheck canary submissions/ --out marked/ --key canaries.csv                    # plants a citation in each PDF
-peercheck reviews reviews/ --canaries canaries.csv                                # finds the planted citations
-peercheck gui                                                                     # the checks on a page in the browser
-```
-
-- With Docker, run `docker run --rm -p 127.0.0.1:8765:8765 -v peercheck-cache:/cache -e HF_TOKEN
-  ghcr.io/aalramadan/peercheck gui` and open the address it prints.
+With Docker, the browser page needs its port, as in `docker run --rm -p 127.0.0.1:8765:8765 -v peercheck-cache:/cache
+-e HF_TOKEN ghcr.io/aalramadan/peercheck gui`.
 
 > [!TIP]
 > Check the original PDFs with `peercheck papers` before `peercheck canary`, since the hidden-text check reports the
@@ -149,19 +150,18 @@ peercheck gui                                                                   
 > [!WARNING]
 > Keep the key file of `peercheck canary` private, since it reveals the planted citation of each paper.
 
-#### 📂 Inputs
+### Inputs
 
 - PDFs with any file names. A number after paper or submission in a name becomes the paper number, such as 12 in
-  `CONF_2027_paper_12.pdf` or `conf2027-paper12.pdf`. A PDF without one gets the next free number, which the Files
-  sheet of the report names.
+  `CONF_2027_paper_12.pdf`. A PDF without one gets the next free number, which the Files sheet of the report names.
 - A submission sheet, any CSV or Excel list with a column of paper numbers, such as # or ID, and a column Title.
 - An author list, a CSV or Excel file with the columns paper, first, last, email, and affiliation.
 - Reviews, as the XML files of a review export or a CSV file with the columns paper and review (the review ID, such
   as A) and one column per field of the review form, such as the text of the review.
-- A committee list with first, last, email, and affiliation. An optional column
-  dblp with the DBLP person ID settles a name that several DBLP authors share.
+- A committee list with first, last, email, and affiliation. An optional column dblp with the DBLP person ID settles
+  a name that several DBLP authors share.
 
-#### 📖 Reports
+### Reports
 
 - An **error** breaks a stated rule of the venue.
 - A **warning** marks a likely problem.
@@ -199,45 +199,32 @@ We tested the two AI detectors on 1,409 reviews of ICLR 2017 papers, in three gr
   polishing in 89 of the 98 polished reviews (90.8%). Of the 1,014 human reviews, it labeled 51 (5.0%) as
   AI-Edited.
 
-## 🏛️ Venue profiles
-
-- A **profile** holds the rules of one venue, a conference or a journal, such as its template, page limit, and
-  margins. It also decides which checks run and how strict each one is.
-- `profiles/default.yaml` holds every rule and option with its default value. It applies when a command names no
-  `--profile`.
-- Two filled copies serve as examples. Each copies the call for papers of its venue and links the call.
-
-| Profile | Venue | Format | Pages |
-|---|---|---|---|
-| icse-2027 | ICSE 2027 Research Track | IEEE, two columns, US Letter | 10 plus 2 of references |
-| fse-2027 | FSE 2027 Research Track | ACM acmsmall, one column | 18 plus 4 of references |
-
-#### ➕ Add a venue
-
-1. Copy `profiles/default.yaml` into the folder of the conference as `venue.yaml`.
-2. Set each value from the call for papers. A line that starts with `#` holds a rule that stays unchecked until the
-   `#` goes.
-3. Pass the copy by path, such as `peercheck --profile venue.yaml papers submissions/`.
-
-| Value | Sets | Example |
-|---|---|---|
-| `name`, `source` | the name of the venue and the address of its call for papers | `Example Conference 2027` |
-| `format.style`, `format.columns`, `format.paper_size` | the template, its columns, and the paper size in points | `IEEE`, `2`, and `[792, 612]` for US Letter |
-| `format.main_pages`, `format.reference_pages` | the page limit and the extra pages for references only | `10` and `2` |
-| `format.margins`, `format.body_font_max` | the margins in points and the largest font size of the body text | `[52, 48, 72, 48]` and `10.5` |
-| `checks` | which checks run and their options, such as the hosts that links may name | the comments in the template |
-
 ## 🧪 Tests
 
-```bash
-python -m pip install -e ".[dev,reviews]"
-python -m pytest                                     # offline; GitHub Actions runs it on each push
-mvn -f external/submission-checker/pom.xml package   # rebuilds the revised SIGSOFT jar
-```
+The tests sit in `tests/` and run offline. GitHub Actions runs every test at each push.
+
+- **Check tests** run each check on the small PDFs, review files, and lists of `tests/fixtures/` and on the example
+  papers.
+- **Command tests** run the commands and check their reports and their messages.
+- **Page tests** start the browser page and run checks through its forms.
+- The tests of the review checks need PyTorch, which `pip install -e .` installs. One test needs a graphics card.
+
+### Commands
+
+Run these commands in the source folder after `pip install -e ".[dev]"`, which adds pytest and ruff.
+
+| Command | Description |
+|---|---|
+| `python -m pytest` | Every test |
+| `python -m pytest tests/test_references.py` | The tests of one check |
+| `python -m pytest -k gui` | The tests whose names hold a word |
+| `python -m pytest -x` | Every test, up to the first failure |
+| `ruff check src tests` | The style check of the code |
+| `mvn -f external/submission-checker/pom.xml package` | Rebuilds the revised SIGSOFT jar of the anonymity check |
 
 ## 🔒 Privacy
 
-- Every check and the two AI detectors, CoCoDet and EditLens, run on the computer.
+- Every check and the two AI detectors run on the computer.
 - The reference check first looks up each cited work in a local copy of DBLP, which `peercheck setup` downloads.
 - Two lines under `references` in `venue.yaml` decide what goes online. Each line is `true` by default.
 
@@ -247,8 +234,8 @@ mvn -f external/submission-checker/pom.xml package   # rebuilds the revised SIGS
 | `online: true` and `online_titles: false` | the DOIs that the cited works carry, and the arXiv IDs of those that DBLP lacks | doi.org and arXiv |
 | `online: false` | nothing | none |
 
-## 📄 License
+## 📜 License
 
-- PeerCheck is licensed under the GNU General Public License version 3.
-- `NOTICE.md` lists the tools of other authors with their licenses.
-- To cite PeerCheck, use *Cite this repository* on GitHub, which reads `CITATION.cff`.
+PeerCheck is free software under the GNU General Public License version 3, as `LICENSE` states. `NOTICE.md` lists
+the tools and the data of other authors with their licenses. To cite PeerCheck, use *Cite this repository* on
+GitHub, which reads `CITATION.cff`.
