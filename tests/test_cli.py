@@ -49,6 +49,20 @@ def _papers_run(*args):
     return pipeline.PapersRun([], {}, {}, [], ("layout",))
 
 
+def test_profile_may_follow_the_command_name(monkeypatch, tmp_path):
+    used = []
+    monkeypatch.setattr(cli.pipeline, "run_papers", lambda *args: used.append(args[1]) or _papers_run())
+    assert cli.main(["papers", str(tmp_path), "--profile", "icse-2027", "--out", str(tmp_path / "r.xlsx")]) == 0
+    assert used[0].name == "ICSE 2027 Research Track"
+
+
+def test_profile_before_the_command_name_stays_when_the_command_names_none(monkeypatch, tmp_path):
+    used = []
+    monkeypatch.setattr(cli.pipeline, "run_papers", lambda *args: used.append(args[1]) or _papers_run())
+    assert cli.main(["--profile", "fse-2027", "papers", str(tmp_path), "--out", str(tmp_path / "r.xlsx")]) == 0
+    assert used[0].name == "FSE 2027 Research Track"
+
+
 def test_papers_command_leaves_the_choice_of_checks_to_the_venue_rules(monkeypatch, tmp_path):
     requested = []
     monkeypatch.setattr(cli.pipeline, "run_papers", lambda *args: requested.append(args) or _papers_run())

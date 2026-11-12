@@ -14,6 +14,8 @@ from peercheck import profile as profiles
 from peercheck.findings import needs_review
 from peercheck.papers import pipeline, references
 
+PROFILE_HELP = ("the rules and settings of the venue, a copy of profiles/default.yaml or an example such as icse-2027 "
+                "(default profiles/default.yaml)")
 EXPECTED_ERRORS = (inputs.InputError, profiles.ProfileError, tools.ToolError, ValueError, OSError)
 
 
@@ -52,11 +54,11 @@ def parser() -> argparse.ArgumentParser:
     top = argparse.ArgumentParser(prog="peercheck", description="Screen submissions and reviews locally.",
                                   allow_abbrev=False)
     top.add_argument("--version", action="version", version=f"PeerCheck {__version__}")
-    top.add_argument("--profile", help="the rules and settings of the venue, a copy of profiles/default.yaml or an example "
-                                       "such as icse-2027; the paper checks need one")
+    top.add_argument("--profile", help=PROFILE_HELP)
     commands = top.add_subparsers(dest="command")
 
     papers = commands.add_parser("papers", help="check the submission PDFs of a folder")
+    _profile_option(papers)
     papers.add_argument("pdfs", type=Path, help="folder with the submission PDFs")
     papers.add_argument("--submissions", type=Path, help="CSV or Excel list with the number and the title of each paper")
     papers.add_argument("--authors", type=Path, help="author list with paper, first, last, email, affiliation")
@@ -70,6 +72,7 @@ def parser() -> argparse.ArgumentParser:
     reviews.set_defaults(handler=run_reviews)
 
     found = commands.add_parser("conflicts", help="find conflicts of interest between authors and the committee")
+    _profile_option(found)
     found.add_argument("--authors", type=Path, required=True, help="author list with paper, first, last, email")
     found.add_argument("--pc", type=Path, required=True, help="committee list with first, last, email, affiliation, dblp")
     found.add_argument("--dblp-dump", type=Path, help="dblp.xml.gz to build a co-author index from")
@@ -80,6 +83,7 @@ def parser() -> argparse.ArgumentParser:
 
     marking = commands.add_parser("canary", help="hide a made-up citation in each submission PDF for the canary "
                                                  "check of the reviews")
+    _profile_option(marking)
     marking.add_argument("pdfs", type=Path, help="folder with the submission PDFs")
     marking.add_argument("--out", type=Path, required=True, help="folder for the marked PDFs")
     marking.add_argument("--key", type=Path, required=True, help="CSV key file of the citations, kept private; "
@@ -93,6 +97,7 @@ def parser() -> argparse.ArgumentParser:
     setup.set_defaults(handler=run_setup)
 
     browser = commands.add_parser("gui", help="open the checks as a page in the browser")
+    _profile_option(browser)
     # The Docker image sets both variables, since a container must listen on every address of a known port. A string
     # default goes through the type check only when this command runs, as a value on the command line does.
     browser.add_argument("--host", type=_gui_host, default=os.environ.get("PEERCHECK_GUI_HOST") or "127.0.0.1",
@@ -103,6 +108,12 @@ def parser() -> argparse.ArgumentParser:
     browser.set_defaults(handler=run_gui)
 
     return top
+
+
+def _profile_option(command: argparse.ArgumentParser) -> None:
+    """Accept --profile after the command name as well as before it."""
+    # SUPPRESS keeps a --profile given before the command, which a default of the command would overwrite.
+    command.add_argument("--profile", default=argparse.SUPPRESS, help=PROFILE_HELP)
 
 
 def _gui_host(text: str) -> str:

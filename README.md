@@ -100,8 +100,8 @@ Each check has a section in `venue.yaml`, where `enabled: false` turns it off.
 
 | Option | Commands | Description |
 |---|---|---|
-| `--profile` | All, before the command | Venue rules and settings |
-| `--out` | All | Report file, or output folder for `canary` |
+| `--profile` | papers, reviews, conflicts, canary, gui | Venue rules and settings |
+| `--out` | papers, reviews, conflicts, canary | Report file, or output folder for `canary` |
 | `--json` | papers, reviews | JSON output |
 | `--submissions` | papers | Submission sheet |
 | `--authors` | papers, conflicts | Author list |
@@ -112,7 +112,7 @@ Each check has a section in `venue.yaml`, where `enabled: false` turns it off.
 | `--key` | canary | Private canary key file |
 | `--retraction-csv`, `--refresh` | setup | Local Retraction Watch list, fresh download |
 | `--host`, `--port`, `--no-browser` | gui | Interface address |
-| `--help` | All | Command help |
+| `--help` | every command | Command help |
 
 ### Lists
 
