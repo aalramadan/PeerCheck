@@ -53,8 +53,8 @@ peercheck setup                            # download the reference checker Hall
 
 ## 🚀 Usage
 
-PeerCheck reads a folder of submission PDFs or the review files of a conference, checks them against the rules of the
-venue, and writes an HTML report for the browser with an Excel workbook of every detail.
+PeerCheck reads the submission PDFs or the XML and CSV review files of a conference, checks them against the rules of
+the venue, and writes an HTML report for the browser with an Excel workbook of every detail.
 
 For example, these commands check the submissions and the reviews of a conference whose files sit in the folder
 `my-conference`.
@@ -68,8 +68,8 @@ my-conference/
 
 ```bash
 cd my-conference
-peercheck --profile venue.yaml papers submissions/   # check the PDFs, after the submission deadline
-peercheck --profile venue.yaml reviews reviews/      # check the reviews, after the review deadline
+peercheck --profile venue.yaml papers submissions/   # check the PDFs
+peercheck --profile venue.yaml reviews reviews/      # check the reviews
 ```
 
 The first command writes `report.html` and `report.xlsx`. The second writes `reviews.html` and `reviews.xlsx`.
