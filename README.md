@@ -6,8 +6,8 @@
 
 - 📄 For **papers**, it checks the format and page limits, anonymity leaks, hidden text and prompts, and references
   that no bibliographic database confirms.
-- 📝 For **reviews**, it runs two AI detectors, CoCoDet and EditLens, and finds text copied between reviews, requests
-  to cite many works, and planted citations.
+- 📝 For **reviews**, it runs two AI detectors, CoCoDet and EditLens, and finds text copied between reviews, excessive
+  citation requests, and planted citations.
 - 🤝 For **conflicts of interest**, it compares the co-authorship, the email domains, and the affiliations of the
   authors and the committee members.
 
@@ -24,40 +24,40 @@
 - **Python 3.10** or newer with venv (`python3-venv`)
 - **Java 11** or newer (`default-jre`)
 - **Perl** (`perl`) and **poppler** (`poppler-utils`)
-- About **3 GB** of disk for DBLP and the two AI detectors
+- Approximately **3 GB** of disk space for DBLP and the two AI detectors
 
 ## 🔧 Installation
 
 ```bash
-git clone https://github.com/aalramadan/PeerCheck.git  # download the source code
-cd PeerCheck                                            # go into the source folder
-python3 -m venv .venv                                   # make a Python environment for PeerCheck
-source .venv/bin/activate                               # use that environment in this shell
-pip install .                                           # install PeerCheck with its two AI detectors
-peercheck setup                                         # download the reference checker Hallucinator, DBLP, and the Retraction Watch list
+git clone https://github.com/aalramadan/PeerCheck.git  # clone the repository
+cd PeerCheck                                            # enter the repository folder
+python3 -m venv .venv                                   # create a virtual environment
+source .venv/bin/activate                               # activate the virtual environment
+pip install .                                           # install PeerCheck and its two AI detectors
+peercheck setup                                         # download Hallucinator, DBLP, and the Retraction Watch list
 ```
 
 > [!NOTE]
-> EditLens needs a free [Hugging Face token](https://huggingface.co/settings/tokens) in `HF_TOKEN`. Without a token,
-> PeerCheck skips EditLens.
+> EditLens requires a free [Hugging Face token](https://huggingface.co/settings/tokens) in `HF_TOKEN`. Without a
+> token, PeerCheck skips EditLens.
 
 ## 🐳 Docker
 
-The image `ghcr.io/aalramadan/peercheck` holds PeerCheck with its requirements.
+The image `ghcr.io/aalramadan/peercheck` contains PeerCheck and its requirements.
 
 ```bash
-docker pull ghcr.io/aalramadan/peercheck   # get or update the image
-alias peercheck='docker run --rm -v "$PWD:/data" -v peercheck-cache:/cache -e HF_TOKEN ghcr.io/aalramadan/peercheck'  # run peercheck in the image
-peercheck setup                            # download the reference checker Hallucinator, DBLP, and the Retraction Watch list
+docker pull ghcr.io/aalramadan/peercheck   # pull or update the image
+alias peercheck='docker run --rm -v "$PWD:/data" -v peercheck-cache:/cache -e HF_TOKEN ghcr.io/aalramadan/peercheck'  # run PeerCheck inside the container
+peercheck setup                            # download Hallucinator, DBLP, and the Retraction Watch list
 ```
 
 ## 🚀 Usage
 
 PeerCheck reads the submission PDFs or the XML and CSV review files of a conference, checks them against the rules of
-the venue, and writes an HTML report for the browser with an Excel workbook of every detail.
+the venue, and writes an HTML report together with an Excel workbook of every detail.
 
-For example, these commands check the submissions and the reviews of a conference whose files sit in the folder
-`my-conference`.
+For example, these commands check the submissions and the reviews of a conference whose files are stored in the
+folder `my-conference`.
 
 ```bash
 my-conference/
@@ -74,7 +74,7 @@ peercheck --profile venue.yaml reviews reviews/      # check the reviews
 
 The first command writes `report.html` and `report.xlsx`. The second writes `reviews.html` and `reviews.xlsx`.
 
-- A number after paper or submission in a PDF name becomes the paper number, such as 12 in `CONF_2027_paper_12.pdf`.
+PeerCheck takes the paper number from the PDF name, such as 12 in `CONF_2027_paper_12.pdf`.
 
 > [!NOTE]
 > Without `--profile`, PeerCheck applies the default rules of `profiles/default.yaml`, which set IEEE, two columns,
@@ -86,7 +86,7 @@ Each check has a section in `venue.yaml`, where `enabled: false` turns it off.
 
 | Check | Section | Finds |
 |---|---|---|
-| Format | `layout` | page size, columns, margins, fonts, line spacing, page limits, papers far denser than the rest, damaged or unreadable files, references such as Section ??, a title that differs from the submission sheet, and oversized images |
+| Format | `layout` | page size, columns, margins, fonts, line spacing, page limits, unusually dense papers, damaged or unreadable files, references such as Section ??, a title that differs from the submission sheet, and oversized images |
 | Anonymity and template | `sigsoft` | author names, email addresses, affiliations, and links that reveal the authors, also in the PDF metadata, and a template other than that of the venue |
 | Hidden text | `hidden_text` | white, invisible, or tiny text, prompts hidden for AI tools, and scripts that run on opening |
 | References | `references` | references that no bibliographic database confirms, and retracted references |
@@ -116,8 +116,9 @@ Each check has a section in `venue.yaml`, where `enabled: false` turns it off.
 
 ### Lists
 
-The lists are CSV or Excel files with a header row and one row per entry. Common header names also work, such as
-`First Name` or `Submission #`, and the matching files of [`examples/`](examples/) can serve as starting points.
+Each list is a CSV or Excel file with a header row and one row per entry. Common variants of the header names are
+accepted, such as `First Name` or `Submission #`. The corresponding files in [`examples/`](examples/) serve as
+templates.
 
 | List | One row per | Columns |
 |---|---|---|
@@ -126,7 +127,7 @@ The lists are CSV or Excel files with a header row and one row per entry. Common
 | Submission sheet (`--submissions`) | paper | `paper` (the paper number) and `title` (the title that the authors entered) |
 | Reviews (`reviews`) | review | `paper` (the paper number), `review` (the review ID, such as A), and one column per field of the review form, such as `Comments for authors` |
 
-A field meant for the committee alone, such as `Comments for PC`, stays out of the AI detectors.
+Fields intended for the committee only, such as `Comments for PC`, are excluded from AI detection.
 
 ```bash
 # authors.csv, the author list for --authors, as examples/authors.csv
@@ -146,19 +147,19 @@ paper,review,Comments for authors
 1,A,"The paper proposes ..."
 ```
 
-`peercheck canary` writes the key file of `--canaries` itself.
+`peercheck canary` generates the key file for `--canaries`.
 
 ### Venue rules
 
-The file `venue.yaml` holds the rules of the venue, such as its template and page limit, and every setting of the
+The file `venue.yaml` contains the rules of the venue, such as its template and page limit, and every setting of the
 checks. `profiles/default.yaml` lists each rule and setting with its default.
 
 1. Copy `profiles/default.yaml` into the folder of the conference as `venue.yaml`.
-2. Set each value from the call for papers. A line that starts with `#` holds a rule that stays unchecked until the
-   `#` goes.
+2. Set each value according to the call for papers. A line that starts with `#` is inactive until the `#` is
+   removed.
 3. Pass the copy with `--profile venue.yaml`.
 
-Every check runs until its section sets `enabled: false`, as in this part of a `venue.yaml`.
+Every check runs unless its section sets `enabled: false`, as in this excerpt of a `venue.yaml`.
 
 ```yaml
 checks:
@@ -181,13 +182,13 @@ Two venues serve as examples, each with the address of its call for papers.
 
 ```bash
 peercheck conflicts --authors authors.csv --pc pc.csv --dblp-dump dblp.xml.gz   # find conflicts of interest
-peercheck canary submissions/ --out marked/ --key canaries.csv                    # plant a made-up citation in each PDF
-peercheck --profile venue.yaml reviews reviews/ --canaries canaries.csv           # find reviews that cite it
-peercheck gui                                                                     # run the checks from a browser page
+peercheck canary submissions/ --out marked/ --key canaries.csv                    # insert a fictitious citation into each PDF
+peercheck --profile venue.yaml reviews reviews/ --canaries canaries.csv           # find reviews that cite the planted work
+peercheck gui                                                                     # open the browser interface
 ```
 
-With Docker, the browser page needs its port, as in `docker run --rm -p 127.0.0.1:8765:8765 -v peercheck-cache:/cache
--e HF_TOKEN ghcr.io/aalramadan/peercheck gui`.
+With Docker, the browser interface requires a published port, as in `docker run --rm -p 127.0.0.1:8765:8765 -v
+peercheck-cache:/cache -e HF_TOKEN ghcr.io/aalramadan/peercheck gui`.
 
 > [!TIP]
 > Check the original PDFs with `peercheck papers` before `peercheck canary`, since the hidden-text check reports the
@@ -230,42 +231,43 @@ We tested the two AI detectors on 1,409 reviews of ICLR 2017 papers, in three gr
 | Step 5 | 59 | 47 | 58 | 0 |
 | **Total** | **1,409** | **273** | **436** | **0** |
 
-- CoCoDet caught 273 of the 297 AI reviews (91.9%) and flagged none of the human or polished reviews.
-- EditLens, the second detector, labeled 296 of the 297 AI reviews (99.7%) as AI-Edited. It also caught AI
+- CoCoDet detected 273 of the 297 AI reviews (91.9%) and flagged none of the human or polished reviews.
+- EditLens, the second detector, labeled 296 of the 297 AI reviews (99.7%) as AI-Edited. It also detected AI
   polishing in 89 of the 98 polished reviews (90.8%). Of the 1,014 human reviews, it labeled 51 (5.0%) as
   AI-Edited.
 
 ## 🧪 Tests
 
-The tests sit in `tests/` and run offline. GitHub Actions runs every test at each push.
+The tests reside in `tests/` and run offline. GitHub Actions runs the full suite on every push.
 
 - **Check tests** run each check on the small PDFs, review files, and lists of `tests/fixtures/` and on the example
   papers.
 - **Command tests** run the commands and check their reports and their messages.
-- **Page tests** start the browser page and run checks through its forms.
-- The tests of the review checks need PyTorch, which `pip install` brings. One test needs a graphics card.
+- **Interface tests** start the browser interface and run checks through its forms.
+- The tests of the review checks require PyTorch, which `pip install` provides. One test requires a graphics card.
 
 ### Commands
 
-Run these commands in the source folder after `pip install -e ".[dev]"`. The `-e` runs PeerCheck from the source
-folder. The `[dev]` adds pytest and ruff.
+Run these commands in the repository folder after `pip install -e ".[dev]"`. The option `-e` installs PeerCheck in
+editable mode. The group `[dev]` adds pytest and ruff.
 
 | Command | Description |
 |---|---|
 | `python -m pytest` | Every test |
 | `python -m pytest tests/test_references.py` | The tests of one check |
-| `python -m pytest -k gui` | The tests whose names hold a word |
+| `python -m pytest -k gui` | The tests whose names contain a given word |
 | `python -m pytest -x` | Every test, up to the first failure |
 | `ruff check src tests` | The style check of the code |
 | `mvn -f external/submission-checker/pom.xml package` | Rebuilds the revised SIGSOFT jar of the anonymity check |
 
 ## 🔒 Privacy
 
-- Every check and the two AI detectors run on the computer.
-- The reference check first looks up each cited work in a local copy of DBLP, which `peercheck setup` downloads.
-- Two lines under `references` in `venue.yaml` decide what goes online. Each line is `true` by default.
+- PeerCheck runs all checks locally, including the two AI detectors.
+- The reference check first looks up each cited work in a local copy of DBLP.
+- Two settings under `references` in `venue.yaml` control the data that PeerCheck sends to online databases. Each
+  is `true` by default.
 
-| Setting | What leaves the computer | Where it goes |
+| Setting | Data sent | Destination |
 |---|---|---|
 | `online: true` and `online_titles: true` | the titles, DOIs, and arXiv IDs of the cited works that DBLP lacks | CrossRef, arXiv, Semantic Scholar, OpenAlex, PubMed, doi.org, and the other sources of Hallucinator, the reference checker |
 | `online: true` and `online_titles: false` | the DOIs that the cited works carry, and the arXiv IDs of those that DBLP lacks | doi.org and arXiv |
