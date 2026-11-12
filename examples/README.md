@@ -13,7 +13,7 @@
 | `papers/conf2027-paper2.pdf` | A4 paper, one column, and 12 pt type | format errors |
 | `papers/conf2027-paper3.pdf` | an author named in the text, a link, the acknowledgments, and the metadata | anonymity leaks |
 | `papers/conf2027-paper4.pdf` | an instruction to AI reviewers in white text and in tiny text | hidden text |
-| `papers/conf2027-paper5.pdf` | made-up references and a retracted one | the reference check, after `peercheck setup` and with `enabled: true` under `references` in `venue.yaml` |
+| `papers/conf2027-paper5.pdf` | made-up references and a retracted one | the reference check, after `peercheck --setup` and with `enabled: true` under `references` in `venue.yaml` |
 | `papers/src/` | the LaTeX sources of the five papers | |
 | `authors.csv` | the authors of the five papers | |
 | `committee.csv` | a program committee with two conflicts | conflicts of interest |
@@ -27,11 +27,11 @@
   [live demo](https://aalramadan.github.io/PeerCheck/) serves.
 
 ```bash
-peercheck --profile examples/venue.yaml papers examples/papers --authors examples/authors.csv \
+peercheck --profile examples/venue.yaml --papers examples/papers --authors examples/authors.csv \
   --out examples/reports/report.xlsx
-peercheck --profile examples/venue.yaml reviews examples/reviews --canaries examples/canaries.csv \
+peercheck --profile examples/venue.yaml --reviews examples/reviews --canaries examples/canaries.csv \
   --out examples/reports/reviews.xlsx
-peercheck --profile examples/venue.yaml reviews examples/reviews.csv --out examples/reports/reviews-csv.xlsx
-peercheck --profile examples/venue.yaml conflicts --authors examples/authors.csv --pc examples/committee.csv \
+peercheck --profile examples/venue.yaml --reviews examples/reviews.csv --out examples/reports/reviews-csv.xlsx
+peercheck --profile examples/venue.yaml --conflicts --authors examples/authors.csv --pc examples/committee.csv \
   --out examples/reports/conflicts.xlsx
 ```

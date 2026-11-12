@@ -231,7 +231,7 @@ def _hallucinator(settings: Settings, source: Path, folder: Path, stem: str, dis
                   offline: bool = True) -> list[Reference]:
     """Run the CLI on a PDF or a .bib file and return its references, or [] if it extracted none."""
     if not settings.binary.is_file():
-        raise tools.ToolError(f"Hallucinator is not installed at {settings.binary}; run peercheck setup")
+        raise tools.ToolError(f"Hallucinator is not installed at {settings.binary}; run peercheck --setup")
     report, log = folder / f"{stem}.json", folder / f"{stem}.log"
     report.unlink(missing_ok=True)
     config = folder / "hallucinator.toml"
@@ -246,7 +246,7 @@ def _hallucinator(settings: Settings, source: Path, folder: Path, stem: str, dis
             if name in settings.offline:
                 if not settings.offline[name].is_file():
                     raise tools.ToolError(f"the offline {name} database is missing at {settings.offline[name]}; "
-                                    "run peercheck setup")
+                                    "run peercheck --setup")
                 command += [flag, str(settings.offline[name])]
         if settings.local_corpus:
             command += ["--local-corpus", str(settings.local_corpus)]
@@ -370,7 +370,7 @@ def _lookup_findings(ref: Reference) -> list[Finding]:
 def _retraction_findings(refs: list[Reference], path: Path) -> list[Finding]:
     if not path.is_file():
         return [Finding("references.error", Severity.WARNING,
-                        f"The Retraction Watch data is missing at {path}; run peercheck setup")]
+                        f"The Retraction Watch data is missing at {path}; run peercheck --setup")]
     try:
         index = retraction_watch.load(path)
     except (OSError, ValueError) as exc:

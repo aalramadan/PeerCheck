@@ -28,5 +28,5 @@ checks:
   hidden_text:
     enabled: true
   references:
-    # Off for the demo. After peercheck setup, set true to see the reference check on paper 5.
+    # Off for the demo. After peercheck --setup, set true to see the reference check on paper 5.
     enabled: false

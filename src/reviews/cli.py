@@ -1,4 +1,4 @@
-"""Command line of the review checks, run as python -m peercheck.reviews or through peercheck reviews.
+"""Command line of the review checks, run as python -m peercheck.reviews or through peercheck --reviews.
 
 The review checks load PyTorch and the detector models, therefore they run in their own process. CoCoDet and
 EditLens label each review, and the report gives the result of each detector on its own. A CoCoDet label AI marks
@@ -37,19 +37,19 @@ def main(argv: list[str] | None = None) -> int:
         return run(args)
     except (inputs.InputError, profiles.ProfileError, tools.ToolError, cocodet.ModelError, editlens.ModelError,
             OSError, ValueError) as exc:
-        print(f"peercheck reviews: {exc}", file=sys.stderr)
+        print(f"peercheck: {exc}", file=sys.stderr)
         return 2
 
 
 def parser() -> argparse.ArgumentParser:
     """Build the parser of the review command line."""
-    top = argparse.ArgumentParser(prog="peercheck reviews",
+    top = argparse.ArgumentParser(prog="peercheck --reviews",
                                   description="Check the reviews of a folder or a file.")
     top.add_argument("folder", help="folder or file of the reviews")
     top.add_argument("--profile", help="the rules of the venue and the settings of the review checks")
-    top.add_argument("--canaries", type=Path, help="key file of peercheck canary, to find reviews that contain the "
+    top.add_argument("--canaries", type=Path, help="key file of peercheck --canary, to find reviews that contain the "
                                                    "citation hidden in their paper")
-    top.add_argument("--dblp-index", type=Path, help="dblp index saved by peercheck conflicts, to match "
+    top.add_argument("--dblp-index", type=Path, help="dblp index saved by peercheck --conflicts, to match "
                                                      "requested citations against works of the reviewers")
     top.add_argument("--out", type=Path, default=Path("reviews.xlsx"), help="Excel report, with the HTML page for the browser beside it (default reviews.xlsx)")
     top.add_argument("--json", type=Path, help="also write the results as JSON")
@@ -110,7 +110,7 @@ def _unique_ids(reviews: list[Review]) -> tuple[list[Review], dict[str, list[Fin
     notes = {review_id: f"{count} reviews share the ID {review_id}; the report numbers the repeats from #2"
              for review_id, count in counts.items() if count > 1}
     for note in notes.values():
-        print(f"peercheck reviews: {note}", file=sys.stderr)
+        print(f"peercheck: {note}", file=sys.stderr)
     taken = set(counts)
     numbers: Counter[str] = Counter()
     unique: list[Review] = []
@@ -132,7 +132,7 @@ def _key_coverage(reviews: list[Review], key: dict[int, str]) -> str:
     papers = {review.paper_id for review in reviews if review.paper_id is not None}
     covered = papers & set(key)
     if not covered:
-        print("peercheck reviews: the canary key holds none of the reviewed papers; check that the key belongs to "
+        print("peercheck: the canary key holds none of the reviewed papers; check that the key belongs to "
               "these reviews", file=sys.stderr)
     return f"{len(covered)} of {len(papers)}"
 

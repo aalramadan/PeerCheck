@@ -57,11 +57,11 @@ def command(kind: str, options: dict, folder: Path) -> list[str]:
 
     reports = ["--out", str(folder / "report.xlsx")]
     if kind == "papers":
-        return [*venue, "papers", str(folder / "pdfs"), *reports, *single("authors"), *single("submissions")]
+        return [*venue, "--papers", str(folder / "pdfs"), *reports, *single("authors"), *single("submissions")]
     if kind == "reviews":
-        return [*venue, "reviews", str(folder / "reviews"), *reports, *single("canaries")]
+        return [*venue, "--reviews", str(folder / "reviews"), *reports, *single("canaries")]
     if kind == "conflicts":
-        return [*venue, "conflicts", *single("authors"), *single("pc"), "--out", str(folder / "report.xlsx")]
+        return [*venue, "--conflicts", *single("authors"), *single("pc"), "--out", str(folder / "report.xlsx")]
     raise RequestError(f"unknown kind of run: {kind}")
 
 
@@ -203,7 +203,7 @@ class Handler(BaseHTTPRequestHandler):
         # As bytes, since compare_digest refuses strings with characters outside ASCII.
         if secrets.compare_digest(self.headers.get("X-PeerCheck-Token", "").encode(), self.server.token.encode()):
             return True
-        self._json(HTTPStatus.FORBIDDEN, {"error": "open the page from the address that peercheck gui printed"})
+        self._json(HTTPStatus.FORBIDDEN, {"error": "open the page from the address that peercheck --gui printed"})
         return False
 
     def _body(self) -> bytes:

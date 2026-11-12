@@ -249,12 +249,11 @@ class TestCommand:
         (tmp_path / "pc.csv").write_text(
             "first,last,email,affiliation\nJürgen,Müller,j.mueller@testville.example,University of Testville\n",
             encoding="utf-8")
-        return ["conflicts", "--authors", str(tmp_path / "authors.csv"), "--pc", str(tmp_path / "pc.csv"),
+        return ["--conflicts", "--authors", str(tmp_path / "authors.csv"), "--pc", str(tmp_path / "pc.csv"),
                 "--out", str(tmp_path / "conflicts.xlsx")]
 
     def test_committee_list_is_required(self, command):
-        with pytest.raises(SystemExit):
-            cli.main([part for part in command if part not in command[command.index("--pc"):command.index("--pc") + 2]])
+        assert cli.main([part for part in command if part not in command[command.index("--pc"):command.index("--pc") + 2]]) == 2
 
     def test_window_of_the_venue_file_reaches_the_check(self, command, monkeypatch, tmp_path):
         venue = tmp_path / "venue.yaml"

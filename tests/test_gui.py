@@ -57,7 +57,7 @@ def test_papers_command_passes_the_uploaded_files_and_leaves_the_checks_to_the_v
     (tmp_path / "authors").mkdir()
     (tmp_path / "authors" / "authors.csv").write_text("paper,first,last,email,affiliation\n")
     arguments = gui.command("papers", {"profile": "fse-2027"}, tmp_path)
-    assert arguments[:4] == ["--profile", "fse-2027", "papers", str(tmp_path / "pdfs")]
+    assert arguments[:4] == ["--profile", "fse-2027", "--papers", str(tmp_path / "pdfs")]
     assert arguments[arguments.index("--authors") + 1] == str(tmp_path / "authors" / "authors.csv")
     assert "--checks" not in arguments and "--submissions" not in arguments
 
@@ -74,7 +74,7 @@ def test_page_offers_the_profile_of_the_session_first_and_each_choice_once(tmp_p
 
 def test_reviews_command_leaves_the_detectors_and_checks_to_the_venue_rules(tmp_path):
     arguments = gui.command("reviews", {"profile": "icse-2027"}, tmp_path)
-    assert arguments[:3] == ["--profile", "icse-2027", "reviews"]
+    assert arguments[:3] == ["--profile", "icse-2027", "--reviews"]
     assert "--detectors" not in arguments and "--checks" not in arguments
 
 
@@ -157,7 +157,7 @@ def test_page_offers_only_the_list_formats_that_peercheck_reads():
 
 @pytest.mark.parametrize("number", [signal.SIGTERM, signal.SIGHUP], ids=lambda number: number.name)
 def test_page_deletes_the_folder_of_uploads_when_a_signal_stops_it(tmp_path, number):
-    command = [sys.executable, "-m", "peercheck", "gui", "--no-browser", "--host", "127.0.0.1", "--port", "0"]
+    command = [sys.executable, "-m", "peercheck", "--gui", "--no-browser", "--host", "127.0.0.1", "--port", "0"]
     environment = {**os.environ, "TMPDIR": str(tmp_path)}
     with subprocess.Popen(command, stdout=subprocess.PIPE, text=True, env=environment) as page:
         try:
@@ -205,5 +205,7 @@ def test_server_in_a_container_listens_on_every_address_but_answers_only_local_n
 def test_gui_command_takes_its_address_and_port_from_the_environment_of_the_docker_image(monkeypatch):
     monkeypatch.setenv("PEERCHECK_GUI_HOST", "0.0.0.0")
     monkeypatch.setenv("PEERCHECK_GUI_PORT", "8765")
-    args = cli.parser().parse_args(["gui"])
-    assert (args.host, args.port) == ("0.0.0.0", 8765)
+    served = []
+    monkeypatch.setattr(cli.gui, "serve", lambda *args: served.append(args) or 0)
+    assert cli.main(["--gui", "--no-browser"]) == 0
+    assert (served[0][3], served[0][1]) == ("0.0.0.0", 8765)

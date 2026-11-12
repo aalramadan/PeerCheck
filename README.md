@@ -34,7 +34,7 @@ cd PeerCheck                                            # enter the repository f
 python3 -m venv .venv                                   # create a virtual environment
 source .venv/bin/activate                               # activate the virtual environment
 pip install .                                           # install PeerCheck and its two AI detectors
-peercheck setup                                         # download Hallucinator, DBLP, and the Retraction Watch list
+peercheck --setup                                       # download Hallucinator, DBLP, and the Retraction Watch list
 ```
 
 > [!NOTE]
@@ -48,7 +48,7 @@ The image `ghcr.io/aalramadan/peercheck` contains PeerCheck and its requirements
 ```bash
 docker pull ghcr.io/aalramadan/peercheck   # pull or update the image
 alias peercheck='docker run --rm -v "$PWD:/data" -v peercheck-cache:/cache -e HF_TOKEN ghcr.io/aalramadan/peercheck'  # run PeerCheck inside the container
-peercheck setup                            # download Hallucinator, DBLP, and the Retraction Watch list
+peercheck --setup                          # download Hallucinator, DBLP, and the Retraction Watch list
 ```
 
 ## 🚀 Usage
@@ -68,8 +68,8 @@ my-conference/
 
 ```bash
 cd my-conference
-peercheck --profile venue.yaml papers submissions/   # check the PDFs
-peercheck --profile venue.yaml reviews reviews/      # check the reviews
+peercheck --profile venue.yaml --papers submissions/   # check the PDFs
+peercheck --profile venue.yaml --reviews reviews/      # check the reviews
 ```
 
 The first command writes `report.html` and `report.xlsx`. The second writes `reviews.html` and `reviews.xlsx`.
@@ -84,41 +84,52 @@ PeerCheck takes the paper number from the PDF name, such as 12 in `CONF_2027_pap
 
 Each check has a section in `venue.yaml`, where `enabled: false` turns it off.
 
+#### Papers (`--papers`)
+
 | Check | Section | Detects |
 |---|---|---|
 | Format | `layout` | Page size, columns, margins, fonts, page limits, unusual density, damaged files, unresolved references, title mismatches, and oversized images |
 | Anonymity and template | `sigsoft` | Author names, email addresses, affiliations, and identifying links in the text and the metadata, and a wrong template |
 | Hidden text | `hidden_text` | White, invisible, or tiny text, hidden prompts, and embedded scripts |
 | References | `references` | Unconfirmed and retracted references |
+
+#### Reviews (`--reviews`)
+
+| Check | Section | Detects |
+|---|---|---|
 | AI detection | `cocodet`, `editlens` | Reviews likely written or edited by a language model |
 | Copied text | `duplicates` | Paragraphs shared between reviews |
 | Citation requests | `citations` | Requests to cite works, including works of the reviewer |
 | Planted citation | `canary` | Reviews that cite the planted work |
+
+#### Conflicts of interest (`--conflicts`)
+
+| Check | Section | Detects |
+|---|---|---|
 | Conflicts of interest | `conflicts` | Co-authorship, shared email domains, and matching affiliations |
 
 ### Commands
 
 | Command | Description |
 |---|---|
-| `peercheck papers <folder>` | Checks the submission PDFs (`.pdf`) of a folder |
-| `peercheck reviews <folder or file>` | Checks the reviews (`.xml`, `.csv`) |
-| `peercheck conflicts` | Finds conflicts of interest |
-| `peercheck canary <folder>` | Inserts a fictitious citation into each PDF |
-| `peercheck setup` | Downloads Hallucinator, DBLP, and the Retraction Watch list |
-| `peercheck gui` | Opens the browser interface |
+| `--papers <folder>` | Checks the submission PDFs (`.pdf`) of a folder |
+| `--reviews <folder or file>` | Checks the reviews (`.xml`, `.csv`) |
+| `--conflicts` | Finds conflicts of interest |
+| `--canary <folder>` | Inserts a fictitious citation into each PDF of a folder |
+| `--setup` | Downloads Hallucinator, DBLP, and the Retraction Watch list |
+| `--gui` | Opens the browser interface |
 | `--profile <file>` | Venue rules and settings (`.yaml`) |
-| `--out <file or folder>` | Excel report (`.xlsx`) with the HTML report (`.html`) beside it, or the folder of the marked PDFs of `canary` |
+| `--out <file or folder>` | Excel report (`.xlsx`) with the HTML report (`.html`) beside it, or the folder of the marked PDFs of `--canary` |
 | `--json <file>` | JSON output (`.json`) |
 | `--submissions <file>` | Submission sheet (`.csv`, `.xlsx`) |
 | `--authors <file>` | Author list (`.csv`, `.xlsx`) |
 | `--pc <file>` | Committee list (`.csv`, `.xlsx`) |
-| `--key <file>` | Canary key file (`.csv`) that `canary` writes |
-| `--canaries <file>` | Canary key file (`.csv`) that `reviews` reads |
+| `--canaries <file>` | Canary key file (`.csv`) that `--canary` writes and `--reviews` reads |
 | `--dblp-dump <file>` | DBLP dump (`.xml.gz`) from dblp.org/xml |
 | `--save-index <file>` | Co-author index (`.json.gz`) to save from the DBLP dump |
 | `--dblp-index <file>` | Co-author index (`.json.gz`) saved by an earlier run |
-| `--retraction-csv <file>` | Local Retraction Watch list (`.csv`) for `setup` |
-| `--refresh` | New download of every file of `setup` |
+| `--retraction-csv <file>` | Local Retraction Watch list (`.csv`) for `--setup` |
+| `--refresh` | New download of every file of `--setup` |
 | `--host <address>` | Address of the browser interface |
 | `--port <number>` | Port of the browser interface |
 | `--no-browser` | Browser interface without a browser window |
@@ -135,7 +146,7 @@ templates.
 | Author list (`--authors`) | Author of a paper | `paper` (paper number), `first`, `last`, `email`, and `affiliation` |
 | Committee list (`--pc`) | Committee member | `first`, `last`, `email`, `affiliation`, and an optional `dblp` (DBLP person ID) |
 | Submission sheet (`--submissions`) | Paper | `paper` and `title` |
-| Reviews (`reviews`) | Review | `paper`, `review` (review ID, such as A), and one column per field of the review form |
+| Reviews (`--reviews`) | Review | `paper`, `review` (review ID, such as A), and one column per field of the review form |
 
 Fields intended for the committee only, such as `Comments for PC`, are excluded from AI detection.
 
@@ -157,7 +168,7 @@ paper,review,Comments for authors
 1,A,"The paper proposes ..."
 ```
 
-`peercheck canary` generates the key file for `--canaries`.
+`--canary` generates the key file of `--canaries`.
 
 ### Venue rules
 
@@ -191,22 +202,22 @@ Two venues serve as examples, each with the address of its call for papers.
 ### Other commands
 
 ```bash
-peercheck conflicts --authors authors.csv --pc pc.csv --dblp-dump dblp.xml.gz   # find conflicts of interest
-peercheck canary submissions/ --out marked/ --key canaries.csv                    # insert a fictitious citation into each PDF
-peercheck --profile venue.yaml reviews reviews/ --canaries canaries.csv           # find reviews that cite the planted work
-peercheck gui                                                                     # open the browser interface
+peercheck --conflicts --authors authors.csv --pc pc.csv --dblp-dump dblp.xml.gz   # find conflicts of interest
+peercheck --canary submissions/ --out marked/ --canaries canaries.csv               # insert a fictitious citation into each PDF
+peercheck --profile venue.yaml --reviews reviews/ --canaries canaries.csv           # find reviews that cite the planted work
+peercheck --gui                                                                     # open the browser interface
 ```
 
 With Docker, the browser interface requires a published port, as in `docker run --rm -p 127.0.0.1:8765:8765 -v
-peercheck-cache:/cache -e HF_TOKEN ghcr.io/aalramadan/peercheck gui`.
+peercheck-cache:/cache -e HF_TOKEN ghcr.io/aalramadan/peercheck --gui`.
 
 > [!TIP]
-> Check the original PDFs with `peercheck papers` before `peercheck canary`, since the hidden-text check reports the
+> Check the original PDFs with `--papers` before `--canary`, since the hidden-text check reports the
 > planted citation. Then upload the marked copies to the conference system in place of the originals, before the
 > reviewers download the papers.
 
 > [!WARNING]
-> Keep the key file of `peercheck canary` private, since it reveals the planted citation of each paper.
+> Keep the key file of `--canary` private, since it reveals the planted citation of each paper.
 
 ### Reports
 

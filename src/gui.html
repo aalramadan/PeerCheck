@@ -62,7 +62,7 @@ pre{white-space:pre-wrap;word-break:break-word;color:var(--muted);font-size:.8re
     <div class="field"><label for="submissions">Submission sheet (optional)</label>
       <input id="submissions" name="submissions" type="file" accept=".csv,.xlsx">
       <small>A CSV or Excel list with the number and the title of each paper, which the report extends.</small></div>
-    <p><small>The venue rules decide which checks run. The reference check needs <code>peercheck setup</code>
+    <p><small>The venue rules decide which checks run. The reference check needs <code>peercheck --setup</code>
       first.</small></p>
     <button class="run" type="submit">Check the submissions</button>
   </form>
@@ -73,7 +73,7 @@ pre{white-space:pre-wrap;word-break:break-word;color:var(--muted);font-size:.8re
       <small>The exported reviews, as XML files or one CSV file with a row per review.</small></div>
     <div class="field"><label for="canaries">Canary key (optional)</label>
       <input id="canaries" name="canaries" type="file" accept=".csv">
-      <small>The key file of <code>peercheck canary</code>, to find reviews that cite the made-up work hidden in
+      <small>The key file of <code>peercheck --canary</code>, to find reviews that cite the made-up work hidden in
         their paper.</small></div>
     <p><small>The venue rules decide which checks run. EditLens runs when a Hugging Face token is set, as the README
       describes.</small></p>

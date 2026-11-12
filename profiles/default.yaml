@@ -51,7 +51,7 @@ checks:                                             # every check runs unless it
     min_font_size: 2.0                              # default 2.0: text smaller than this counts as hidden, in points
     # extra_phrases: [ignore all previous instructions]   # default none: more phrases of hidden prompts
   references:
-    enabled: true                                   # default true: the reference check, after peercheck setup
+    enabled: true                                   # default true: the reference check, after peercheck --setup
     online: true                                    # default true: look up online what the local DBLP copy lacks, false keeps the check offline
     online_titles: true                             # default true: send those titles online, false sends only their DOIs and arXiv IDs
     timeout: 600                                    # default 600: the seconds before the check of one PDF stops
