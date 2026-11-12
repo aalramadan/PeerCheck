@@ -38,10 +38,8 @@ peercheck setup                                         # download the reference
 ```
 
 > [!NOTE]
-> EditLens needs a free Hugging Face token. Accept the non-commercial
-> [EditLens license](https://huggingface.co/pangram/editlens_roberta-large), make a
-> [read token](https://huggingface.co/settings/tokens), and set it with `export HF_TOKEN=<token>`. Without a token,
-> PeerCheck skips EditLens.
+> EditLens needs a free [Hugging Face token](https://huggingface.co/settings/tokens) in `HF_TOKEN` and its accepted
+> [non-commercial license](https://huggingface.co/pangram/editlens_roberta-large). Without a token, PeerCheck skips EditLens.
 
 ## 🐳 Docker
 
@@ -71,7 +69,7 @@ my-conference/
 ```bash
 cd my-conference
 peercheck --profile venue.yaml papers submissions/   # check the PDFs, after the submission deadline
-peercheck --profile venue.yaml reviews reviews/      # check the reviews, once the reviews are in
+peercheck --profile venue.yaml reviews reviews/      # check the reviews, after the review deadline
 ```
 
 The first command writes `report.html` and `report.xlsx`. The second writes `reviews.html` and `reviews.xlsx`.
@@ -95,7 +93,7 @@ The first command writes `report.html` and `report.xlsx`. The second writes `rev
 | `--authors` | papers, conflicts | A CSV or Excel file with the columns paper, first, last, email, and affiliation, for the author names in the PDFs and the conflict check |
 | `--canaries` | reviews | The key file of `canary`, for the check of the planted citations |
 | `--pc` | conflicts | A CSV or Excel file with the columns first, last, email, affiliation, and an optional dblp (the DBLP person ID) |
-| `--dblp-dump` | conflicts, setup | The DBLP download `dblp.xml.gz` from dblp.org/xml, for the co-author check or the reference database |
+| `--dblp-dump` | conflicts, setup | The DBLP download `dblp.xml.gz` from dblp.org/xml, for the co-author check or the DBLP copy of `setup` |
 | `--dblp-index`, `--save-index` | reviews, conflicts | An index of co-authors that `--save-index` keeps for later runs |
 | `--key` | canary | The private file that lists the planted citation of each paper |
 | `--retraction-csv`, `--refresh` | setup | A local Retraction Watch list, or a new download of every file |
@@ -197,11 +195,12 @@ The tests sit in `tests/` and run offline. GitHub Actions runs every test at eac
   papers.
 - **Command tests** run the commands and check their reports and their messages.
 - **Page tests** start the browser page and run checks through its forms.
-- The tests of the review checks need PyTorch, which `pip install -e .` installs. One test needs a graphics card.
+- The tests of the review checks need PyTorch, which `pip install` brings. One test needs a graphics card.
 
 ### Commands
 
-Run these commands in the source folder after `pip install -e ".[dev]"`, which adds pytest and ruff.
+Run these commands in the source folder after `pip install -e ".[dev]"`. The `-e` runs PeerCheck from the source
+folder. The `[dev]` adds pytest and ruff.
 
 | Command | Description |
 |---|---|
