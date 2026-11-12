@@ -25,7 +25,7 @@ def review(review_id: str, text: str, paper_id: int = 1, reviewer: Person | None
 
 @pytest.fixture(scope="module")
 def fixture_findings():
-    return duplicates.check_reviews(read_reviews(FIXTURES), {})
+    return duplicates.check_reviews(read_reviews(FIXTURES / "reviews.csv"), {})
 
 
 class TestParagraphs:
@@ -41,26 +41,26 @@ class TestParagraphs:
 
 class TestFixtureReviews:
     def test_every_review_gets_an_entry(self, fixture_findings):
-        assert sorted(fixture_findings) == ["R1", "R2", "R3", "R4", "R5", "R6"]
+        assert sorted(fixture_findings) == ["1A", "1B", "2A", "2B", "3A", "3B"]
 
     def test_template_paragraph_flags_each_pair_of_reviews_that_share_it(self, fixture_findings):
         others = {rid: sorted(f.evidence.split(" of review ")[1].split(",")[0] for f in found)
                   for rid, found in fixture_findings.items()}
-        assert others == {"R1": ["R3", "R4"], "R2": [], "R3": ["R1", "R4"], "R4": ["R1", "R3"], "R5": [], "R6": []}
+        assert others == {"1A": ["2A", "2B"], "1B": [], "2A": ["1A", "2B"], "2B": ["1A", "2A"], "3A": [], "3B": []}
 
     def test_finding_names_the_other_review_paper_reviewer_and_similarity(self, fixture_findings):
-        finding = next(f for f in fixture_findings["R1"] if "review R4" in f.message)
+        finding = next(f for f in fixture_findings["1A"] if "review 2B" in f.message)
         assert finding.check == "duplicates.near-duplicate"
         assert finding.severity is Severity.WARNING
-        assert finding.message == "1 paragraph nearly duplicates text of review R4 on paper 2 by another reviewer"
-        assert finding.evidence == "paragraph 2 here and paragraph 1 of review R4, Jaccard 0.93"
+        assert finding.message == "1 paragraph nearly duplicates text of review 2B on paper 2 by another reviewer"
+        assert finding.evidence == "paragraph 2 here and paragraph 1 of review 2B, Jaccard 0.93"
 
     def test_reuse_by_the_same_reviewer_says_so(self, fixture_findings):
-        finding = next(f for f in fixture_findings["R3"] if "review R1" in f.message)
+        finding = next(f for f in fixture_findings["2A"] if "review 1A" in f.message)
         assert finding.message.endswith("on paper 1 by the same reviewer")
 
     def test_short_shared_sentences_stay_below_the_length_cutoff(self, fixture_findings):
-        assert fixture_findings["R5"] == fixture_findings["R6"] == []
+        assert fixture_findings["3A"] == fixture_findings["3B"] == []
 
 
 class TestReviewers:

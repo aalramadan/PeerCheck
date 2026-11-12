@@ -18,8 +18,8 @@ from peercheck.papers import pipeline, references
 COMMANDS = ("papers", "reviews", "conflicts", "canary", "setup", "gui")
 # The options that each command reads. Any other option beside a command is a mistake that stops the run.
 OPTIONS = {
-    "papers": {"template", "out", "json", "submissions", "authors"},
-    "reviews": {"template", "out", "json", "canaries"},
+    "papers": {"template", "out", "submissions", "authors"},
+    "reviews": {"template", "out", "canaries"},
     "conflicts": {"template", "out", "authors", "pc"},
     "canary": {"template", "out", "canaries"},
     "setup": {"retraction_csv", "refresh"},
@@ -51,30 +51,30 @@ def parser() -> argparse.ArgumentParser:
                                               "publication venue.")
     commands = top.add_argument_group("commands, one per run").add_mutually_exclusive_group()
     commands.add_argument("--papers", type=Path, metavar="FOLDER", help="check the submission PDFs of a folder")
-    commands.add_argument("--reviews", type=Path, metavar="PATH", help="check the reviews of a folder or a file")
+    commands.add_argument("--reviews", type=Path, metavar="FILE", help="check the reviews of a CSV file")
     commands.add_argument("--conflicts", action="store_true",
                           help="find conflicts of interest between the authors and the committee")
     commands.add_argument("--canary", type=Path, metavar="FOLDER",
                           help="insert a fictitious citation into each PDF of a folder")
-    commands.add_argument("--setup", action="store_true", help="download Hallucinator, DBLP, and the Retraction Watch list")
+    commands.add_argument("--setup", action="store_true", help="download Hallucinator, DBLP, and the Retraction Watch data")
     commands.add_argument("--gui", action="store_true", help="open the browser interface")
 
     options = top.add_argument_group("options")
     options.add_argument("--template", metavar="FILE", help="the template of the venue, a copy of "
                          "templates/default.yaml or an example such as icse-2027 (default templates/default.yaml)")
-    options.add_argument("--out", type=Path, metavar="PATH", help="the Excel report, with the HTML report beside it "
-                         "(default report.xlsx, reviews.xlsx, or conflicts.xlsx), or the folder of the PDFs of --canary")
-    options.add_argument("--json", type=Path, metavar="FILE", help="JSON output of --papers or --reviews")
+    options.add_argument("--out", type=Path, metavar="PATH", help="the CSV report, with the HTML report beside it "
+                         "(default papers-report.csv, reviews-report.csv, or conflicts-report.csv), or the folder of "
+                         "the PDFs of --canary")
     options.add_argument("--submissions", type=Path, metavar="FILE",
-                         help="submission sheet with the columns paper and title, for --papers")
-    options.add_argument("--authors", type=Path, metavar="FILE", help="author list with the columns paper, first, "
-                         "last, email, and affiliation, for --papers and --conflicts")
-    options.add_argument("--pc", type=Path, metavar="FILE", help="committee list with the columns first, last, "
+                         help="submissions file (CSV) with the columns paper and title, for --papers")
+    options.add_argument("--authors", type=Path, metavar="FILE", help="authors file (CSV) with the columns paper, "
+                         "first, last, email, and affiliation, for --papers and --conflicts")
+    options.add_argument("--pc", type=Path, metavar="FILE", help="committee file (CSV) with the columns first, last, "
                          "email, affiliation, and dblp, for --conflicts")
     options.add_argument("--canaries", type=Path, metavar="FILE",
                          help="canary key file, which --canary writes and --reviews reads")
     options.add_argument("--retraction-csv", type=Path, metavar="FILE",
-                         help="local Retraction Watch list for --setup, in place of its download")
+                         help="local Retraction Watch file (CSV) for --setup, in place of its download")
     options.add_argument("--refresh", action="store_true", help="download every file of --setup again")
     top.add_argument("--version", action="version", version=f"PeerCheck {__version__}")
     return top
@@ -118,20 +118,18 @@ def run_papers(args: argparse.Namespace) -> int:
     off = [key for key in pipeline.PROFILE_KEYS.values() if not venue.runs(key)]
     if off:
         print(f"The template turns off {', '.join(off)}.", file=sys.stderr)
-    out = args.out or Path("report.xlsx")
+    out = report.csv_path(args.out, "papers-report.csv", args.submissions, args.authors)
     run = pipeline.run_papers(args.papers, venue, args.submissions, args.authors)
-    # The JSON file and the page come first, since the workbook can fail, such as when it is open in Excel.
+    # The page comes first, since the CSV file can fail, such as when it is open in Excel.
     page = out.with_suffix(".html")
-    if args.json:
-        report.write_json(args.json, run)
     report.write_papers_html(page, run)
-    report.write_papers(out, run, venue, args.submissions)
+    report.write_csv(out, report.paper_rows(run))
     flagged = sum(1 for result in run.results if needs_review(result.findings))
     print(f"{len(run.results)} papers checked, {flagged} need review. Report: {page} and {out}")
     for paper_id, name in sorted(run.numbered.items()):
         print(f"{name} holds no paper number; checked as paper {paper_id}", file=sys.stderr)
     for name in run.duplicates:
-        print(f"skipped {name}, which repeats a paper number; see the Files sheet", file=sys.stderr)
+        print(f"skipped {name}, which repeats a paper number", file=sys.stderr)
     return 0
 
 
@@ -140,27 +138,29 @@ def run_reviews(args: argparse.Namespace) -> int:
     if importlib.util.find_spec("torch") is None:
         raise tools.ToolError("the review checks need PyTorch, which pip install . installs with PeerCheck")
     options = [*_option("--template", args.template), *_option("--canaries", args.canaries),
-               *_option("--out", args.out), *_option("--json", args.json)]
-    # The double dash keeps a folder whose name starts with a dash from reading as an option.
+               *_option("--out", args.out)]
+    # The double dash keeps a file whose name starts with a dash from reading as an option.
     return subprocess.call([sys.executable, "-m", "peercheck.reviews", *options, "--", str(args.reviews)])
 
 
 def run_conflicts(args: argparse.Namespace) -> int:
-    """Find conflicts of interest from the author and committee lists and write the report."""
+    """Find conflicts of interest from the authors and committee files and write the report."""
     if not args.authors or not args.pc:
-        raise inputs.InputError("--conflicts needs the author list of --authors and the committee list of --pc")
+        raise inputs.InputError("--conflicts needs the authors file of --authors and the committee file of --pc")
     venue = profiles.load(args.template or profiles.DEFAULT)
     if not venue.runs("conflicts"):
         raise inputs.InputError("the template turns the conflict check off; remove the # before the key conflicts")
-    out = args.out or Path("conflicts.xlsx")
+    out = report.csv_path(args.out, "conflicts-report.csv", args.authors, args.pc)
     authors = inputs.read_people(args.authors, with_paper=True)
     committee = inputs.read_people(args.pc, with_paper=False)
     people = list(dict.fromkeys([person for group in authors.values() for person in group] + committee))
     index = _coauthor_index(people)
     found = conflicts.find_conflicts(authors, committee, index, venue.options("conflicts"))
-    report.write_sheets(out, {"Conflicts": conflicts.rows(found)}, [], [("Template", venue.name),
-                                          ("DBLP", "used" if index is not None else "not used")], key="Paper")
-    print(f"{len(found)} possible conflicts. Report: {out}")
+    rows = conflicts.rows(found)
+    page = out.with_suffix(".html")
+    report.write_conflicts_html(page, rows, [f"DBLP: {'used' if index is not None else 'not used'}."])
+    report.write_csv(out, rows)
+    print(f"{len(found)} possible conflicts. Report: {page} and {out}")
     return 0
 
 

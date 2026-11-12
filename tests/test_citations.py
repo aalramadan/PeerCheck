@@ -20,7 +20,7 @@ REVIEWERS = [MULLER, LEMAITRE, Person("Kim", "Doe"), Person("Pat", "Reviewer"), 
 
 @pytest.fixture(scope="module")
 def reviews() -> list[Review]:
-    return read_reviews(FIXTURES / "reviews")
+    return read_reviews(FIXTURES / "reviews" / "reviews.csv")
 
 
 @pytest.fixture(scope="module")
@@ -90,33 +90,33 @@ class TestExtract:
 
 class TestRequests:
     def test_review_with_items_gets_an_info_finding_with_count_items_and_phrases(self, found):
-        info = checks(found["R1"], "citations.requests")
+        info = checks(found["1A"], "citations.requests")
         assert len(info) == 1
         assert info[0].severity is Severity.INFO
         assert info[0].message == "The review cites 2 works, with the request phrases should also discuss; should cite"
         assert info[0].evidence == "doi: 10.1145/1111111.1111112; citation: Müller et al. (2024)"
 
     def test_committee_only_fields_stay_out(self, found):
-        assert "9999999" not in " ".join(f.evidence for f in found["R1"])
+        assert "9999999" not in " ".join(f.evidence for f in found["1A"])
 
     def test_reviews_without_items_get_no_finding(self, found):
-        assert found["R3"] == found["R4"] == found["R6"] == []
+        assert found["2A"] == found["2B"] == found["3B"] == []
 
     def test_more_works_than_pages_warns(self, found):
-        warning = checks(found["R5"], "citations.many-requests")
+        warning = checks(found["3A"], "citations.many-requests")
         assert [w.severity for w in warning] == [Severity.WARNING]
         assert warning[0].message == "The review cites 11 works, more than one per page of a 10-page paper"
         assert "Wren" in warning[0].evidence
 
     def test_page_count_comes_from_the_options(self, reviews):
         per_paper = citations.check_reviews(reviews, {"pages": {3: 12}})
-        assert checks(per_paper["R5"], "citations.many-requests") == []
-        assert checks(citations.check_reviews(reviews, {"pages": 11})["R5"], "citations.many-requests") == []
+        assert checks(per_paper["3A"], "citations.many-requests") == []
+        assert checks(citations.check_reviews(reviews, {"pages": 11})["3A"], "citations.many-requests") == []
 
 
 class TestSelfCitation:
     def test_request_for_the_reviewers_own_work_warns(self, found):
-        own = checks(found["R1"], "citations.self-citation-request")
+        own = checks(found["1A"], "citations.self-citation-request")
         assert len(own) == 1
         assert own[0].severity is Severity.WARNING
         assert own[0].message == "The review asks for 1 work by its own reviewer Jürgen Müller."
@@ -125,22 +125,22 @@ class TestSelfCitation:
         assert "by first author and year" in own[0].evidence
 
     def test_count_of_reviews_with_own_requests_covers_all_reviews_of_the_reviewer(self, found):
-        own = checks(found["R1"], "citations.self-citation-request")[0]
+        own = checks(found["1A"], "citations.self-citation-request")[0]
         assert own.evidence.endswith("this reviewer asks for own works in 1 of 2 reviews")
 
     def test_request_for_work_of_another_reviewer_of_the_paper_warns(self, found):
-        messages = sorted(f.message for f in checks(found["R2"], "citations.self-citation-request"))
+        messages = sorted(f.message for f in checks(found["1B"], "citations.self-citation-request"))
         assert messages == [
             "The review asks for 1 work by Jürgen Müller, another reviewer of paper 1.",
             "The review asks for 1 work by its own reviewer François Lemaître.",
         ]
 
     def test_title_in_a_reference_line_matches(self, found):
-        other = next(f for f in checks(found["R2"], "citations.self-citation-request") if "Müller" in f.message)
+        other = next(f for f in checks(found["1B"], "citations.self-citation-request") if "Müller" in f.message)
         assert "matches dblp conf/icse/MullerO24" in other.evidence and other.evidence.endswith("by title")
 
     def test_arxiv_item_matches_the_arxiv_record_of_an_alias(self, found):
-        own = next(f for f in checks(found["R2"], "citations.self-citation-request") if "own" in f.message)
+        own = next(f for f in checks(found["1B"], "citations.self-citation-request") if "own" in f.message)
         assert "10.48550/arxiv.2401.01234 matches dblp journals/corr/abs-2401-01234" in own.evidence
 
     def test_no_index_means_no_self_citation_findings(self, reviews):
@@ -158,7 +158,7 @@ class TestSelfCitation:
         assert message.endswith("The name Ana Pérez matches 3 dblp person records; confirm the person.")
 
     def test_unrelated_works_give_no_self_citation_finding(self, found):
-        assert checks(found["R5"], "citations.self-citation-request") == []
+        assert checks(found["3A"], "citations.self-citation-request") == []
 
     def test_a_short_quoted_phrase_inside_a_longer_title_asks_for_no_work(self):
         doe = Person("Kim", "Doe")

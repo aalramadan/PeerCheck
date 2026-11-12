@@ -25,9 +25,9 @@ class Finding:
     evidence: str = ""
 
     def as_text(self) -> str:
-        """Return the finding as one line for a report cell."""
+        """Return the finding as one line for a report cell, such as ERROR layout.pages: 12 main pages (page 12)."""
         where = f" (page {self.page})" if self.page else ""
-        return f"{self.severity.value.upper()}: {self.message}{where}"
+        return f"{self.severity.value.upper()} {self.check}: {self.message}{where}"
 
 
 def needs_review(findings: list[Finding]) -> bool:

@@ -1,0 +1,5 @@
+paper,title,review,reviewername,email,Overall evaluation,Reviewer's confidence,Paper Summary,Detailed Review Comments for Authors,Questions for authors,Confidential remarks for the program committee
+7,Flaky Tests & Their Fixes,A,,,-1,4,"The paper studies flaky tests in twelve Java projects.
+
+It proposes a rerun strategy.",The sampling of projects is not explained.   Table 3 mixes two units.,,I may know the authors.
+7,Flaky Tests & Their Fixes,B,Dana Reviewer,dana@example.org,2,,A study of reruns for flaky tests <with> CDATA text.,,,

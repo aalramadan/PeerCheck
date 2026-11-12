@@ -75,7 +75,7 @@ def test_template_papers_with_their_own_titles_give_no_finding(pdf, title):
 def test_title_of_another_paper_is_a_warning_on_page_1():
     (finding,) = run(FIXTURES / "fonts" / "ieee-conference.pdf", MAINTENANCE)
     assert (finding.check, finding.severity, finding.page) == ("title.mismatch", Severity.WARNING, 1)
-    assert finding.message.startswith("title on page 1 differs from the title in the submission sheet")
+    assert finding.message.startswith("title on page 1 differs from the title in the submissions file")
     score, minimum = map(int, SIMILARITY.search(finding.message).groups())
     assert score < minimum == 70
 
@@ -162,7 +162,7 @@ def test_metadata_title_stands_in_for_a_page_without_text(tmp_path):
     assert run(pdf, DETECTING) == []
     (finding,) = run(pdf, MAINTENANCE)
     assert (finding.check, finding.severity, finding.page) == ("title.mismatch", Severity.WARNING, None)
-    assert finding.message.startswith("metadata title differs from the title in the submission sheet")
+    assert finding.message.startswith("metadata title differs from the title in the submissions file")
 
 
 def test_metadata_title_counts_when_the_text_of_page_1_differs(tmp_path):

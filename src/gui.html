@@ -33,9 +33,6 @@ button.run:disabled{opacity:.6;cursor:wait}
 #status.done{color:var(--clear)}
 #links a{color:var(--accent);margin-right:1.25rem}
 iframe{width:100%;min-height:24rem;border:1px solid var(--line);border-radius:.5rem;margin-top:.75rem;background:var(--bg)}
-table{border-collapse:collapse;width:100%;font-size:.9rem;margin-top:.75rem}
-th,td{border:1px solid var(--line);padding:.35rem .5rem;text-align:left;vertical-align:top;white-space:pre-wrap}
-th{background:var(--head)}
 pre{white-space:pre-wrap;word-break:break-word;color:var(--muted);font-size:.8rem}
 </style>
 </head>
@@ -56,21 +53,22 @@ pre{white-space:pre-wrap;word-break:break-word;color:var(--muted);font-size:.8re
     <div class="field"><label for="pdfs">Submission PDFs</label>
       <input id="pdfs" name="pdfs" type="file" accept=".pdf" multiple required>
       <small>The PDFs as the submission system names them, with the paper ID in the file name.</small></div>
-    <div class="field"><label for="papers-authors">Author list (optional)</label>
-      <input id="papers-authors" name="authors" type="file" accept=".csv,.xlsx">
-      <small>CSV or Excel file with the columns paper, first, last, email, and affiliation.</small></div>
-    <div class="field"><label for="submissions">Submission sheet (optional)</label>
-      <input id="submissions" name="submissions" type="file" accept=".csv,.xlsx">
-      <small>A CSV or Excel list with the number and the title of each paper, which the report extends.</small></div>
+    <div class="field"><label for="papers-authors">Authors file (optional)</label>
+      <input id="papers-authors" name="authors" type="file" accept=".csv">
+      <small>CSV file with the columns paper, first, last, email, and affiliation, for the anonymity check.</small></div>
+    <div class="field"><label for="submissions">Submissions file (optional)</label>
+      <input id="submissions" name="submissions" type="file" accept=".csv">
+      <small>CSV file with the columns paper and title, for the title check.</small></div>
     <p><small>The template decides which checks run. The reference check needs <code>peercheck --setup</code>
       first.</small></p>
     <button class="run" type="submit">Check the submissions</button>
   </form>
 
   <form id="reviews" hidden>
-    <div class="field"><label for="exports">Review exports</label>
-      <input id="exports" name="reviews" type="file" accept=".xml,.csv" multiple required>
-      <small>The exported reviews, as XML files or one CSV file with a row per review.</small></div>
+    <div class="field"><label for="exports">Reviews file</label>
+      <input id="exports" name="reviews" type="file" accept=".csv" required>
+      <small>CSV file with a row per review and the columns paper, review, and one column per field of the review
+        form.</small></div>
     <div class="field"><label for="canaries">Canary key (optional)</label>
       <input id="canaries" name="canaries" type="file" accept=".csv">
       <small>The key file of <code>peercheck --canary</code>, to find reviews that cite the made-up work hidden in
@@ -81,12 +79,12 @@ pre{white-space:pre-wrap;word-break:break-word;color:var(--muted);font-size:.8re
   </form>
 
   <form id="conflicts" hidden>
-    <div class="field"><label for="conflicts-authors">Author list</label>
-      <input id="conflicts-authors" name="authors" type="file" accept=".csv,.xlsx" required>
-      <small>CSV or Excel file with the columns paper, first, last, email, and affiliation.</small></div>
-    <div class="field"><label for="pc">Committee list</label>
-      <input id="pc" name="pc" type="file" accept=".csv,.xlsx" required>
-      <small>CSV or Excel file with the columns first, last, email, and affiliation.</small></div>
+    <div class="field"><label for="conflicts-authors">Authors file</label>
+      <input id="conflicts-authors" name="authors" type="file" accept=".csv" required>
+      <small>CSV file with the columns paper, first, last, email, and affiliation.</small></div>
+    <div class="field"><label for="pc">Committee file</label>
+      <input id="pc" name="pc" type="file" accept=".csv" required>
+      <small>CSV file with the columns first, last, email, and affiliation.</small></div>
     <button class="run" type="submit">Find conflicts of interest</button>
   </form>
 
@@ -163,22 +161,6 @@ function showReport(href) {
   output.append(frame);
 }
 
-function showRows(rows) {
-  if (!rows.length) {
-    output.append(Object.assign(document.createElement('p'), {textContent: 'No possible conflicts of interest.'}));
-    return;
-  }
-  const table = document.createElement('table');
-  const head = table.createTHead().insertRow();
-  for (const name of Object.keys(rows[0])) head.append(Object.assign(document.createElement('th'), {textContent: name}));
-  const body = table.createTBody();
-  for (const row of rows) {
-    const line = body.insertRow();
-    for (const value of Object.values(row)) line.insertCell().textContent = value ?? '';
-  }
-  output.append(table);
-}
-
 for (const form of document.querySelectorAll('form')) {
   form.addEventListener('submit', async event => {
     event.preventDefault();
@@ -204,9 +186,8 @@ for (const form of document.querySelectorAll('form')) {
              done.ok ? done.summary || 'Done.' : 'The check stopped with an error. The log below gives the reason.');
       document.getElementById('log-box').open = !done.ok;
       if (done.report) links.append(link(done.report, 'Open the report in a new tab', false));
-      if (done.workbook) links.append(link(done.workbook, 'Download the Excel workbook', true));
+      if (done.table) links.append(link(done.table, 'Download the CSV file', true));
       if (done.report) showReport(done.report);
-      else if (done.ok && form.id === 'conflicts') showRows(done.rows);
     } catch (error) {
       report('error', error.message);
     } finally {

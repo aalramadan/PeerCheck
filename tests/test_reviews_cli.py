@@ -1,10 +1,9 @@
 """Tests of the review command line: the findings of each detector, and the canary column."""
 
-import json
+import csv
 from pathlib import Path
 from types import SimpleNamespace
 
-import openpyxl
 import pytest
 
 from peercheck import canary
@@ -15,7 +14,7 @@ pytest.importorskip("torch")
 cli = pytest.importorskip("peercheck.reviews.cli")
 editlens = pytest.importorskip("peercheck.reviews.editlens")
 
-EASYCHAIR = Path(__file__).parent / "fixtures" / "easychair"
+REVIEWS = Path(__file__).parent / "fixtures" / "easychair" / "reviews.csv"
 
 
 def _venue(tmp_path: Path, editlens_on: bool = False, canary_on: bool = True) -> str:
@@ -27,12 +26,14 @@ def _venue(tmp_path: Path, editlens_on: bool = False, canary_on: bool = True) ->
     return str(path)
 
 
-def _easychair_review(path: Path, review_id: str, paper: int, text: str) -> None:
-    path.write_text(f"""<?xml version='1.0' encoding='utf-8'?>
-<review id="{review_id}" submission="{paper}" title="Paper {paper}">
-  <field id="f2" name="Detailed Review Comments for Authors"><text>{text}</text></field>
-</review>
-""", encoding="utf-8")
+def _rows(path: Path) -> list[dict]:
+    with path.open(encoding="utf-8-sig", newline="") as handle:
+        return list(csv.DictReader(handle))
+
+
+def _checks(row: dict) -> list[str]:
+    """Return the check of each finding in the Findings column, such as canary.hit."""
+    return [line.split()[1].rstrip(":") for line in row["Findings"].splitlines()]
 
 
 def test_a_cocodet_label_ai_marks_the_review():
@@ -76,11 +77,10 @@ def test_a_detector_whose_key_the_template_leaves_out_does_not_run(monkeypatch):
 
 def test_a_skipped_editlens_is_noted_in_the_report(tmp_path, monkeypatch):
     monkeypatch.setattr(editlens, "has_token", lambda: False)
-    out = tmp_path / "reviews.xlsx"
-    assert cli.main([str(EASYCHAIR), "--template", _venue(tmp_path, editlens_on=True), "--out", str(out)]) == 0
-    assert "EditLens skipped" in out.with_suffix(".html").read_text(encoding="utf-8")
-    about = {row[0]: row[1] for row in openpyxl.load_workbook(out)["About"].iter_rows(values_only=True)}
-    assert about["Skipped"].startswith("EditLens skipped") and about["Detectors"] == "none"
+    out = tmp_path / "reviews.csv"
+    assert cli.main([str(REVIEWS), "--template", _venue(tmp_path, editlens_on=True), "--out", str(out)]) == 0
+    page = out.with_suffix(".html").read_text(encoding="utf-8")
+    assert "EditLens skipped" in page and "Detectors: none." in page
 
 
 def test_words_for_authors_are_counted_as_editlens_counts_them():
@@ -94,66 +94,70 @@ def test_canary_column_names_the_state_of_the_review():
 
 
 def test_canary_check_runs_without_any_model_and_fills_its_column(tmp_path):
-    key, out = tmp_path / "key.csv", tmp_path / "reviews.xlsx"
+    key, out = tmp_path / "key.csv", tmp_path / "reviews.csv"
     canary.write_key(key, {7: "Smith et al. (2019)"})
-    assert cli.main([str(EASYCHAIR), "--template", _venue(tmp_path), "--canaries", str(key),
+    assert cli.main([str(REVIEWS), "--template", _venue(tmp_path), "--canaries", str(key),
                      "--out", str(out)]) == 0
-    sheet = openpyxl.load_workbook(out).worksheets[0]
-    header = [cell.value for cell in sheet[1]]
-    assert {row[header.index("Canary")] for row in sheet.iter_rows(min_row=2, values_only=True)} == {"no"}
+    assert {row["Canary"] for row in _rows(out)} == {"no"}
 
 
 def test_canary_check_stays_off_while_the_template_leaves_out_its_key(tmp_path, capsys):
     key = tmp_path / "canaries.csv"
     canary.write_key(key, {7: "Smith et al. (2019)"})
-    out = tmp_path / "reviews.xlsx"
+    out = tmp_path / "reviews.csv"
     venue = _venue(tmp_path, canary_on=False)
-    assert cli.main([str(EASYCHAIR), "--template", venue, "--canaries", str(key), "--out", str(out)]) == 0
+    assert cli.main([str(REVIEWS), "--template", venue, "--canaries", str(key), "--out", str(out)]) == 0
     assert "The template turns off cocodet, editlens, duplicates, citations, canary." in capsys.readouterr().err
-    book = openpyxl.load_workbook(out)
-    about = {row[0]: row[1] for row in book["About"].iter_rows(values_only=True)}
-    assert about["Canaries"] == "none" and "Canary" not in next(book["Reviews"].iter_rows(values_only=True))
+    assert "Canary" not in _rows(out)[0] and "Canary key" not in out.with_suffix(".html").read_text(encoding="utf-8")
 
 
-def test_reviews_command_writes_the_html_page_beside_the_workbook_by_default(tmp_path):
-    out = tmp_path / "reviews.xlsx"
-    assert cli.main([str(EASYCHAIR), "--template", _venue(tmp_path), "--out", str(out)]) == 0
+def test_reviews_command_never_writes_its_report_over_the_reviews_file(tmp_path, capsys):
+    reviews = tmp_path / "reviews.csv"
+    reviews.write_bytes(REVIEWS.read_bytes())
+    assert cli.main([str(reviews), "--template", _venue(tmp_path), "--out", str(reviews)]) == 2
+    assert "would overwrite the input" in capsys.readouterr().err
+    assert reviews.read_bytes() == REVIEWS.read_bytes()
+
+
+def test_reviews_command_writes_reviews_report_csv_by_default(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    assert cli.main([str(REVIEWS), "--template", _venue(tmp_path)]) == 0
+    assert (tmp_path / "reviews-report.csv").is_file() and (tmp_path / "reviews-report.html").is_file()
+
+
+def test_reviews_command_writes_the_html_page_beside_the_csv_file(tmp_path):
+    out = tmp_path / "reviews.csv"
+    assert cli.main([str(REVIEWS), "--template", _venue(tmp_path), "--out", str(out)]) == 0
     assert out.is_file() and out.with_suffix(".html").is_file()
 
 
 def test_a_canary_key_without_any_reviewed_paper_is_reported(tmp_path, capsys):
-    key, out = tmp_path / "key.csv", tmp_path / "reviews.xlsx"
+    key, out = tmp_path / "key.csv", tmp_path / "reviews.csv"
     canary.write_key(key, {99: "Smith et al. (2019)"})
-    assert cli.main([str(EASYCHAIR), "--template", _venue(tmp_path), "--canaries", str(key),
+    assert cli.main([str(REVIEWS), "--template", _venue(tmp_path), "--canaries", str(key),
                      "--out", str(out)]) == 0
     assert "the canary key holds none of the reviewed papers" in capsys.readouterr().err
-    about = dict(openpyxl.load_workbook(out)["About"].iter_rows(values_only=True))
-    assert about["Reviewed papers in the canary key"] == "0 of 1"
+    assert "which holds 0 of 1 reviewed papers" in out.with_suffix(".html").read_text(encoding="utf-8")
 
 
 def test_reviews_that_share_an_id_keep_their_own_rows_and_canary_results(tmp_path, capsys):
-    folder, key, out = tmp_path / "reviews", tmp_path / "key.csv", tmp_path / "reviews.json"
-    folder.mkdir()
-    _easychair_review(folder / "a.xml", "r1", 7, "Following Smith et al. (2019), this paper studies flaky tests.")
-    _easychair_review(folder / "b.xml", "r1", 8, "A careful study of flaky tests.")
-    canary.write_key(key, {7: "Smith et al. (2019)", 8: "Johnson et al. (2021)"})
-    assert cli.main([str(folder), "--template", _venue(tmp_path), "--canaries", str(key),
-                     "--out", str(tmp_path / "reviews.xlsx"), "--json", str(out)]) == 0
-    data = json.loads(out.read_text(encoding="utf-8"))
-    assert [(r["Review ID"], r["Submission"], r["Canary"]) for r in data["reviews"]] == [("r1", 7, "hit"),
-                                                                                         ("r1#2", 8, "no")]
-    assert [[f["check"] for f in data["findings"][rid]] for rid in ("r1", "r1#2")] == [
-        ["input.repeated-id", "canary.hit"], ["input.repeated-id"]]
-    assert "2 reviews share the ID r1" in capsys.readouterr().err
+    reviews, key, out = tmp_path / "reviews.csv", tmp_path / "key.csv", tmp_path / "report.csv"
+    reviews.write_text("paper,review,Comments for authors\n"
+                       "7,A,\"Following Smith et al. (2019), this paper studies flaky tests.\"\n"
+                       "7,A,A careful study of flaky tests.\n", encoding="utf-8")
+    canary.write_key(key, {7: "Smith et al. (2019)"})
+    assert cli.main([str(reviews), "--template", _venue(tmp_path), "--canaries", str(key), "--out", str(out)]) == 0
+    rows = _rows(out)
+    assert [(r["Review ID"], r["Submission"], r["Canary"]) for r in rows] == [("7A", "7", "hit"), ("7A#2", "7", "no")]
+    assert [_checks(r) for r in rows] == [["input.repeated-id", "canary.hit"], ["input.repeated-id"]]
+    assert "2 reviews share the ID 7A" in capsys.readouterr().err
 
 
 def test_review_check_reads_a_hotcrp_export_and_shows_its_overall_merit(tmp_path):
-    out = tmp_path / "reviews.xlsx"
+    out = tmp_path / "report.csv"
     export = Path(__file__).parent / "fixtures" / "hotcrp" / "reviews.csv"
     assert cli.main([str(export), "--template", _venue(tmp_path), "--out", str(out)]) == 0
-    sheet = openpyxl.load_workbook(out).worksheets[0]
-    header = [cell.value for cell in sheet[1]]
-    rows = list(sheet.iter_rows(min_row=2, values_only=True))
-    assert [row[header.index("Review ID")] for row in rows] == ["12A", "12B"]
-    assert [row[header.index("Overall Evaluation")] for row in rows] == ["3", "2"]
+    rows = _rows(out)
+    assert [row["Review ID"] for row in rows] == ["12A", "12B"]
+    assert [row["Overall Evaluation"] for row in rows] == ["3", "2"]
 

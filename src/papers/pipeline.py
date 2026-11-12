@@ -94,7 +94,15 @@ def run_papers(pdf_folder: Path, profile: Profile, submissions: Path | None = No
         if submissions:
             for paper_id in set(results) - set(titles):
                 results[paper_id].findings.append(
-                    Finding("input.not-in-sheet", Severity.WARNING, "PDF has no row in the submission sheet"))
+                    Finding("input.not-in-sheet", Severity.WARNING, "PDF has no row in the submissions file"))
+        for paper_id in found.numbered:
+            results[paper_id].findings.append(Finding(
+                "input.numbered", Severity.INFO, "the file name holds no paper number; PeerCheck numbered the PDF"))
+        for name in found.duplicates:
+            repeated = profile.paper_id(name)
+            if repeated in results:
+                results[repeated].findings.append(Finding(
+                    "input.repeated-pdf", Severity.WARNING, "another PDF has this paper number and was not checked"))
         if "sigsoft" in names:
             for paper_id, found_issues in sigsoft.check_batch(papers, profile, folder).items():
                 results[paper_id].findings.extend(found_issues)

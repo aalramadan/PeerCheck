@@ -19,8 +19,6 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
 
-import openpyxl
-
 from peercheck import profile as profiles
 
 PAGE = Path(__file__).with_name("gui.html")
@@ -34,12 +32,12 @@ STOP_SIGNALS = tuple(getattr(signal, name) for name in ("SIGTERM", "SIGHUP") if 
 # RequestError and json.JSONDecodeError are ValueErrors; a full disk or a file name that the file system refuses
 # raises OSError, and an option of the wrong type raises TypeError.
 REQUEST_ERRORS = (OSError, TypeError, ValueError)
-# The upload fields of the page: a folder field takes many files, a single field takes one list or key file.
-FOLDER_FIELDS = ("pdfs", "reviews")
-SINGLE_FIELDS = ("authors", "submissions", "canaries", "pc")
+# The upload fields of the page: the folder field takes many PDFs, and a single field takes one CSV file.
+FOLDER_FIELDS = ("pdfs",)
+SINGLE_FIELDS = ("authors", "submissions", "canaries", "pc", "reviews")
 KINDS = ("papers", "reviews", "conflicts")
 RUN_FILES = {"report.html": "text/html; charset=utf-8",
-             "report.xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"}
+             "report.csv": "text/csv; charset=utf-8"}
 LOG_LINES = 40
 
 
@@ -55,13 +53,15 @@ def command(kind: str, options: dict, folder: Path) -> list[str]:
         files = sorted((folder / field).iterdir()) if (folder / field).is_dir() else []
         return [f"--{field}", str(files[0])] if files else []
 
-    reports = ["--out", str(folder / "report.xlsx")]
+    reports = ["--out", str(folder / "report.csv")]
     if kind == "papers":
         return [*venue, "--papers", str(folder / "pdfs"), *reports, *single("authors"), *single("submissions")]
     if kind == "reviews":
-        return [*venue, "--reviews", str(folder / "reviews"), *reports, *single("canaries")]
+        if not single("reviews"):
+            raise RequestError("a reviews run needs the CSV file of the reviews")
+        return [*venue, *single("reviews"), *reports, *single("canaries")]
     if kind == "conflicts":
-        return [*venue, "--conflicts", *single("authors"), *single("pc"), "--out", str(folder / "report.xlsx")]
+        return [*venue, "--conflicts", *single("authors"), *single("pc"), *reports]
     raise RequestError(f"unknown kind of run: {kind}")
 
 
@@ -73,17 +73,6 @@ def upload_path(folder: Path, field: str, name: str) -> Path:
     if not base or base.startswith("."):
         raise RequestError(f"unusable file name: {name}")
     return folder / field / base
-
-
-def sheet_rows(workbook: Path, sheet: str) -> list[dict]:
-    """Return the rows of one sheet of a report as dictionaries keyed by the header, for the table of the page."""
-    if not workbook.is_file():
-        return []
-    book = openpyxl.load_workbook(workbook, read_only=True)
-    if sheet not in book.sheetnames:
-        return []
-    values = list(book[sheet].iter_rows(values_only=True))
-    return [dict(zip(values[0], row)) for row in values[1:]] if values else []
 
 
 class Server(ThreadingHTTPServer):
@@ -125,8 +114,7 @@ class Server(ThreadingHTTPServer):
                 # The last line of a command counts its results, such as "5 papers checked, 3 need review."
                 "summary": re.sub(r"\s*Report: .*$", "", printed[-1]) if printed else "",
                 "report": link + "report.html" if (folder / "report.html").is_file() else None,
-                "workbook": link + "report.xlsx" if (folder / "report.xlsx").is_file() else None,
-                "rows": sheet_rows(folder / "report.xlsx", "Conflicts") if kind == "conflicts" else []}
+                "table": link + "report.csv" if (folder / "report.csv").is_file() else None}
 
     def new_run(self) -> str:
         """Make the folder of a new run and return its id."""
@@ -219,7 +207,7 @@ class Handler(BaseHTTPRequestHandler):
         if folder is None or name not in RUN_FILES or not (folder / name).is_file():
             self._json(HTTPStatus.NOT_FOUND, {"error": "not found"})
             return
-        extra = {"Content-Disposition": f'attachment; filename="{name}"'} if name.endswith(".xlsx") else {}
+        extra = {"Content-Disposition": f'attachment; filename="{name}"'} if name.endswith(".csv") else {}
         self._send(HTTPStatus.OK, (folder / name).read_bytes(), RUN_FILES[name], extra)
 
     def _json(self, status: HTTPStatus, data: dict) -> None:

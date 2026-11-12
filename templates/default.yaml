@@ -30,9 +30,9 @@ format:
   # exempt_pages_max: 1                             # default none: the most pages that the exempt sections may take
 
 # Paper numbers come by themselves from names such as CONF_2027_paper_12.pdf, conf27-paper12.pdf, or 12.pdf, and
-# from a column # or ID of a submission sheet. Two lines change this for other names.
+# from a column # or ID of a submissions file. Two lines change this for other names.
 # file_pattern: 'sub-(\d+)\.pdf$'                   # default none: a pattern whose one group is the paper number
-# id_column: Submission                             # default none: the column of the submission sheet with the numbers
+# id_column: Submission                             # default none: the column of the submissions file with the numbers
 
 checks:                                             # a check runs while its key stands here; a # before the key and its settings turns it off
   layout:                                           # the format check, with fonts, margins, and the other layout notes
@@ -67,7 +67,7 @@ checks:                                             # a check runs while its key
   # accessibility:                                  # off by default: notes on tags, language, title, and figure descriptions
   #   required: false                               # default false: true turns these notes into errors
   title:
-    similarity_min: 70                              # default 70: how close, from 0 to 100, the PDF title and the sheet title must be
+    similarity_min: 70                              # default 70: how close, from 0 to 100, the PDF title and the title of the submissions file must be
   density:
     percentile: 95                                  # default 95: the percentile of the batch that a dense paper exceeds
     min_batch: 30                                   # default 30: the fewest papers for this comparison

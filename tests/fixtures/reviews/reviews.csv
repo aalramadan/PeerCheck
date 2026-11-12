@@ -1,0 +1,28 @@
+paper,title,review,reviewername,email,Overall evaluation,Summary,Strengths and weaknesses,Confidential remarks for the program committee,Detailed comments,Comments
+1,Synthetic Paper One,A,Jürgen Müller,j.mueller@testville.example,-1,The submission proposes a lightweight detector for order-dependent tests in Java projects and evaluates it on twelve open source repositories with seeded dependencies between test methods.,"The paper addresses a relevant and timely problem for the software engineering community, and the manuscript is generally well written and easy to follow. However, the evaluation is limited, the threats to validity are not discussed in enough depth, and the novelty of the approach with respect to the state of the art is not clearly argued.
+
+The authors should cite our related work, doi:10.1145/1111111.1111112, and should also discuss Müller et al. (2024), which studies the same flaky tests in synthetic projects.",Please also see doi:10.1145/9999999.9999999 for background.,,
+1,Synthetic Paper One,B,François Lemaître,f.lemaitre@ejemplo.example,1,"This work replaces the hand-written oracle of a mutation testing pipeline with properties mined from execution traces, which removes the manual step that earlier pipelines needed for every subject program.",,,"Related work is missing. Please consider arXiv:2401.01234 on mining repositories and the following study.
+[1] R. X. Okafor and J. Müller. Flaky Tests in Synthetic Projects. In Proc. ICSE 2024.",
+2,Synthetic Paper Two,A,Jürgen Müller,j.mueller@testville.example,-2,,"The paper addresses a relevant and timely problem for the software engineering community, and the manuscript is mostly well written and easy to follow. However, the evaluation is limited, the threats to validity are not discussed in sufficient depth, and the novelty of the approach with respect to the state of the art is not clearly argued.
+
+The prototype only supports build scripts written for Maven, while a large part of the studied ecosystem relies on Gradle, which makes the reported coverage figures hard to compare with the baseline.",,,
+2,Synthetic Paper Two,B,Kim Doe,kim.doe@synthetic.example,0,,,,,"The submission addresses a relevant and timely problem for the software engineering community, and the manuscript is generally well written and easy to follow. However, the evaluation is limited, the threats to validity are not discussed in enough depth, and the novelty of the approach with respect to the state of the art is not clearly argued.
+
+- The replication package lists the commands for the first research question only, and the scripts for the second and third questions fail on a clean checkout of the repository.
+- In 2020, the authors of the baseline released a second version of their tool, and the comparison should use that version."
+3,Synthetic Paper Three,A,Pat Reviewer,pat@webmail.example,-1,,,,,"Thank you for the opportunity to review this paper.
+The following works must be cited before the paper can be accepted.
+doi:10.5555/0000001
+doi:10.5555/0000002
+doi:10.5555/0000003
+doi:10.5555/0000004
+doi:10.5555/0000005
+doi:10.5555/0000006
+doi:10.5555/0000007
+doi:10.5555/0000008
+doi:10.5555/0000009
+doi:10.5555/0000010
+doi:10.5555/0000011"
+3,Synthetic Paper Three,B,Robin Okafor,robin@synthetic.example,2,,,,,"Thank you for the opportunity to review this paper.
+Since 2019, the community has moved toward containerized builds, and Section 4 should report the Docker versions that the experiments used for each subject."

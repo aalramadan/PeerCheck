@@ -9,9 +9,7 @@ description = "Local checks of the submissions and peer reviews of any publicati
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
-    "openpyxl>=3.1",
     "pyyaml>=6",
-    "defusedxml>=0.7",
     "lxml>=5",
     "rapidfuzz>=3",
     "datasketch>=1.6",

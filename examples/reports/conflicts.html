@@ -1,0 +1,33 @@
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><title>PeerCheck, Conflicts of interest</title><style>
+:root{--bg:#ffffff;--fg:#1f2328;--muted:#59636e;--line:#d1d9e0;--head:#f6f8fa;--error:#cf222e;--warning:#9a6700;
+--info:#59636e;--clear:#1a7f37;color-scheme:light}
+:root[data-theme=dark]{--bg:#0d1117;--fg:#e6edf3;--muted:#9198a1;--line:#3d444d;--head:#151b23;--error:#f85149;
+--warning:#d29922;--info:#9198a1;--clear:#3fb950;color-scheme:dark}
+body{font-family:system-ui,sans-serif;margin:2rem;color:var(--fg);background:var(--bg)}
+h1{font-size:1.4rem;margin:0 0 .3rem}
+.meta{color:var(--muted);margin:0 0 1rem}
+.controls{display:flex;gap:1rem;align-items:center;margin-bottom:1rem}
+input[type=search]{padding:.3rem .5rem;min-width:16rem}
+table{border-collapse:collapse;width:100%;font-size:.9rem}
+th,td{border:1px solid var(--line);padding:.35rem .5rem;text-align:left;vertical-align:top}
+td:not(:last-child){white-space:nowrap}
+th{background:var(--head);position:sticky;top:0}
+tr.flagged td:first-child{border-left:4px solid var(--error)}
+tr.clear td:first-child{border-left:4px solid var(--clear)}
+ul{margin:.4rem 0;padding-left:1.1rem}
+li{margin:.25rem 0}
+.badge{display:inline-block;min-width:4.2rem;padding:0 .3rem;border-radius:.6rem;color:#fff;font-size:.75rem;text-align:center}
+li.error .badge{background:var(--error)}li.warning .badge{background:var(--warning)}li.info .badge{background:var(--info)}
+.evidence{color:var(--muted);font-family:ui-monospace,monospace;font-size:.8rem;white-space:pre-wrap;word-break:break-word}
+.notes{margin-top:1rem;color:var(--muted)}
+</style></head><body><h1>PeerCheck, Conflicts of interest</h1><p class="meta">2 rows, 2 need review. PeerCheck 1.0.0, 2026-11-12.</p><div class="controls"><input id="q" type="search" placeholder="Filter rows"><label><input id="only" type="checkbox"> Needs review only</label><select id="sev"><option value="">All severities</option><option>error</option><option>warning</option><option>info</option></select><button id="theme" type="button">Light or dark</button></div><table><thead><tr><th>Paper</th><th>PC member</th><th>With</th><th>Kinds</th><th>Findings</th></tr></thead><tbody><tr class="flagged" data-sev="warning"><td>2</td><td>Ana Ruiz</td><td>Jun Takeda</td><td>email domain; affiliation</td><td><details><summary>2 finding(s)</summary><ul><li class="warning"><span class="badge">warning</span> <code>conflict</code> Ana Ruiz and Jun Takeda share the email domain riverside.example</li><li class="warning"><span class="badge">warning</span> <code>conflict</code> Ana Ruiz (Riverside State University) and Jun Takeda (Riverside State University) share the words riverside</li></ul></details></td></tr><tr class="flagged" data-sev="warning"><td>3</td><td>Paul Meier</td><td>Lena Brandt</td><td>email domain; affiliation</td><td><details><summary>2 finding(s)</summary><ul><li class="warning"><span class="badge">warning</span> <code>conflict</code> Paul Meier and Lena Brandt share the email domain uni-nowhere.edu</li><li class="warning"><span class="badge">warning</span> <code>conflict</code> Paul Meier (University of Nowhere) and Lena Brandt (University of Nowhere) share the words nowhere</li></ul></details></td></tr></tbody></table><p class="notes">DBLP: not used.</p><script>
+const root=document.documentElement,theme=document.getElementById('theme');
+root.dataset.theme=localStorage.getItem('peercheck-theme')||(matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light');
+theme.addEventListener('click',()=>{root.dataset.theme=root.dataset.theme==='dark'?'light':'dark';
+localStorage.setItem('peercheck-theme',root.dataset.theme);});
+const q=document.getElementById('q'),only=document.getElementById('only'),sev=document.getElementById('sev');
+function apply(){const t=q.value.toLowerCase();for(const r of document.querySelectorAll('tbody tr')){
+r.hidden=!((!t||r.textContent.toLowerCase().includes(t))&&(!only.checked||r.classList.contains('flagged'))
+&&(!sev.value||r.dataset.sev.split(' ').includes(sev.value)));}}
+[q,only,sev].forEach(e=>e.addEventListener('input',apply));
+</script></body></html>

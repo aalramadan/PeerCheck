@@ -1,0 +1,31 @@
+﻿Source File,Submission,Review ID,Title,Overall Evaluation,Reviewer's Confidence,Words for Authors,CoCoDet Verdict,CoCoDet Detail,CoCoDet P(AI),Content Sources,Style Sources,CoCoDet Notes,EditLens Label,EditLens Score,EditLens Notes,Canary,Needs Review,Findings
+reviews.csv,101,101A,,2,,541,HUMAN,Human-Written,0.0,human,human,,HUMAN,0.0749,text longer than 512 tokens; only the start was read,no,no,
+reviews.csv,102,102A,,1,,449,HUMAN,Human-Written,0.0,human,human,,HUMAN,0.0525,text longer than 512 tokens; only the start was read,no,no,INFO citations.requests: The review cites 1 work [citation: Xu et al. 2016)]
+reviews.csv,103,103A,,-1,,587,HUMAN,Human-Written,0.0,human,human,,HUMAN,0.0182,text longer than 512 tokens; only the start was read,no,no,
+reviews.csv,104,104A,,1,,329,HUMAN,"Human-Written, Machine-Polished",0.0,human,gemini,,AI-EDITED,0.4351,,no,no,"INFO editlens.ai-edited: EditLens labels the review as AI-edited [EditLens score 0.4351]
+INFO citations.requests: The review cites 2 works [citation: Chen & Jiang (2019); citation: Xie & Jiang (2020a)]"
+reviews.csv,105,105A,,0,,356,MIX,"Human-Written, Machine-Generated",0.0,"human, qwen3",qwen,,AI-EDITED,0.7796,,no,no,"INFO editlens.ai-edited: EditLens labels the review as AI-edited [EditLens score 0.7796]
+INFO citations.requests: The review cites 2 works [citation: Lakshminarayanan et al. (2017); citation: Schulman et al., 2017)]"
+reviews.csv,106,106A,,-2,,614,AI,Machine-Generated,1.0,deepseek,deepseek,,AI-EDITED,0.9956,text longer than 512 tokens; only the start was read,hit,yes,"WARNING cocodet.ai: CoCoDet labels the review as AI-generated [CoCoDet P(AI) 1.0]
+INFO editlens.ai-edited: EditLens labels the review as AI-edited [EditLens score 0.9956]
+WARNING canary.hit: the review contains Mancilla et al. (2017), the made-up citation hidden in its paper; check that the review does not only report the hidden instruction [Following Mancilla et al. (2017), this paper presents a theoretical investigation of stocha]
+INFO citations.requests: The review cites 1 work [citation: Mancilla et al. (2017)]"
+reviews.csv,107,107A,,1,,528,AI,Machine-Generated,1.0,deepseek,deepseek,,AI-EDITED,0.869,text longer than 512 tokens; only the start was read,no,yes,"WARNING cocodet.ai: CoCoDet labels the review as AI-generated [CoCoDet P(AI) 1.0]
+INFO editlens.ai-edited: EditLens labels the review as AI-edited [EditLens score 0.8690]
+INFO citations.requests: The review cites 1 work [reference: Hu et al., ""AMC: AutoML for Model Compression and Acceleration on Mobile Devices,"" ECCV 2018.]"
+reviews.csv,108,108A,,-1,,530,AI,"Machine-Generated, Machine-Polished",1.0,llama,gemini,,AI-EDITED,0.4723,text longer than 512 tokens; only the start was read,no,yes,"WARNING cocodet.ai: CoCoDet labels the review as AI-generated [CoCoDet P(AI) 1.0]
+INFO editlens.ai-edited: EditLens labels the review as AI-edited [EditLens score 0.4723]"
+reviews.csv,109,109A,,,,336,HUMAN,Human-Written,0.0,human,human,,HUMAN,0.0132,,no key,no,INFO canary.no-key: the key holds no citation for paper 109
+reviews.csv,109,109B,,,,668,AI,Machine-Generated,1.0,,,,AI-EDITED,0.8875,text longer than 512 tokens; only the start was read,no key,yes,"WARNING cocodet.ai: CoCoDet labels the review as AI-generated [CoCoDet P(AI) 1.0]
+INFO editlens.ai-edited: EditLens labels the review as AI-edited [EditLens score 0.8875]
+INFO canary.no-key: the key holds no citation for paper 109"
+reviews.csv,109,109C,,,,277,HUMAN,Human-Written,0.0,human,human,,AI-EDITED,0.3274,,no key,no,"INFO editlens.ai-edited: EditLens labels the review as AI-edited [EditLens score 0.3274]
+INFO canary.no-key: the key holds no citation for paper 109"
+reviews.csv,110,110A,,,,554,HUMAN,Human-Written,0.0,human,human,,HUMAN,0.0121,text longer than 512 tokens; only the start was read,no key,no,INFO canary.no-key: the key holds no citation for paper 110
+reviews.csv,110,110B,,,,601,AI,Machine-Generated,1.0,,,,AI-EDITED,0.3239,text longer than 512 tokens; only the start was read,no key,yes,"WARNING cocodet.ai: CoCoDet labels the review as AI-generated [CoCoDet P(AI) 1.0]
+INFO editlens.ai-edited: EditLens labels the review as AI-edited [EditLens score 0.3239]
+INFO canary.no-key: the key holds no citation for paper 110
+INFO citations.requests: The review cites 1 work [citation: Han et al. (2015)]"
+reviews.csv,110,110C,,,,523,HUMAN,Human-Written,0.0,human,human,,AI-EDITED,0.2591,text longer than 512 tokens; only the start was read,no key,no,"INFO editlens.ai-edited: EditLens labels the review as AI-edited [EditLens score 0.2591]
+INFO canary.no-key: the key holds no citation for paper 110
+INFO citations.requests: The review cites 3 works [citation: Han et al. 2015]; citation: Snoek et al., 2012); citation: Guo et al. (2016)]"

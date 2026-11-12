@@ -27,7 +27,7 @@ and of the committee.
   ox.ac.uk for cs.ox.ac.uk, and etri.re.kr for mail.etri.re.kr.
 
 find_conflicts returns one Conflict per paper and PC member with every reason found, and the rows
-function turns the conflicts into rows for a sheet with the columns of COLUMNS. A person listed
+function turns the conflicts into rows for a report with the columns of COLUMNS. A person listed
 twice counts once. A PC member who is an author of the paper, by email, dblp person ID, or name, is
 reported as such. The dblp person ID is the one given or the one the dblp index resolves, and two
 different IDs make two people even under one name.
@@ -209,7 +209,7 @@ def find_conflicts(
 
 
 def rows(conflicts: list[Conflict]) -> list[dict[str, str]]:
-    """Return the conflicts as rows for a sheet, keyed by the names of COLUMNS."""
+    """Return the conflicts as rows for a report, keyed by the names of COLUMNS."""
     return [
         dict(zip(COLUMNS, (
             str(c.paper_id), c.member.name, c.member.email, "; ".join(p.name for p in c.others), "; ".join(c.kinds),

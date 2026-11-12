@@ -21,21 +21,21 @@ def _used_venue(monkeypatch):
 
 def test_papers_command_without_a_profile_applies_the_default_rules(monkeypatch, tmp_path, capsys):
     used = _used_venue(monkeypatch)
-    assert cli.main(["--papers", str(tmp_path), "--out", str(tmp_path / "r.xlsx")]) == 0
+    assert cli.main(["--papers", str(tmp_path), "--out", str(tmp_path / "r.csv")]) == 0
     assert used[0][1].name == "Default template"
     assert "templates/default.yaml" in capsys.readouterr().err
 
 
 def test_profile_may_come_before_or_after_the_command(monkeypatch, tmp_path):
     used = _used_venue(monkeypatch)
-    assert cli.main(["--papers", str(tmp_path), "--template", "icse-2027", "--out", str(tmp_path / "r.xlsx")]) == 0
-    assert cli.main(["--template", "fse-2027", "--papers", str(tmp_path), "--out", str(tmp_path / "r.xlsx")]) == 0
+    assert cli.main(["--papers", str(tmp_path), "--template", "icse-2027", "--out", str(tmp_path / "r.csv")]) == 0
+    assert cli.main(["--template", "fse-2027", "--papers", str(tmp_path), "--out", str(tmp_path / "r.csv")]) == 0
     assert [args[1].name for args in used] == ["ICSE 2027 Research Track", "FSE 2027 Research Track"]
 
 
 def test_papers_command_leaves_the_choice_of_checks_to_the_venue_rules(monkeypatch, tmp_path):
     used = _used_venue(monkeypatch)
-    assert cli.main(["--template", "icse-2027", "--papers", str(tmp_path), "--out", str(tmp_path / "r.xlsx")]) == 0
+    assert cli.main(["--template", "icse-2027", "--papers", str(tmp_path), "--out", str(tmp_path / "r.csv")]) == 0
     assert len(used[0]) == 4
 
 
@@ -44,7 +44,7 @@ def test_papers_command_names_the_checks_that_the_template_turns_off(monkeypatch
     template = tmp_path / "template.yaml"
     template.write_text((cli.profiles.PROFILES / "icse-2027.yaml").read_text(encoding="utf-8")
                         .replace("  references:\n", "  # references:\n"), encoding="utf-8")
-    assert cli.main(["--template", str(template), "--papers", str(tmp_path), "--out", str(tmp_path / "r.xlsx")]) == 0
+    assert cli.main(["--template", str(template), "--papers", str(tmp_path), "--out", str(tmp_path / "r.csv")]) == 0
     assert "The template turns off references." in capsys.readouterr().err
 
 
@@ -78,22 +78,51 @@ def test_command_line_refuses_an_abbreviated_option():
         cli.parser().parse_args(["--prof", "fse-2027", "--papers", "submissions"])
 
 
-def test_papers_command_writes_the_html_page_beside_the_workbook_by_default(monkeypatch, tmp_path):
+def test_papers_command_writes_the_html_page_beside_the_csv_file(monkeypatch, tmp_path):
     monkeypatch.setattr(cli.pipeline, "run_papers", _papers_run)
-    assert cli.main(["--template", "icse-2027", "--papers", str(tmp_path), "--out", str(tmp_path / "venue.xlsx")]) == 0
-    assert (tmp_path / "venue.xlsx").is_file() and (tmp_path / "venue.html").is_file()
+    assert cli.main(["--template", "icse-2027", "--papers", str(tmp_path), "--out", str(tmp_path / "venue.csv")]) == 0
+    assert (tmp_path / "venue.csv").is_file() and (tmp_path / "venue.html").is_file()
 
 
-def test_papers_command_writes_the_json_and_html_reports_when_the_workbook_fails(monkeypatch, tmp_path):
+def test_papers_command_writes_the_html_report_when_the_csv_file_fails(monkeypatch, tmp_path, capsys):
     def locked(*args):
-        raise PermissionError("report.xlsx is open in another program")
+        raise PermissionError("report.csv is open in another program")
 
     monkeypatch.setattr(cli.pipeline, "run_papers", _papers_run)
-    monkeypatch.setattr(cli.report, "write_papers", locked)
-    argv = ["--template", "icse-2027", "--papers", str(tmp_path), "--out", str(tmp_path / "report.xlsx"),
-            "--json", str(tmp_path / "report.json")]
+    monkeypatch.setattr(cli.report, "write_csv", locked)
+    argv = ["--template", "icse-2027", "--papers", str(tmp_path), "--out", str(tmp_path / "report.csv")]
     assert cli.main(argv) == 2
-    assert (tmp_path / "report.json").is_file() and (tmp_path / "report.html").is_file()
+    assert (tmp_path / "report.html").is_file() and "report.csv is open" in capsys.readouterr().err
+
+
+def test_papers_command_names_the_pdfs_that_it_numbered_or_skipped(monkeypatch, tmp_path, capsys):
+    run = pipeline.PapersRun([], {}, {13: "notes.pdf"}, ["CONF_2026_paper_7 (1).pdf"], ("layout",))
+    monkeypatch.setattr(cli.pipeline, "run_papers", lambda *args: run)
+    assert cli.main(["--papers", str(tmp_path), "--out", str(tmp_path / "r.csv")]) == 0
+    err = capsys.readouterr().err
+    assert "notes.pdf holds no paper number; checked as paper 13" in err
+    assert "skipped CONF_2026_paper_7 (1).pdf, which repeats a paper number" in err
+
+
+def test_papers_command_writes_its_report_under_a_name_that_no_input_takes(monkeypatch, tmp_path):
+    monkeypatch.setattr(cli.pipeline, "run_papers", _papers_run)
+    monkeypatch.chdir(tmp_path)
+    assert cli.main(["--papers", str(tmp_path)]) == 0
+    assert (tmp_path / "papers-report.csv").is_file() and (tmp_path / "papers-report.html").is_file()
+
+
+@pytest.mark.parametrize("out", ["report.xlsx", "authors.csv"])
+def test_report_that_is_an_excel_file_or_an_input_is_refused(monkeypatch, tmp_path, out, capsys):
+    monkeypatch.setattr(cli.pipeline, "run_papers", _papers_run)
+    (tmp_path / "authors.csv").write_text("paper,first,last\n1,Ana,Ruiz\n")
+    argv = ["--papers", str(tmp_path), "--authors", str(tmp_path / "authors.csv"), "--out", str(tmp_path / out)]
+    assert cli.main(argv) == 2
+    assert "--out" in capsys.readouterr().err and (tmp_path / "authors.csv").read_text().startswith("paper,first")
+
+
+def test_json_output_is_no_option_of_the_command_line():
+    with pytest.raises(SystemExit):
+        cli.parser().parse_args(["--papers", "pdfs", "--json", "report.json"])
 
 
 def _review_command(monkeypatch, argv):
@@ -105,14 +134,14 @@ def _review_command(monkeypatch, argv):
     return calls[0][3:]
 
 
-def test_reviews_command_hands_its_options_and_its_folder_to_the_review_checks(monkeypatch):
-    argv = ["--template", "fse-2027", "--reviews", "exports", "--canaries", "key.csv"]
-    assert _review_command(monkeypatch, argv) == ["--template", "fse-2027", "--canaries", "key.csv", "--", "exports"]
+def test_reviews_command_hands_its_options_and_its_file_to_the_review_checks(monkeypatch):
+    argv = ["--template", "fse-2027", "--reviews", "reviews.csv", "--canaries", "key.csv"]
+    assert _review_command(monkeypatch, argv) == ["--template", "fse-2027", "--canaries", "key.csv", "--", "reviews.csv"]
 
 
-def test_reviews_folder_whose_name_starts_with_a_dash_stays_a_folder(monkeypatch):
-    argv = ["--reviews=-exports", "--out", "reviews.xlsx"]
-    assert _review_command(monkeypatch, argv) == ["--out", "reviews.xlsx", "--", "-exports"]
+def test_reviews_file_whose_name_starts_with_a_dash_stays_a_file(monkeypatch):
+    argv = ["--reviews=-reviews.csv", "--out", "report.csv"]
+    assert _review_command(monkeypatch, argv) == ["--out", "report.csv", "--", "-reviews.csv"]
 
 
 def test_canary_command_needs_the_output_folder_and_the_key_file(tmp_path, capsys):

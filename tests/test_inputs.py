@@ -1,12 +1,9 @@
-"""Tests of the readers for PDFs, submission sheets, people lists, and EasyChair review XML."""
+"""Tests of the readers for PDFs and the CSV files of submissions, people, and reviews."""
 
 import dataclasses
-import re
 import shutil
-import zipfile
 from pathlib import Path
 
-import openpyxl
 import pytest
 
 from peercheck import inputs, profile
@@ -160,68 +157,30 @@ HEADER = ["paper", "first", "last", "email"]
 AUTHORS = [[7, "Maria", "Lindqvist"], [8, "Wei", "Zhang", "wei@example.edu"], [9, "Omar", "Haddad", "omar@example.com"]]
 
 
-def test_excel_list_comes_from_the_first_visible_sheet(tmp_path):
-    book = openpyxl.Workbook()
-    book.active.append(HEADER)
-    book.active.append([7, "Old", "Author"])
-    book.active.sheet_state = "hidden"
-    current = book.create_sheet("2027")
-    for row in [HEADER, *AUTHORS]:
-        current.append(row)
-    book.active = 1
-    book.save(tmp_path / "authors.xlsx")
-    assert sorted(inputs.read_people(tmp_path / "authors.xlsx", with_paper=True)) == [7, 8, 9]
+def test_csv_list_may_start_below_a_blank_row(tmp_path):
+    path = tmp_path / "authors.csv"
+    path.write_text("\n" + "\n".join(",".join(map(str, row)) for row in [HEADER, *AUTHORS]) + "\n")
+    assert sorted(inputs.read_people(path, with_paper=True)) == [7, 8, 9]
 
 
-def test_excel_list_may_start_below_a_blank_row(tmp_path):
-    book = openpyxl.Workbook()
-    for index, row in enumerate([HEADER, *AUTHORS], start=2):
-        for column, value in enumerate(row, start=1):
-            book.active.cell(index, column, value)
-    book.save(tmp_path / "authors.xlsx")
-    assert sorted(inputs.read_people(tmp_path / "authors.xlsx", with_paper=True)) == [7, 8, 9]
-
-
-def test_excel_list_is_read_whole_despite_a_wrong_sheet_size(tmp_path):
-    written, path = tmp_path / "written.xlsx", tmp_path / "authors.xlsx"
-    book = openpyxl.Workbook()
-    for row in [HEADER, *AUTHORS]:
-        book.active.append(row)
-    book.save(written)
-    with zipfile.ZipFile(written) as source, zipfile.ZipFile(path, "w") as target:
-        for item in source.infolist():
-            data = source.read(item.filename)
-            if item.filename == "xl/worksheets/sheet1.xml":
-                data = re.sub(rb'<dimension ref="[^"]*"/>', b'<dimension ref="A1:D2"/>', data)
-            target.writestr(item, data)
-    authors = inputs.read_people(path, with_paper=True)
-    assert sorted(authors) == [7, 8, 9] and authors[8][0].email == "wei@example.edu"
-
-
-def test_csv_text_under_an_excel_name_is_an_input_error_naming_the_file(tmp_path):
-    path = tmp_path / "authors.xlsx"
-    path.write_text("paper,first,last\n7,Ana,Ruiz\n")
-    with pytest.raises(inputs.InputError, match="authors.xlsx"):
+@pytest.mark.parametrize("name", ["authors.xlsx", "authors.xls"])
+def test_excel_files_are_refused_with_the_advice_to_save_them_as_csv(tmp_path, name):
+    path = tmp_path / name
+    path.write_bytes(b"PK\x03\x04" + bytes(64))
+    with pytest.raises(inputs.InputError, match=rf"{name} is an Excel file; save it as CSV"):
         inputs.read_people(path, with_paper=True)
 
 
-def test_old_excel_workbooks_are_refused_with_a_clear_message(tmp_path):
-    path = tmp_path / "authors.xls"
-    path.write_bytes(b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1" + bytes(512))
-    with pytest.raises(inputs.InputError, match=r"authors\.xls .*\.xlsx"):
-        inputs.read_people(path, with_paper=True)
-
-
-def test_review_xml_keeps_scores_apart_and_decodes_entities_and_cdata():
-    reviews = {r.review_id: r for r in inputs.read_reviews(EASYCHAIR)}
-    first, second = reviews["rev0007a"], reviews["rev0007b"]
+def test_review_csv_keeps_scores_apart_from_the_text_and_keeps_the_title():
+    reviews = {r.review_id: r for r in inputs.read_reviews(EASYCHAIR / "reviews.csv")}
+    first, second = reviews["7A"], reviews["7B"]
     assert first.paper_id == 7 and first.title == "Flaky Tests & Their Fixes"
     assert first.scores == {"Overall evaluation": "-1", "Reviewer's confidence": "4"}
     assert "<with> CDATA" in second.author_text
 
 
 def test_author_text_leaves_out_committee_fields_and_field_names():
-    review = next(r for r in inputs.read_reviews(EASYCHAIR) if r.review_id == "rev0007a")
+    review = next(r for r in inputs.read_reviews(EASYCHAIR / "reviews.csv") if r.review_id == "7A")
     assert "I may know the authors" not in review.author_text
     assert "Paper Summary" not in review.author_text
     assert review.author_text.startswith("The paper studies flaky tests")
@@ -229,9 +188,9 @@ def test_author_text_leaves_out_committee_fields_and_field_names():
 
 
 def test_empty_reviewer_fields_give_no_reviewer():
-    reviews = {r.review_id: r for r in inputs.read_reviews(EASYCHAIR)}
-    assert reviews["rev0007a"].reviewer is None
-    assert reviews["rev0007b"].reviewer.email == "dana@example.org"
+    reviews = {r.review_id: r for r in inputs.read_reviews(EASYCHAIR / "reviews.csv")}
+    assert reviews["7A"].reviewer is None
+    assert reviews["7B"].reviewer.email == "dana@example.org"
 
 
 HOTCRP = Path(__file__).parent / "fixtures" / "hotcrp" / "reviews.csv"
@@ -245,11 +204,36 @@ def test_hotcrp_review_export_gives_the_scores_the_text_for_authors_and_the_revi
     assert (first.reviewer.last, first.reviewer.email) == ("Roe", "jane.roe@example.org")
 
 
-def test_review_folder_reads_easychair_xml_and_hotcrp_csv_together(tmp_path):
-    for source in [HOTCRP, *EASYCHAIR.glob("review_*.xml")]:
-        (tmp_path / source.name).write_bytes(source.read_bytes())
-    sources = {review.source for review in inputs.read_reviews(tmp_path)}
-    assert "reviews.csv" in sources and any(name.endswith(".xml") for name in sources)
+def test_reviews_come_from_one_csv_file_never_a_folder(tmp_path):
+    (tmp_path / "reviews.csv").mkdir()
+    with pytest.raises(inputs.InputError, match="is a folder; --reviews takes the CSV file of the reviews"):
+        inputs.read_reviews(tmp_path / "reviews.csv")
+
+
+@pytest.mark.parametrize(("name", "message"), [("review_0007_1.xml", "is no CSV file"),
+                                               ("reviews.xlsx", "is an Excel file; save it as CSV")])
+def test_review_file_in_another_format_is_refused_with_what_to_do(tmp_path, name, message):
+    path = tmp_path / name
+    path.write_bytes(b"<review submission='7'/>")
+    with pytest.raises(inputs.InputError, match=message):
+        inputs.read_reviews(path)
+
+
+def test_review_csv_keeps_negative_scores_apart_from_the_text_for_authors(tmp_path):
+    path = tmp_path / "reviews.csv"
+    path.write_text("paper,review,Overall evaluation,Comments for authors\n101,A,-2,The paper is weak.\n"
+                    "102,A,1,The paper is fine.\n")
+    first, second = inputs.read_reviews(path)
+    assert (first.scores, second.scores) == ({"Overall evaluation": "-2"}, {"Overall evaluation": "1"})
+    assert first.author_text == "The paper is weak."
+
+
+def test_review_csv_column_without_any_value_counts_as_no_score(tmp_path):
+    path = tmp_path / "reviews.csv"
+    path.write_text("paper,review,Overall evaluation,Questions for authors,Comments for authors\n"
+                    "101,A,2,,The paper is fine.\n")
+    (review,) = inputs.read_reviews(path)
+    assert review.scores == {"Overall evaluation": "2"}
 
 
 def test_review_csv_without_a_paper_column_is_refused(tmp_path):
@@ -272,13 +256,6 @@ def test_review_column_as_hotcrp_writes_it_gives_ids_such_as_12a(tmp_path):
     assert [review.review_id for review in inputs.read_reviews(path)] == ["12A", "12B"]
 
 
-def test_easychair_reviews_without_an_id_are_named_by_file_and_position(tmp_path):
-    review = '<review submission="{}"><field name="Comments"><text>Review {}.</text></field></review>'
-    reviews = "".join(review.format(paper, number) for number, paper in enumerate((1, 1, 2), start=1))
-    (tmp_path / "reviews.xml").write_text(f"<reviews>{reviews}</reviews>")
-    assert [review.review_id for review in inputs.read_reviews(tmp_path)] == ["reviews-1", "reviews-2", "reviews-3"]
-
-
 def test_short_hotcrp_answers_stay_text_while_a_score_may_carry_a_description(tmp_path):
     path = tmp_path / "reviews.csv"
     path.write_text("paper,title,review,Overall merit,Comments for authors,Questions for authors\n"
@@ -290,44 +267,22 @@ def test_short_hotcrp_answers_stay_text_while_a_score_may_carry_a_description(tm
     assert second.author_text.endswith("Is the tool public?")
 
 
-def test_semicolon_separated_review_export_is_read_from_a_folder(tmp_path):
-    (tmp_path / "reviews.csv").write_text("paper;title;review;Comments for authors\n"
-                                          "12;A Paper;A;The evaluation lacks a baseline.\n")
-    assert [review.review_id for review in inputs.read_reviews(tmp_path)] == ["12A"]
+def test_semicolon_separated_review_export_is_read(tmp_path):
+    path = tmp_path / "reviews.csv"
+    path.write_text("paper;title;review;Comments for authors\n12;A Paper;A;The evaluation lacks a baseline.\n")
+    assert [review.review_id for review in inputs.read_reviews(path)] == ["12A"]
 
 
-def test_review_folder_skips_the_dot_files_of_macos(tmp_path):
-    shutil.copy(EASYCHAIR / "review_0007_1.xml", tmp_path)
-    (tmp_path / "._review_0007_1.xml").write_bytes(b"\x00\x05\x16\x07\x00\x02\x00\x00Mac OS X        ")
-    assert [review.review_id for review in inputs.read_reviews(tmp_path)] == ["rev0007a"]
-
-
-def test_broken_review_xml_is_an_input_error_naming_the_file(tmp_path):
-    (tmp_path / "review_0201_1.xml").write_text("<review id='1' submission='201'><field name='x'><text>cut")
-    with pytest.raises(inputs.InputError, match="review_0201_1.xml"):
-        inputs.read_reviews(tmp_path)
-
-
-def test_review_folder_skips_other_csv_files_whatever_their_encoding(tmp_path, capsys):
-    shutil.copy(HOTCRP, tmp_path / "reviews.csv")
-    (tmp_path / "authors.csv").write_bytes("Submission #,First name,Last name\r\n101,Renée,Façade\r\n".encode("cp1252"))
-    (tmp_path / "notes.csv").write_bytes(b"\x81\x8d\x90")
-    assert [review.review_id for review in inputs.read_reviews(tmp_path)] == ["12A", "12B"]
-    assert "notes.csv" in capsys.readouterr().err
-
-
-def test_review_export_with_capitalized_headers_is_read_as_a_file_and_from_a_folder(tmp_path):
+def test_review_export_with_capitalized_headers_is_read(tmp_path):
     path = tmp_path / "reviews.csv"
     path.write_text("Paper,Title,Review,Comments for authors\n101,Paper 101,B,The evaluation lacks a baseline.\n")
     assert [review.review_id for review in inputs.read_reviews(path)] == ["101B"]
-    assert [review.review_id for review in inputs.read_reviews(tmp_path)] == ["101B"]
 
 
 def test_header_only_review_export_gives_no_reviews(tmp_path):
-    shutil.copy(EASYCHAIR / "review_0007_1.xml", tmp_path)
-    (tmp_path / "track2.csv").write_text("paper,title,review,reviewername,email,Overall merit\n")
-    assert inputs.read_reviews(tmp_path / "track2.csv") == []
-    assert [review.review_id for review in inputs.read_reviews(tmp_path)] == ["rev0007a"]
+    path = tmp_path / "reviews.csv"
+    path.write_text("paper,title,review,reviewername,email,Overall merit\n")
+    assert inputs.read_reviews(path) == []
 
 
 def test_review_export_skips_rows_without_values(tmp_path):
@@ -337,13 +292,11 @@ def test_review_export_skips_rows_without_values(tmp_path):
     assert [review.review_id for review in inputs.read_reviews(path)] == ["12A"]
 
 
-def test_review_csv_without_a_review_column_is_refused_as_a_file_and_skipped_in_a_folder(tmp_path, capsys):
+def test_review_csv_without_a_review_column_is_refused(tmp_path):
     path = tmp_path / "reviews.csv"
     path.write_text("paper,title,Comments for authors\n12,A Paper,The evaluation lacks a baseline.\n")
     with pytest.raises(inputs.InputError, match="column review"):
         inputs.read_reviews(path)
-    assert inputs.read_reviews(tmp_path) == []
-    assert "reviews.csv" in capsys.readouterr().err
 
 
 def test_review_text_in_the_review_column_is_reported(tmp_path, capsys):

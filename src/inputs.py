@@ -1,4 +1,4 @@
-"""Readers for the exports of EasyChair and HotCRP: PDFs, submission sheets, people lists, and review XML."""
+"""Readers of the inputs of PeerCheck: the PDFs of a folder and the CSV files of submissions, people, and reviews."""
 
 from __future__ import annotations
 
@@ -7,13 +7,9 @@ import csv
 import io
 import re
 import sys
-import zipfile
 from dataclasses import dataclass, field
 from itertools import chain, repeat
 from pathlib import Path
-
-import defusedxml.ElementTree as SafeET
-import openpyxl
 
 from peercheck.models import Person, Review
 from peercheck.profile import Profile, paper_number
@@ -35,9 +31,10 @@ COMMITTEE_ONLY = re.compile(r"confidential|private|"
                             r"^(?:(?!authors?\b).)*\b(?:program committee|pc|chairs?|ac|area chair)\b", re.IGNORECASE)
 # The fixed columns of a HotCRP review CSV export; every other column is a field of the review form.
 HOTCRP_COLUMNS = ("paper", "title", "review", "reviewername", "email")
-# A score as HotCRP writes it, a number or a letter, with an optional description after a period, such as
+# A score, a number with an optional sign or a letter, with an optional description after a period, such as -2 or
 # "3. Weak accept". A short sentence, such as "No questions.", stays text.
-SCORE_VALUE = re.compile(r"[0-9A-Za-z]{1,2}(\. [^\n]{0,60})?")
+SCORE_VALUE = re.compile(r"[-+]?[0-9A-Za-z]{1,2}(\. [^\n]{0,60})?")
+EXCEL_SUFFIXES = (".xlsx", ".xlsm", ".xls")
 # A paper ID as a spreadsheet may write it, such as 7, #7, 7.0, or 1,234 and 1 234 with a thousands separator.
 PAPER_ID = re.compile(r"#?(\d{1,3}(?:[,\s]\d{3})+|\d+)(?:\.0+)?")
 
@@ -81,14 +78,9 @@ def find_pdfs(folder: Path, profile: Profile | None = None) -> PdfSet:
 
 
 def read_rows(path: Path) -> list[dict[str, str]]:
-    """Read the first visible sheet of an Excel file or a CSV file into rows keyed by lowercase header."""
-    if not path.is_file():
-        raise InputError(f"file not found: {path}")
-    suffix = path.suffix.lower()
-    if suffix == ".xls":
-        raise InputError(f"{path.name} is an Excel 97-2003 workbook; save it as .xlsx or CSV")
+    """Read a CSV file into rows keyed by lowercase header."""
     # The header is the first row that holds a value, since a blank row may stand above it.
-    rows = [row for row in (_sheet_rows(path) if suffix in (".xlsx", ".xlsm") else _csv_rows(path)) if any(row)]
+    rows = [row for row in _csv_rows(_csv_file(path)) if any(row)]
     if not rows:
         return []
     header = [name.lower() for name in rows[0]]
@@ -96,7 +88,7 @@ def read_rows(path: Path) -> list[dict[str, str]]:
 
 
 def read_submissions(path: Path, profile: Profile | None = None) -> dict[int, str]:
-    """Return the title of each paper of a submission sheet, keyed by the paper ID."""
+    """Return the title of each paper of a submissions file, keyed by the paper ID."""
     rows = read_rows(path)
     override = profile.id_column if profile else None
     id_key = id_column(rows, override)
@@ -112,7 +104,7 @@ def read_submissions(path: Path, profile: Profile | None = None) -> dict[int, st
 
 
 def read_people(path: Path, with_paper: bool) -> dict[int, list[Person]] | list[Person]:
-    """Read authors keyed by paper ID, or a list of committee members, from a CSV or Excel file."""
+    """Read authors keyed by paper ID, or a list of committee members, from a CSV file."""
     rows = read_rows(path)
     columns = _columns(rows, path, with_paper)
     lacking = [key for key in ("email", "affiliation") if key not in columns]
@@ -132,33 +124,20 @@ def read_people(path: Path, with_paper: bool) -> dict[int, list[Person]] | list[
 
 
 def read_reviews(path: Path) -> list[Review]:
-    """Read every review of a folder or a file: EasyChair review XML files and HotCRP review CSV exports."""
-    if path.is_file():
-        return read_hotcrp_reviews(path) if path.suffix.lower() == ".csv" else _xml_reviews(path)
-    if not path.is_dir():
-        raise InputError(f"reviews not found: {path}")
-    reviews = []
-    # A folder may also hold other files, such as an author list or the ._ files of macOS, which hold no reviews.
-    for file in sorted(p for p in path.iterdir() if p.is_file() and not p.name.startswith(".")):
-        if file.suffix.lower() == ".xml":
-            reviews.extend(_xml_reviews(file))
-        elif file.suffix.lower() == ".csv":
-            try:
-                reviews.extend(read_hotcrp_reviews(file))
-            except InputError:
-                print(f"skipped {file.name}, which is no review export", file=sys.stderr)
-    return reviews
+    """Read the reviews of a CSV file, one review per row, in the form of the review export of HotCRP.
 
-
-def read_hotcrp_reviews(path: Path) -> list[Review]:
-    """Read the reviews of a HotCRP review CSV export, one review per row.
-
-    HotCRP writes the columns paper, title, review (the paper number and the review letter, such as 12A),
-    reviewername and email where the reviewer may be named, and one column per field of the review form. A field
-    whose values are all short scores, such as 3 or B, counts as a score. Any other field counts as text, and the
-    text fields meant for the program committee stay out of the text for the authors.
+    The columns paper and review (the review ID, such as A or 12A) are required, and the columns title,
+    reviewername, and email, where the reviewer may be named, are optional. Every other column is a field of the
+    review form. A field whose values are all short scores, such as 3 or B, counts as a score. Any other field counts
+    as text, and the text fields meant for the program committee stay out of the text for the authors.
     """
-    lines = [line for line in _csv_rows(path) if any(line)]
+    if path.is_dir():
+        raise InputError(f"{path} is a folder; --reviews takes the CSV file of the reviews")
+    _csv_file(path)
+    if path.suffix.lower() != ".csv":
+        raise InputError(f"{path.name} is no CSV file; --reviews takes the CSV file of the reviews, whose columns the "
+                         "README shows")
+    lines = [line for line in _csv_rows(_csv_file(path)) if any(line)]
     # The fixed columns may be capitalized, such as Paper, while the fields keep their names for the report.
     header = [name.lower() if name.lower() in HOTCRP_COLUMNS else name for name in lines[0]] if lines else []
     missing = [name for name in ("paper", "review") if name not in header]
@@ -166,7 +145,8 @@ def read_hotcrp_reviews(path: Path) -> list[Review]:
         raise InputError(f"{path.name} is no review export: it lacks the column {' and the column '.join(missing)}")
     rows = [_keyed_row(header, line) for line in lines[1:]]
     fields = [name for name in rows[0] if name not in HOTCRP_COLUMNS] if rows else []
-    scores = [name for name in fields if all(SCORE_VALUE.fullmatch(row[name]) for row in rows if row[name])]
+    scores = [name for name in fields if any(row[name] for row in rows)
+              and all(SCORE_VALUE.fullmatch(row[name]) for row in rows if row[name])]
     reviews = []
     for number, row in enumerate(rows, start=1):
         texts = {name: _clean(row[name]) for name in fields if name not in scores}
@@ -186,31 +166,8 @@ def read_hotcrp_reviews(path: Path) -> list[Review]:
     return reviews
 
 
-def parse_review(element, source: str, position: int) -> Review:
-    """Turn one review element of EasyChair XML into a review; position counts the reviews of the file from 1."""
-    scores, texts = {}, {}
-    for item in element.findall("field"):
-        name = item.get("name", "").strip()
-        score, text = item.find("score"), item.find("text")
-        if score is not None:
-            scores[name] = (score.text or "").strip()
-        elif text is not None:
-            texts[name] = _clean(text.text or "")
-    author_text = "\n\n".join(value for name, value in texts.items() if value and not COMMITTEE_ONLY.search(name))
-    return Review(
-        review_id=element.get("id", "").strip() or f"{Path(source).stem}-{position}",
-        paper_id=_paper_id(element.get("submission", "")),
-        title=element.get("title", "").strip(),
-        source=source,
-        scores=scores,
-        fields=texts,
-        author_text=author_text,
-        reviewer=_reviewer(element.find("reviewer")),
-    )
-
-
 def id_column(rows: list[dict[str, str]], override: str | None = None) -> str | None:
-    """Return the lowercase name of the column that holds the paper IDs, or None if the sheet has none."""
+    """Return the lowercase name of the column that holds the paper IDs, or None if the file has none."""
     header = list(rows[0]) if rows else []
     if override:
         return override.lower() if override.lower() in header else None
@@ -243,24 +200,6 @@ def _person(row: dict[str, str], columns: dict[str, str]) -> Person:
     return Person(**{key: row.get(column, "") for key, column in columns.items() if key != "paper"})
 
 
-def _reviewer(element) -> Person | None:
-    if element is None:
-        return None
-    parts = {name: (element.findtext(name) or "").strip() for name in ("first_name", "last_name", "email")}
-    if not any(parts.values()):
-        return None
-    return Person(first=parts["first_name"], last=parts["last_name"], email=parts["email"])
-
-
-def _xml_reviews(path: Path) -> list[Review]:
-    try:
-        root = SafeET.parse(path).getroot()
-    except SafeET.ParseError as exc:
-        raise InputError(f"{path.name} is no readable review XML: {exc}") from exc
-    elements = [root] if root.tag == "review" else list(root.iter("review"))
-    return [parse_review(element, path.name, position) for position, element in enumerate(elements, start=1)]
-
-
 def _review_id(paper: str, review: str, number: int) -> str:
     # HotCRP writes the paper number and a letter, such as 12A, which other sheets shorten to A. Any other value takes
     # a dash, since 1012 reads as 101-2 or as 10-12.
@@ -268,19 +207,12 @@ def _review_id(paper: str, review: str, number: int) -> str:
     return f"{paper}{letters}" if letters.isalpha() else f"{paper}-{review or number}"
 
 
-def _sheet_rows(path: Path) -> list[list[str]]:
-    try:
-        workbook = openpyxl.load_workbook(path, read_only=True, data_only=True)
-    except (zipfile.BadZipFile, KeyError) as exc:
-        raise InputError(f"{path.name} is no readable Excel workbook; save it again as .xlsx without a password, "
-                         "or as CSV") from exc
-    visible = [sheet for sheet in workbook.worksheets if sheet.sheet_state == "visible"]
-    sheet = (visible or workbook.worksheets)[0]
-    # Some programs write a wrong size of the sheet, which read-only mode would trust.
-    sheet.reset_dimensions()
-    rows = [["" if cell is None else str(cell).strip() for cell in row] for row in sheet.iter_rows(values_only=True)]
-    workbook.close()
-    return rows
+def _csv_file(path: Path) -> Path:
+    if not path.is_file():
+        raise InputError(f"file not found: {path}")
+    if path.suffix.lower() in EXCEL_SUFFIXES:
+        raise InputError(f"{path.name} is an Excel file; save it as CSV")
+    return path
 
 
 def _csv_rows(path: Path) -> list[list[str]]:

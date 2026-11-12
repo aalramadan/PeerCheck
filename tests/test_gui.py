@@ -1,6 +1,8 @@
 """Tests of the local web page: the commands it runs, the uploads it keeps, and the requests it refuses."""
 
+import csv
 import http.client
+import io
 import json
 import os
 import re
@@ -72,10 +74,17 @@ def test_page_offers_the_profile_of_the_session_first_and_each_choice_once(tmp_p
     assert keys == ["icse-2027", "default", "fse-2027"]
 
 
-def test_reviews_command_leaves_the_detectors_and_checks_to_the_venue_rules(tmp_path):
+def test_reviews_command_hands_the_uploaded_csv_file_to_the_review_checks(tmp_path):
+    (tmp_path / "reviews").mkdir()
+    (tmp_path / "reviews" / "reviews.csv").write_text("paper,review,Comments for authors\n1,A,Fine.\n")
     arguments = gui.command("reviews", {"profile": "icse-2027"}, tmp_path)
-    assert arguments[:3] == ["--template", "icse-2027", "--reviews"]
-    assert "--detectors" not in arguments and "--checks" not in arguments
+    assert arguments[:4] == ["--template", "icse-2027", "--reviews", str(tmp_path / "reviews" / "reviews.csv")]
+    assert arguments[4:] == ["--out", str(tmp_path / "report.csv")]
+
+
+def test_reviews_run_without_a_reviews_file_is_refused(tmp_path):
+    with pytest.raises(gui.RequestError, match="CSV file of the reviews"):
+        gui.command("reviews", {"profile": "icse-2027"}, tmp_path)
 
 
 def test_unknown_kind_of_run_is_refused(tmp_path):
@@ -150,9 +159,9 @@ def test_requests_that_fail_inside_the_server_get_an_answer_with_the_reason(serv
     assert call(server, "POST", "/api/new", token=False, headers={"X-PeerCheck-Token": "\u00e9\u00e9"})[0] == 403
 
 
-def test_page_offers_only_the_list_formats_that_peercheck_reads():
+def test_page_offers_only_the_file_formats_that_peercheck_reads():
     accepted = re.findall(r'accept="([^"]*)"', gui.PAGE.read_text(encoding="utf-8"))
-    assert {kind for kinds in accepted for kind in kinds.split(",")} == {".pdf", ".xml", ".csv", ".xlsx"}
+    assert {kind for kinds in accepted for kind in kinds.split(",")} == {".pdf", ".csv"}
 
 
 @pytest.mark.parametrize("number", [signal.SIGTERM, signal.SIGHUP], ids=lambda number: number.name)
@@ -178,8 +187,10 @@ def test_page_runs_the_conflict_check_and_returns_its_rows(server, monkeypatch, 
                                 {"kind": "conflicts", "profile": "icse-2027"})
     assert status == 200 and outcome["ok"], outcome["log"]
     assert outcome["summary"] == "2 possible conflicts."
-    assert sorted(row["Paper"] for row in outcome["rows"]) == ["2", "3"]
-    assert call(server, "GET", outcome["workbook"])[0] == 200
+    status, table = call(server, "GET", outcome["table"])
+    assert status == 200 and sorted(row["Paper"] for row in csv.DictReader(io.StringIO(table.decode("utf-8-sig")))) == [
+        "2", "3"]
+    assert call(server, "GET", outcome["report"])[0] == 200
 
 
 def test_page_runs_a_papers_check_and_serves_its_report(server, monkeypatch, tmp_path):

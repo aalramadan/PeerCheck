@@ -26,7 +26,7 @@ CAUTION = ("CoCoDet and EditLens give leads, not verdicts. The CoCoDet model car
            "used as the sole arbiter of academic misconduct\". The Open Pangram release states that EditLens "
            "\"should NOT be used to enforce any sort of AI usage policy in an educational or professional setting\".")
 CANARY_STATES = (("canary.hit", "hit"), ("canary.untested", "untested"), ("canary.no-key", "no key"))
-# The page of the reviews keeps the labels and scores of the detectors; their details stay in the workbook.
+# The page of the reviews keeps the labels and scores of the detectors; their details stay in the CSV file.
 DETAIL_COLUMNS = ("CoCoDet Detail", "Content Sources", "Style Sources", "CoCoDet Notes", "EditLens Notes")
 
 
@@ -44,18 +44,18 @@ def main(argv: list[str] | None = None) -> int:
 def parser() -> argparse.ArgumentParser:
     """Build the parser of the review command line."""
     top = argparse.ArgumentParser(prog="peercheck --reviews",
-                                  description="Check the reviews of a folder or a file.")
-    top.add_argument("folder", help="folder or file of the reviews")
+                                  description="Check the reviews of a CSV file.")
+    top.add_argument("file", help="CSV file of the reviews")
     top.add_argument("--template", help="the template of the venue, with the settings of the review checks")
     top.add_argument("--canaries", type=Path, help="key file of peercheck --canary, to find reviews that contain the "
                                                    "citation hidden in their paper")
-    top.add_argument("--out", type=Path, default=Path("reviews.xlsx"), help="Excel report, with the HTML page for the browser beside it (default reviews.xlsx)")
-    top.add_argument("--json", type=Path, help="also write the results as JSON")
+    top.add_argument("--out", type=Path, help="CSV report, with the HTML report beside it (default reviews-report.csv)")
     return top
 
 
 def run(args: argparse.Namespace) -> int:
-    """Check every review of a folder and write the report."""
+    """Check every review of a CSV file and write the report."""
+    out = report.csv_path(args.out, "reviews-report.csv", Path(args.file), args.canaries)
     venue = profiles.load(args.template or profiles.DEFAULT)
     detectors, skipped = _detectors(venue)
     checks = tuple(name for name in CHECKS if _runs(venue, name))
@@ -65,7 +65,7 @@ def run(args: argparse.Namespace) -> int:
     if off:
         print(f"The template turns off {', '.join(off)}.", file=sys.stderr)
     key = canary.read_key(args.canaries) if args.canaries and _runs(venue, "canary") else None
-    reviews, found = _unique_ids(inputs.read_reviews(Path(args.folder)))
+    reviews, found = _unique_ids(inputs.read_reviews(Path(args.file)))
     rows = {r.review_id: _row(r) for r in reviews}
     texts = [r.author_text for r in reviews]
     labels = cocodet.Detector().label(texts) if "cocodet" in detectors else None
@@ -75,12 +75,12 @@ def run(args: argparse.Namespace) -> int:
         lens = lenses[index] if lenses else None
         rows[review.review_id].update(_detector_columns(verdict, lens))
         found[review.review_id].extend(_detector_findings(verdict, lens))
-    canaries = [("Canaries", str(args.canaries) if key is not None else "none")]
+    canaries = []
     if key is not None:
         for review_id, items in canary.check_reviews(reviews, key, _options(venue, "canary")).items():
             found[review_id].extend(items)
             rows[review_id]["Canary"] = _canary_state(items)
-        canaries.append(("Reviewed papers in the canary key", _key_coverage(reviews, key)))
+        canaries.append(f"Canary key: {args.canaries}, which holds {_key_coverage(reviews, key)} reviewed papers.")
     pages = {"pages": venue.format.main_pages} if venue else {}
     options = {"duplicates": _options(venue, "duplicates"),
                "citations": {**pages, **_options(venue, "citations"),
@@ -91,19 +91,15 @@ def run(args: argparse.Namespace) -> int:
                 found[review_id].extend(items)
     for review in reviews:
         rows[review.review_id]["Needs Review"] = "yes" if needs_review(found[review.review_id]) else "no"
-        rows[review.review_id]["Findings"] = "\n".join(
-            f.as_text() for f in found[review.review_id] if f.severity is not Severity.INFO)
-    report.write_sheets(args.out, {"Reviews": list(rows.values())},
-                        [(rid, f) for rid, items in found.items() for f in items],
-                        [("Detectors", ", ".join(detectors) or "none"), *[("Skipped", note) for note in skipped],
-                         ("Checks", ", ".join(checks) or "none"),
-                         *canaries, ("Caution", CAUTION)])
-    if args.json:
-        report.write_json(args.json, {"reviews": list(rows.values()), "findings": found})
-    page = args.out.with_suffix(".html")
-    report.write_rows_html(page, "PeerCheck, Reviews", list(rows.values()), found, "Review ID", DETAIL_COLUMNS, skipped)
+        rows[review.review_id]["Findings"] = report.findings_text(found[review.review_id])
+    notes = [*skipped, f"Detectors: {', '.join(detectors) or 'none'}.", f"Checks: {', '.join(checks) or 'none'}.",
+             *canaries, CAUTION]
+    # The page comes first, since the CSV file can fail, such as when it is open in Excel.
+    page = out.with_suffix(".html")
+    report.write_rows_html(page, "PeerCheck, Reviews", list(rows.values()), found, "Review ID", DETAIL_COLUMNS, notes)
+    report.write_csv(out, list(rows.values()))
     flagged = sum(1 for items in found.values() if needs_review(items))
-    print(f"{len(reviews)} reviews checked, {flagged} need review. Report: {page} and {args.out}")
+    print(f"{len(reviews)} reviews checked, {flagged} need review. Report: {page} and {out}")
     return 0
 
 

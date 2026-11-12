@@ -3,10 +3,10 @@
 from __future__ import annotations
 
 import gzip
+import re
 import shutil
 from pathlib import Path
 
-import openpyxl
 import pytest
 
 from peercheck import cli, conflicts, dblp
@@ -255,7 +255,7 @@ class TestCommand:
             "first,last,email,affiliation\nJürgen,Müller,j.mueller@testville.example,University of Testville\n",
             encoding="utf-8")
         return ["--conflicts", "--authors", str(tmp_path / "authors.csv"), "--pc", str(tmp_path / "pc.csv"),
-                "--out", str(tmp_path / "conflicts.xlsx")]
+                "--out", str(tmp_path / "conflicts.csv")]
 
     def test_committee_list_is_required(self, command):
         assert cli.main([part for part in command if part not in command[command.index("--pc"):command.index("--pc") + 2]]) == 2
@@ -281,8 +281,8 @@ class TestCommand:
 
     @staticmethod
     def _dblp_row(tmp_path) -> str:
-        about = openpyxl.load_workbook(tmp_path / "conflicts.xlsx")["About"].iter_rows(values_only=True)
-        return {row[0]: row[1] for row in about}["DBLP"]
+        page = (tmp_path / "conflicts.html").read_text(encoding="utf-8")
+        return re.search(r"DBLP: (used|not used)\.", page).group(1)
 
     def test_conflict_check_leaves_out_coauthorship_before_setup(self, command, tmp_path, capsys):
         assert cli.main(command) == 0

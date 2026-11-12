@@ -53,8 +53,8 @@ peercheck --setup                          # download Hallucinator, DBLP, and th
 
 ## 🚀 Usage
 
-PeerCheck reads the submission PDFs or the XML and CSV review files of a venue, checks them against its template, and
-writes an HTML report together with an Excel workbook of every detail.
+PeerCheck reads the submission PDFs or the reviews file of a venue, checks them against its template, and writes an
+HTML report and a CSV file with one row per paper, review, or conflict.
 
 ### Templates
 
@@ -120,30 +120,28 @@ and names the options that the command takes.
 |---|---|
 | `--papers <folder>` | Checks the submission PDFs (`.pdf`) of a folder |
 | `--template <file>` | Template of the venue (`.yaml`), `templates/default.yaml` by default |
-| `--submissions <file>` | Submissions file (`.csv`, `.xlsx`) for the title check |
-| `--authors <file>` | Authors file (`.csv`, `.xlsx`) for the anonymity check |
-| `--out <file>` | Excel report (`.xlsx`) with the HTML report (`.html`) beside it, `report.xlsx` by default |
-| `--json <file>` | JSON output (`.json`) |
+| `--submissions <file>` | Submissions file (`.csv`) for the title check |
+| `--authors <file>` | Authors file (`.csv`) for the anonymity check |
+| `--out <file>` | CSV report (`.csv`) with the HTML report (`.html`) beside it, `papers-report.csv` by default |
 
 #### `--reviews`
 
 | Command | Description |
 |---|---|
-| `--reviews <folder or file>` | Checks the reviews (`.xml`, `.csv`) of a folder or a file |
+| `--reviews <file>` | Checks the reviews of a reviews file (`.csv`) |
 | `--template <file>` | Template of the venue (`.yaml`), `templates/default.yaml` by default |
 | `--canaries <file>` | Canary key file (`.csv`) of `--canary` for the planted-citation check |
-| `--out <file>` | Excel report (`.xlsx`) with the HTML report (`.html`) beside it, `reviews.xlsx` by default |
-| `--json <file>` | JSON output (`.json`) |
+| `--out <file>` | CSV report (`.csv`) with the HTML report (`.html`) beside it, `reviews-report.csv` by default |
 
 #### `--conflicts`
 
 | Command | Description |
 |---|---|
 | `--conflicts` | Finds conflicts of interest between the authors and the committee, with co-authorship from DBLP after `--setup` |
-| `--authors <file>` | Authors file (`.csv`, `.xlsx`), required |
-| `--pc <file>` | Committee file (`.csv`, `.xlsx`), required |
+| `--authors <file>` | Authors file (`.csv`), required |
+| `--pc <file>` | Committee file (`.csv`), required |
 | `--template <file>` | Template of the venue (`.yaml`), `templates/default.yaml` by default |
-| `--out <file>` | Excel report (`.xlsx`), `conflicts.xlsx` by default |
+| `--out <file>` | CSV report (`.csv`) with the HTML report (`.html`) beside it, `conflicts-report.csv` by default |
 
 #### Other commands
 
@@ -160,7 +158,7 @@ and names the options that the command takes.
 
 PDFs may carry any names. PeerCheck takes the paper number from the name, such as 12 in `CONF_2027_paper_12.pdf`.
 
-The other inputs are CSV or Excel files with a header row and one row per entry. `--conflicts` requires the authors
+The other inputs are CSV files with a header row and one row per entry. `--conflicts` requires the authors
 file and the committee file. For `--papers`, the authors file and the submissions file are optional and enable the
 checks that the column Purpose names. Common variants of the header names are accepted, such as `First Name` or
 `Submission #`. The matching files in [`examples/`](examples/) serve as starting points.
@@ -170,11 +168,13 @@ checks that the column Purpose names. Common variants of the header names are ac
 | Authors file (`--authors`) | Author names for the anonymity check of `--papers`, and the authors for `--conflicts` | Author of a paper | `paper` (paper number), `first`, `last`, `email`, and `affiliation` |
 | Committee file (`--pc`) | Committee members for `--conflicts` | Committee member | `first`, `last`, `email`, `affiliation`, and an optional `dblp` (DBLP person ID) |
 | Submissions file (`--submissions`) | Paper titles for the title check of `--papers`, and the papers without a PDF | Paper | `paper` and `title` |
-| Reviews file (`--reviews`) | Reviews for `--reviews`, in place of the XML files of a review export | Review | `paper`, `review` (review ID, such as A), and one column per field of the review form |
+| Reviews file (`--reviews`) | Reviews for `--reviews` | Review | `paper`, `review` (review ID, such as A), the optional `title`, `reviewername`, and `email`, and one column per field of the review form |
 
-A review form often holds a field for the authors and a field for the committee only, such as `Comments for authors`
-and `Comments for PC`. The reviews file gives each field a column. The AI detectors read only the fields for the
-authors. `--canary` generates the key file of `--canaries`.
+The reviews file gives each field of the review form a column, such as `Overall evaluation`, `Comments for authors`,
+or `Comments for PC`. A column of short values, such as -2 or B, counts as a score. The AI detectors read only the
+text for the authors and skip the fields for the committee only, such as `Comments for PC`. The optional columns
+`reviewername` and `email` allow the citation check to find works of a reviewer whom the committee file names, once
+`--conflicts` has run after `--setup`. `--canary` generates the key file of `--canaries`.
 
 ```bash
 # authors.csv, the authors file for --authors, as examples/authors.csv
@@ -190,8 +190,8 @@ paper,title
 1,A Study of Flaky Tests
 
 # reviews.csv, the reviews file for --reviews, as examples/reviews/reviews.csv, with one column per field of the review form
-paper,review,Comments for authors
-1,A,"The paper proposes ..."
+paper,review,Overall evaluation,Comments for authors
+1,A,2,"The paper proposes ..."
 ```
 
 ### Examples
@@ -202,22 +202,24 @@ These commands check a venue whose files are stored in the folder `my-venue`.
 my-venue/
   template.yaml   # the template of the venue, a copy of templates/default.yaml
   submissions/    # the PDFs of the submissions
-  reviews/        # the reviews, as the XML files of a review export or one CSV file
+  reviews.csv     # the reviews file
+  authors.csv     # the authors file
+  pc.csv          # the committee file
 ```
 
 ```bash
 cd my-venue
-peercheck --template template.yaml --papers submissions/                       # check the PDFs
-peercheck --template template.yaml --reviews reviews/                          # check the reviews
-peercheck --conflicts --authors authors.csv --pc pc.csv                        # find conflicts of interest
-peercheck --canary submissions/ --out marked/ --canaries canaries.csv          # insert a fictitious citation into each PDF
-peercheck --template template.yaml --reviews reviews/ --canaries canaries.csv  # find reviews that cite the planted work
-peercheck --gui                                                                # open the browser interface
+peercheck --template template.yaml --papers submissions/                          # check the PDFs
+peercheck --template template.yaml --reviews reviews.csv                          # check the reviews
+peercheck --conflicts --authors authors.csv --pc pc.csv                           # find conflicts of interest
+peercheck --canary submissions/ --out marked/ --canaries canaries.csv             # insert a fictitious citation into each PDF
+peercheck --template template.yaml --reviews reviews.csv --canaries canaries.csv  # find reviews that cite the planted work
+peercheck --gui                                                                   # open the browser interface
 ```
 
-The first command writes `report.html` and `report.xlsx`. The second writes `reviews.html` and `reviews.xlsx`. With
-Docker, the browser interface requires a published port, as in `docker run --rm -p 127.0.0.1:8765:8765 -v
-peercheck-cache:/cache -e HF_TOKEN ghcr.io/aalramadan/peercheck --gui`.
+The first command writes `papers-report.html` and `papers-report.csv`. The second writes `reviews-report.html` and
+`reviews-report.csv`. With Docker, the browser interface requires a published port, as in `docker run --rm -p
+127.0.0.1:8765:8765 -v peercheck-cache:/cache -e HF_TOKEN ghcr.io/aalramadan/peercheck --gui`.
 
 > [!TIP]
 > Check the original PDFs with `--papers` before `--canary`, since the hidden-text check reports the planted
@@ -269,7 +271,7 @@ We tested the two AI detectors on 1,409 reviews of ICLR 2017 papers, in three gr
 
 The tests reside in `tests/` and run offline. GitHub Actions runs the full suite on every push.
 
-- **Check tests** run each check on the small PDFs, review files, and CSV files of `tests/fixtures/` and on the example
+- **Check tests** run each check on the small PDFs and CSV files of `tests/fixtures/` and on the example
   papers.
 - **Command tests** run the commands and check their reports and their messages.
 - **Interface tests** start the browser interface and run checks through its forms.

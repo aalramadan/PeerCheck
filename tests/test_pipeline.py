@@ -31,6 +31,17 @@ def test_check_whose_key_the_template_leaves_out_runs_only_when_requested(tmp_pa
     assert pipeline.selected_checks(["hidden-text"], venue) == ("hidden-text",)
 
 
+def test_numbered_and_skipped_pdfs_become_findings_of_their_papers(tmp_path):
+    pdfs = tmp_path / "pdfs"
+    pdfs.mkdir()
+    for name in ("icse2027-paper1.pdf", "icse2027-paper1-copy.pdf", "notes.pdf"):
+        shutil.copyfile(HIDDEN / "h01-white.pdf", pdfs / name)
+    run = pipeline.run_papers(pdfs, profile.load("icse-2027"), checks=["hidden-text"])
+    codes = {result.paper.paper_id: {f.check for f in result.findings} for result in run.results}
+    assert "input.repeated-pdf" in codes[1] and "input.numbered" in codes[2]
+    assert "input.numbered" not in codes[1] and "input.repeated-pdf" not in codes[2]
+
+
 def test_requested_check_runs_although_the_template_leaves_out_its_key(tmp_path):
     pdfs = tmp_path / "pdfs"
     pdfs.mkdir()

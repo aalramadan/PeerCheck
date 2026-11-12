@@ -1,26 +1,19 @@
-"""Excel and JSON reports of the paper checks and the review checks."""
+"""CSV files and HTML pages of the paper checks, the review checks, and the conflict check."""
 
 from __future__ import annotations
 
 import csv
 import datetime
 import html
-import json
-from dataclasses import asdict
+import re
 from pathlib import Path
 
-import openpyxl
-from openpyxl.cell.cell import ILLEGAL_CHARACTERS_RE
-from openpyxl.utils import get_column_letter
-
-from peercheck import __version__, inputs
+from peercheck import __version__
 from peercheck.findings import Finding, Severity, count, needs_review
+from peercheck.inputs import EXCEL_SUFFIXES
 from peercheck.papers.layout import REPORT_COLUMNS
 from peercheck.papers.pipeline import PapersRun
-from peercheck.profile import Profile
 
-SUMMARY_COLUMNS = ("Errors", "Warnings", "Needs Review", "Findings")
-FINDING_COLUMNS = ("Check", "Severity", "Page", "Message", "Evidence")
 HTML_STYLE = """
 :root{--bg:#ffffff;--fg:#1f2328;--muted:#59636e;--line:#d1d9e0;--head:#f6f8fa;--error:#cf222e;--warning:#9a6700;
 --info:#59636e;--clear:#1a7f37;color-scheme:light}
@@ -58,63 +51,57 @@ r.hidden=!((!t||r.textContent.toLowerCase().includes(t))&&(!only.checked||r.clas
 # The page leaves out file names and paper titles, which can identify a submission.
 HIDDEN_COLUMNS = ("Findings", "Needs Review", "Source File", "Title")
 # A text cell that starts with one of these would run as a formula in a spreadsheet program.
-FORMULA_START = ("=", "+", "-", "@")
+FORMULA_START = ("=", "+", "-", "@", "\t", "\r")
+NUMBER = re.compile(r"[-+]?\d+(?:\.\d+)?")
+# Control characters other than the tab and the line breaks, such as U+000E from the text of a PDF.
+CONTROL = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f]")
+CONFLICT_COLUMNS = ("Paper", "PC member", "With", "Kinds")
 
 
-def write_papers(out: Path, run: PapersRun, profile: Profile, submissions: Path | None = None) -> None:
-    """Write the Excel report of a paper run, extending the submission sheet when one is given."""
-    workbook, sheet, id_column = _papers_sheet(submissions, profile)
-    header = [cell.value for cell in sheet[1]]
-    first_new = len(header) + 1
-    for offset, name in enumerate(REPORT_COLUMNS + SUMMARY_COLUMNS):
-        _set(sheet.cell(row=1, column=first_new + offset), name)
-    rows = _rows_by_id(sheet, id_column)
-    by_id = {result.paper.paper_id: result for result in run.results}
-    for paper_id, result in by_id.items():
-        row = rows.get(paper_id)
-        if row is None:
-            row = sheet.max_row + 1
-            _set(sheet.cell(row=row, column=id_column), paper_id)
+def paper_rows(run: PapersRun) -> list[dict]:
+    """Return one row per paper of a run with its measurements and findings, and one per listed paper without a PDF."""
+    rows = []
+    for result in run.results:
         metrics = result.layout.row() if result.layout else {}
-        values = [metrics.get(name) for name in REPORT_COLUMNS] + [
-            count(result.findings, Severity.ERROR),
-            count(result.findings, Severity.WARNING),
-            "yes" if needs_review(result.findings) else "no",
-            "\n".join(f.as_text() for f in result.findings if f.severity is not Severity.INFO),
-        ]
-        for offset, value in enumerate(values):
-            _set(sheet.cell(row=row, column=first_new + offset), value)
-    for paper_id, row in rows.items():
-        if paper_id not in by_id:
-            _set(sheet.cell(row=row, column=first_new + len(REPORT_COLUMNS) + 3), "WARNING: missing PDF")
-    _findings_sheet(workbook, "Paper Findings", "Paper",
-                    [(r.paper.paper_id, f) for r in run.results for f in r.findings])
-    files = workbook.create_sheet("Files")
-    _append(files, ("File", "Problem"))
-    for paper_id, name in sorted(run.numbered.items()):
-        _append(files, (name, f"the name holds no paper number; PeerCheck checked the PDF as paper {paper_id}"))
-    for name in run.duplicates:
-        _append(files, (name, "another PDF has the same paper ID; this one was skipped"))
-    _about(workbook, profile, [("Checks run", ", ".join(run.checks))])
-    _save(workbook, out)
+        rows.append({"Paper": result.paper.paper_id, **({"Title": result.paper.title} if run.titles else {}),
+                     **{name: metrics.get(name) for name in REPORT_COLUMNS},
+                     "Errors": count(result.findings, Severity.ERROR),
+                     "Warnings": count(result.findings, Severity.WARNING),
+                     "Needs Review": "yes" if needs_review(result.findings) else "no",
+                     "Findings": findings_text(result.findings)})
+    for paper_id in run.missing_pdfs:
+        missing = Finding("input.missing-pdf", Severity.WARNING, "the submissions file lists the paper, which has no PDF")
+        rows.append({"Paper": paper_id, "Title": run.titles.get(paper_id, ""), "Errors": 0, "Warnings": 1,
+                     "Needs Review": "yes", "Findings": missing.as_text()})
+    return rows
 
 
-def write_sheets(out: Path, sheets: dict[str, list[dict]], findings: list[tuple[object, Finding]],
-                 about: list[tuple[str, str]], key: str = "Review") -> None:
-    """Write sheets of rows, a sheet of findings keyed by owner, and an About sheet to one workbook."""
-    workbook = openpyxl.Workbook()
-    workbook.remove(workbook.active)
-    for title, rows in sheets.items():
-        sheet = workbook.create_sheet(title)
-        columns = list(dict.fromkeys(name for row in rows for name in row))
-        _append(sheet, columns or ("No rows",))
+def findings_text(findings: list[Finding]) -> str:
+    """Return the findings as the text of one cell, one finding per line with its evidence in brackets."""
+    return "\n".join(f.as_text() + (f" [{' '.join(f.evidence.split())}]" if f.evidence else "") for f in findings)
+
+
+def csv_path(out: Path | None, default: str, *sources: Path | None) -> Path:
+    """Return the path of a CSV report, refusing an Excel name and the path of an input file."""
+    path = out or Path(default)
+    if path.suffix.lower() in EXCEL_SUFFIXES:
+        raise ValueError(f"--out names the CSV file of the report, such as {default}")
+    for source in sources:
+        if source is not None and path.resolve() == Path(source).resolve():
+            raise ValueError(f"--out {path} would overwrite the input {source}; choose another file")
+    return path
+
+
+def write_csv(out: Path, rows: list[dict]) -> None:
+    """Write rows to a CSV file whose header holds every column of the rows, in the order of first use."""
+    columns = list(dict.fromkeys(name for row in rows for name in row))
+    out.parent.mkdir(parents=True, exist_ok=True)
+    # The byte order mark lets Excel open the file as UTF-8.
+    with out.open("w", encoding="utf-8-sig", newline="") as handle:
+        writer = csv.writer(handle)
+        writer.writerow(columns or ["No rows"])
         for row in rows:
-            _append(sheet, [row.get(name) for name in columns])
-    _findings_sheet(workbook, f"{key} Findings", key, findings)
-    sheet = workbook.create_sheet("About")
-    for row in [("PeerCheck version", __version__), ("Created", datetime.date.today().isoformat())] + about:
-        _append(sheet, row)
-    _save(workbook, out)
+            writer.writerow([_cell(row.get(name)) for name in columns])
 
 
 def write_papers_html(out: Path, run: PapersRun) -> None:
@@ -129,11 +116,11 @@ def write_papers_html(out: Path, run: PapersRun) -> None:
                         result.findings))
     notes = [f"Paper {paper_id} has no PDF." for paper_id in run.missing_pdfs]
     if run.numbered:
-        notes.append(f"Numbered {len(run.numbered)} PDF(s) whose names hold no paper number; the Files sheet of the "
-                     "workbook names them.")
+        notes.append(f"Numbered {len(run.numbered)} PDF(s) whose names hold no paper number; the messages of the run "
+                     "name them.")
     if run.duplicates:
-        notes.append(f"Skipped {len(run.duplicates)} PDF(s) that repeat a paper number; the Files sheet of the "
-                     "workbook names them.")
+        notes.append(f"Skipped {len(run.duplicates)} PDF(s) that repeat a paper number; the messages of the run name "
+                     "them.")
     _write_html(out, "PeerCheck, Papers", columns, records, notes + [f"Checks run: {', '.join(run.checks)}."])
 
 
@@ -141,7 +128,7 @@ def write_rows_html(out: Path, title: str, rows: list[dict], findings: dict[str,
                     leave_out: tuple[str, ...] = (), notes: list[str] | None = None) -> None:
     """Write a self-contained HTML page of rows with their findings, such as one row per review.
 
-    The columns in leave_out stay in the workbook and the JSON file but not on the page. The notes follow the table.
+    The columns in leave_out stay in the CSV file but not on the page. The notes follow the table.
     """
     skip = HIDDEN_COLUMNS + leave_out
     columns = tuple(dict.fromkeys(name for row in rows for name in row
@@ -150,11 +137,12 @@ def write_rows_html(out: Path, title: str, rows: list[dict], findings: dict[str,
     _write_html(out, title, columns, records, list(notes or []))
 
 
-def write_json(out: Path, data: object) -> None:
-    """Write any result as JSON, turning dataclasses, paths, and enums into plain values."""
-    out.parent.mkdir(parents=True, exist_ok=True)
-    # A file name that is not valid UTF-8 holds lone surrogates, which the escape \udcXX keeps as valid JSON.
-    out.write_text(json.dumps(_plain(data), indent=2, ensure_ascii=False), encoding="utf-8", errors="backslashreplace")
+def write_conflicts_html(out: Path, rows: list[dict], notes: list[str]) -> None:
+    """Write a self-contained HTML page of the conflicts, one row per conflict with its reasons as findings."""
+    records = [([row.get(name) for name in CONFLICT_COLUMNS],
+                [Finding("conflict", Severity.WARNING, reason) for reason in str(row.get("Reasons") or "").splitlines()])
+               for row in rows]
+    _write_html(out, "PeerCheck, Conflicts of interest", CONFLICT_COLUMNS, records, notes)
 
 
 def _write_html(out: Path, title: str, columns, records, notes: list[str]) -> None:
@@ -190,87 +178,11 @@ def _e(value) -> str:
     return "" if value is None else html.escape(str(value))
 
 
-def _papers_sheet(submissions: Path | None, profile: Profile):
-    id_name = inputs.id_column(inputs.read_rows(submissions), profile.id_column) if submissions else None
-    if submissions and submissions.suffix.lower() in (".xlsx", ".xlsm"):
-        workbook = openpyxl.load_workbook(submissions)
-        sheet = workbook.worksheets[0]
-        header = [str(cell.value or "").strip().lower() for cell in sheet[1]]
-        if id_name and id_name in header:
-            workbook.active = 0
-            return workbook, sheet, header.index(id_name) + 1
-    workbook = openpyxl.Workbook()
-    sheet = workbook.active
-    sheet.title = "Papers"
-    if submissions and submissions.suffix.lower() == ".csv":
-        with submissions.open(encoding="utf-8-sig", newline="") as handle:
-            rows = list(csv.reader(handle))
-        header = [name.strip().lower() for name in rows[0]] if rows else []
-        if id_name and id_name in header:
-            for row in rows:
-                _append(sheet, row)
-            return workbook, sheet, header.index(id_name) + 1
-    _append(sheet, ("Paper",))
-    return workbook, sheet, 1
-
-
-def _rows_by_id(sheet, id_column: int) -> dict[int, int]:
-    rows = {}
-    for row in range(2, sheet.max_row + 1):
-        text = str(sheet.cell(row=row, column=id_column).value or "").strip().removesuffix(".0")
-        if text.isdigit():
-            rows.setdefault(int(text), row)
-    return rows
-
-
-def _findings_sheet(workbook, title: str, key: str, items: list[tuple[object, Finding]]) -> None:
-    sheet = workbook.create_sheet(title)
-    _append(sheet, (key,) + FINDING_COLUMNS)
-    for owner, finding in items:
-        _append(sheet, (owner, finding.check, finding.severity.value, finding.page, finding.message, finding.evidence))
-
-
-def _about(workbook, profile: Profile, extra: list[tuple[str, str]]) -> None:
-    sheet = workbook.create_sheet("About")
-    for row in [("PeerCheck version", __version__), ("Template", profile.name), ("Rules", profile.source),
-                ("Created", datetime.date.today().isoformat())] + extra:
-        _append(sheet, row)
-
-
-def _append(sheet, values) -> None:
-    row = sheet.max_row + 1 if sheet.max_row > 1 or sheet.cell(row=1, column=1).value is not None else 1
-    for column, value in enumerate(values, start=1):
-        _set(sheet.cell(row=row, column=column), value)
-
-
-def _set(cell, value) -> None:
-    if isinstance(value, str):
-        # openpyxl refuses the control characters that an Excel file cannot hold, such as U+000E from a PDF.
-        value = ILLEGAL_CHARACTERS_RE.sub("", value)
-    cell.value = value
-    if isinstance(value, str) and value.startswith(FORMULA_START):
-        cell.data_type = "s"
-
-
-def _save(workbook, out: Path) -> None:
-    for sheet in workbook.worksheets:
-        for column in range(1, sheet.max_column + 1):
-            letter = get_column_letter(column)
-            if sheet.column_dimensions[letter].width in (None, 13.0):
-                sheet.column_dimensions[letter].width = 18
-    out.parent.mkdir(parents=True, exist_ok=True)
-    workbook.save(out)
-
-
-def _plain(value):
-    if hasattr(value, "__dataclass_fields__"):
-        return _plain(asdict(value))
-    if isinstance(value, dict):
-        return {str(k): _plain(v) for k, v in value.items()}
-    if isinstance(value, (list, tuple)):
-        return [_plain(v) for v in value]
-    if isinstance(value, Path):
-        return str(value)
-    if isinstance(value, Severity):
-        return value.value
-    return value
+def _cell(value):
+    if value is None:
+        return ""
+    if not isinstance(value, str):
+        return value
+    value = CONTROL.sub("", value)
+    # An apostrophe before such a text keeps a spreadsheet program from running it as a formula.
+    return "'" + value if value.startswith(FORMULA_START) and not NUMBER.fullmatch(value) else value

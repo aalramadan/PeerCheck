@@ -1,4 +1,4 @@
-"""Title of a submission PDF against the title of the submission sheet, compared as by the metadata checker of
+"""Title of a submission PDF against the title of the submissions file, compared as by the metadata checker of
 aclpubcheck, to find a PDF that belongs to another paper. The title of the PDF is its largest text on page 1, with the
 metadata Title as a fallback."""
 
@@ -21,7 +21,7 @@ CHECK = "title"
 # ratio below 70 flags 83 of 97 pairs of two papers and 8 of 38 pairs of one paper under a revised title.
 SIMILARITY_MIN = 70
 HEAD_CHARACTERS = 500
-# A sheet title of fewer words, such as TBD, may stand inside any text.
+# A title of the submissions file of fewer words, such as TBD, may stand inside any text.
 HEAD_MIN_WORDS = 3
 # Text within this many points counts as one size, as in the fonts check.
 SIZE_RANGE = 0.5
@@ -50,7 +50,7 @@ class Line:
 
 
 def check(paper: Paper, profile: Profile, workdir: Path) -> list[Finding]:
-    """Return a warning if the title of the PDF differs from the title of the submission sheet.
+    """Return a warning if the title of the PDF differs from the title of the submissions file.
 
     similarity_min (default 70): the rapidfuzz token set ratio of the two titles, from 0 to 100, below which titles
     that differ in more than case, punctuation, line breaks, and a subtitle give the warning.
@@ -77,13 +77,13 @@ def check(paper: Paper, profile: Profile, workdir: Path) -> list[Finding]:
                   if _letters(title) >= MIN_LETTERS]
     if not candidates:
         return [Finding(f"{CHECK}.not-found", Severity.INFO,
-                        "no title on page 1 or in the metadata to compare with the submission sheet")]
+                        "no title on page 1 or in the metadata to compare with the submissions file")]
     if any(same_title(sheet, title) for _, title in candidates) or _in_head(sheet, lines):
         return []
     score, source = max((similarity(sheet, title), source) for source, title in candidates)
     if score >= minimum:
         return []
-    message = (f"{source} differs from the title in the submission sheet (similarity {score:.0f} of 100, expected "
+    message = (f"{source} differs from the title in the submissions file (similarity {score:.0f} of 100, expected "
                f"{minimum:g} or more)")
     return [Finding(f"{CHECK}.mismatch", Severity.WARNING, message, 1 if source == "title on page 1" else None)]
 
@@ -134,7 +134,7 @@ def _largest_text(lines: list[Line]) -> str:
 
 
 def _in_head(sheet: str, lines: list[Line]) -> bool:
-    """Return True if the sheet title stands in the first characters of the page, as aclpubcheck looks for it."""
+    """Return True if the listed title stands in the first characters of the page, as aclpubcheck looks for it."""
     if len(_words(sheet).split()) < HEAD_MIN_WORDS:
         return False
     head = " ".join(line.text for line in lines)[:HEAD_CHARACTERS]
