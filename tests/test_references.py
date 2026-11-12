@@ -375,6 +375,19 @@ def test_install_tools_downloads_and_keeps_the_dblp_dump_for_the_conflict_check(
     assert dump.is_file() and dump.with_name("dblp.dtd").is_file()
 
 
+def test_install_tools_adds_only_the_dblp_dump_to_a_cache_set_up_before_it_was_kept(tmp_path, monkeypatch):
+    fetched = fake_release(monkeypatch)
+    cache = tmp_path / "cache"
+    for path in (cache / "hallucinator" / references.VERSION / "hallucinator-cli", cache / "hallucinator" / "dblp.db",
+                 cache / "retraction_watch.csv"):
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("present", encoding="utf-8")
+    _binary, database, dump, _csv_file = references.install_tools(cache)
+    assert fetched == [references.DBLP_URL, references.DBLP_DTD_URL]
+    assert database.read_text(encoding="utf-8") == "present"
+    assert dump.is_file() and dump.with_name("dblp.dtd").is_file()
+
+
 def test_install_tools_rejects_an_archive_with_a_wrong_checksum(tmp_path, monkeypatch):
     fake_release(monkeypatch, checksum="0" * 64)
     with pytest.raises(tools.ToolError, match="SHA-256"):
