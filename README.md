@@ -86,8 +86,7 @@ Each check has a section in `venue.yaml`, where `enabled: false` turns it off.
 
 | Check | Section | Finds |
 |---|---|---|
-| Format | `layout` | page size, columns, margins, fonts, line spacing, page limits, and papers far denser than the rest |
-| File and text | `layout` | locked, damaged, or unreadable files, references such as Section ??, a title that differs from the submission sheet, and oversized images |
+| Format | `layout` | page size, columns, margins, fonts, line spacing, page limits, papers far denser than the rest, damaged or unreadable files, references such as Section ??, a title that differs from the submission sheet, and oversized images |
 | Anonymity and template | `sigsoft` | author names, email addresses, affiliations, and links that reveal the authors, also in the PDF metadata, and a template other than that of the venue |
 | Hidden text | `hidden_text` | white, invisible, or tiny text, prompts hidden for AI tools, and scripts that run on opening |
 | References | `references` | references that no bibliographic database confirms, and retracted references |
