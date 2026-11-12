@@ -84,35 +84,35 @@ PeerCheck takes the paper number from the PDF name, such as 12 in `CONF_2027_pap
 
 Each check has a section in `venue.yaml`, where `enabled: false` turns it off.
 
-| Check | Section | Finds |
+| Check | Section | Detects |
 |---|---|---|
-| Format | `layout` | page size, columns, margins, fonts, line spacing, page limits, unusually dense papers, damaged or unreadable files, references such as Section ??, a title that differs from the submission sheet, and oversized images |
-| Anonymity and template | `sigsoft` | author names, email addresses, affiliations, and links that reveal the authors, also in the PDF metadata, and a template other than that of the venue |
-| Hidden text | `hidden_text` | white, invisible, or tiny text, prompts hidden for AI tools, and scripts that run on opening |
-| References | `references` | references that no bibliographic database confirms, and retracted references |
-| AI detection | `cocodet`, `editlens` | reviews that a language model may have written or edited |
-| Copied text | `duplicates` | paragraphs that reviews share |
-| Citation requests | `citations` | works that reviewers ask the authors to cite, their own included |
-| Planted citation | `canary` | reviews that cite the made-up work hidden in their paper |
-| Conflicts of interest | `conflicts` | co-authorship, shared email domains, and matching affiliations of authors and committee members |
+| Format | `layout` | Page size, columns, margins, fonts, page limits, unusual density, damaged files, unresolved references, title mismatches, and oversized images |
+| Anonymity and template | `sigsoft` | Author names, email addresses, affiliations, and identifying links in the text and the metadata, and a wrong template |
+| Hidden text | `hidden_text` | White, invisible, or tiny text, hidden prompts, and embedded scripts |
+| References | `references` | Unconfirmed and retracted references |
+| AI detection | `cocodet`, `editlens` | Reviews likely written or edited by a language model |
+| Copied text | `duplicates` | Paragraphs shared between reviews |
+| Citation requests | `citations` | Requests to cite works, including works of the reviewer |
+| Planted citation | `canary` | Reviews that cite the planted work |
+| Conflicts of interest | `conflicts` | Co-authorship, shared email domains, and matching affiliations |
 
 ### Options
 
 | Option | Commands | Description |
 |---|---|---|
-| `--profile` | all, before the command | The rules and settings of the venue, a copy of `profiles/default.yaml` or an example such as `icse-2027` |
-| `--out` | all | The Excel report, with the HTML page beside it, or the folder of marked PDFs for `canary` |
-| `--json` | papers, reviews | Also writes the results as JSON |
-| `--submissions` | papers | The submission sheet of Lists, for the title check |
-| `--authors` | papers, conflicts | The author list of Lists, for the author names in the PDFs and the conflict check |
-| `--canaries` | reviews | The key file of `canary`, for the check of the planted citations |
-| `--pc` | conflicts | The committee list of Lists, for the conflict check |
-| `--dblp-dump` | conflicts, setup | The DBLP download `dblp.xml.gz` from dblp.org/xml, for the co-author check or the DBLP copy of `setup` |
-| `--dblp-index`, `--save-index` | reviews, conflicts | An index of co-authors that `--save-index` keeps for later runs |
-| `--key` | canary | The private file that lists the planted citation of each paper |
-| `--retraction-csv`, `--refresh` | setup | A local Retraction Watch list, or a new download of every file |
-| `--host`, `--port`, `--no-browser` | gui | The address of the browser page |
-| `--help` | all | Prints the options of a command |
+| `--profile` | All, before the command | Venue rules and settings |
+| `--out` | All | Report file, or output folder for `canary` |
+| `--json` | papers, reviews | JSON output |
+| `--submissions` | papers | Submission sheet |
+| `--authors` | papers, conflicts | Author list |
+| `--canaries` | reviews | Canary key file |
+| `--pc` | conflicts | Committee list |
+| `--dblp-dump` | conflicts, setup | Local DBLP dump (`dblp.xml.gz`) |
+| `--dblp-index`, `--save-index` | reviews, conflicts | Saved co-author index |
+| `--key` | canary | Private canary key file |
+| `--retraction-csv`, `--refresh` | setup | Local Retraction Watch list, fresh download |
+| `--host`, `--port`, `--no-browser` | gui | Interface address |
+| `--help` | All | Command help |
 
 ### Lists
 
@@ -122,10 +122,10 @@ templates.
 
 | List | One row per | Columns |
 |---|---|---|
-| Author list (`--authors`) | author of a paper | `paper` (the paper number of the PDF name), `first` and `last` (the name), `email`, and `affiliation` |
-| Committee list (`--pc`) | committee member | `first`, `last`, `email`, `affiliation`, and an optional `dblp` (the DBLP person ID, such as `12/3456`) |
-| Submission sheet (`--submissions`) | paper | `paper` (the paper number) and `title` (the title that the authors entered) |
-| Reviews (`reviews`) | review | `paper` (the paper number), `review` (the review ID, such as A), and one column per field of the review form, such as `Comments for authors` |
+| Author list (`--authors`) | Author of a paper | `paper` (paper number), `first`, `last`, `email`, and `affiliation` |
+| Committee list (`--pc`) | Committee member | `first`, `last`, `email`, `affiliation`, and an optional `dblp` (DBLP person ID) |
+| Submission sheet (`--submissions`) | Paper | `paper` and `title` |
+| Reviews (`reviews`) | Review | `paper`, `review` (review ID, such as A), and one column per field of the review form |
 
 Fields intended for the committee only, such as `Comments for PC`, are excluded from AI detection.
 
@@ -253,12 +253,12 @@ editable mode. The group `[dev]` adds pytest and ruff.
 
 | Command | Description |
 |---|---|
-| `python -m pytest` | Every test |
-| `python -m pytest tests/test_references.py` | The tests of one check |
-| `python -m pytest -k gui` | The tests whose names contain a given word |
-| `python -m pytest -x` | Every test, up to the first failure |
-| `ruff check src tests` | The style check of the code |
-| `mvn -f external/submission-checker/pom.xml package` | Rebuilds the revised SIGSOFT jar of the anonymity check |
+| `python -m pytest` | All tests |
+| `python -m pytest tests/test_references.py` | Tests of one check |
+| `python -m pytest -k gui` | Tests that match a keyword |
+| `python -m pytest -x` | All tests, up to the first failure |
+| `ruff check src tests` | Code style check |
+| `mvn -f external/submission-checker/pom.xml package` | Rebuild of the SIGSOFT jar of the anonymity check |
 
 ## 🔒 Privacy
 
@@ -269,9 +269,9 @@ editable mode. The group `[dev]` adds pytest and ruff.
 
 | Setting | Data sent | Destination |
 |---|---|---|
-| `online: true` and `online_titles: true` | the titles, DOIs, and arXiv IDs of the cited works that DBLP lacks | CrossRef, arXiv, Semantic Scholar, OpenAlex, PubMed, doi.org, and the other sources of Hallucinator, the reference checker |
-| `online: true` and `online_titles: false` | the DOIs that the cited works carry, and the arXiv IDs of those that DBLP lacks | doi.org and arXiv |
-| `online: false` | nothing | none |
+| `online: true` and `online_titles: true` | Titles, DOIs, and arXiv IDs of references missing from DBLP | CrossRef, arXiv, Semantic Scholar, OpenAlex, PubMed, doi.org, and other sources of Hallucinator |
+| `online: true` and `online_titles: false` | DOIs of references, and arXiv IDs of references missing from DBLP | doi.org and arXiv |
+| `online: false` | None | None |
 
 ## 📜 License
 
