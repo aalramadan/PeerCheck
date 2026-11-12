@@ -4,9 +4,12 @@
 
 **PeerCheck** checks the **submissions**, the **reviews**, and the **conflicts of interest** of a conference or a journal.
 
-A check is one test of a file, such as the page limit of a submission, an instruction to AI reviewers hidden in white
-text, a reference that no bibliographic database knows, or a review that a language model may have written. Two AI
-detectors, CoCoDet and EditLens, give the last of these tests their own labels.
+- 📄 For **papers**, it checks the format and page limits, anonymity leaks, hidden text and prompts, and references
+  that no bibliographic database confirms.
+- 📝 For **reviews**, it runs two AI detectors, CoCoDet and EditLens, and finds text copied between reviews, requests
+  to cite many works, and planted citations.
+- 🤝 For **conflicts of interest**, it compares the co-authorship, the email domains, and the affiliations of the
+  authors and the committee members.
 
 > [!IMPORTANT]
 > PeerCheck assists program chairs. A human should verify every flagged paper or review.
@@ -18,43 +21,37 @@ detectors, CoCoDet and EditLens, give the last of these tests their own labels.
 
 ## 📦 Requirements
 
-- **Python 3.10** or newer
-- **Java 11** or newer, for the anonymity check
-- **Perl** and **poppler**, for the format check
-- About **3 GB** of disk, 1.1 GB for the reference database and 2 GB for the two AI detectors
-
-On Debian or Ubuntu, `sudo apt install python3-venv default-jre perl poppler-utils` installs these programs. PeerCheck is
-tested on Linux, including WSL on Windows.
+- **Python 3.10** or newer with venv (`python3-venv`)
+- **Java 11** or newer (`default-jre`)
+- **Perl** (`perl`) and **poppler** (`poppler-utils`)
+- About **3 GB** of disk for DBLP and the two AI detectors
 
 ## 🔧 Installation
 
 ```bash
 git clone https://github.com/aalramadan/PeerCheck.git  # download the source code
 cd PeerCheck                                            # go into the source folder
-python3 -m venv .venv && . .venv/bin/activate           # make a Python environment for PeerCheck
-pip install -e .                                        # install PeerCheck with its two AI detectors
-peercheck setup                                         # download the reference database, once
+python3 -m venv .venv                                   # make a Python environment for PeerCheck
+source .venv/bin/activate                               # use that environment in this shell
+pip install .                                           # install PeerCheck with its two AI detectors
+peercheck setup                                         # download the reference checker Hallucinator, DBLP, and the Retraction Watch list
 ```
 
 > [!NOTE]
-> EditLens needs a free Hugging Face token. Accept its license, which allows non-commercial use only, at
-> huggingface.co/pangram/editlens_roberta-large. Then create a read token at huggingface.co/settings/tokens and run
-> `export HF_TOKEN=<token>` before PeerCheck. Without a token, PeerCheck skips EditLens and notes the skip in the
-> report.
+> EditLens needs a free Hugging Face token. Accept the non-commercial
+> [EditLens license](https://huggingface.co/pangram/editlens_roberta-large), make a
+> [read token](https://huggingface.co/settings/tokens), and set it with `export HF_TOKEN=<token>`. Without a token,
+> PeerCheck skips EditLens.
 
 ## 🐳 Docker
 
-The image `ghcr.io/aalramadan/peercheck` holds PeerCheck with Java, Perl, and poppler, ready to run without the
-requirements or the installation. GitHub Actions rebuilds the image at every change of PeerCheck.
+The image `ghcr.io/aalramadan/peercheck` holds PeerCheck with its requirements.
 
 ```bash
 docker pull ghcr.io/aalramadan/peercheck   # get or update the image
-alias peercheck='docker run --rm -v "$PWD:/data" -v peercheck-cache:/cache -e HF_TOKEN ghcr.io/aalramadan/peercheck'
-peercheck setup                            # download the reference database, once
+alias peercheck='docker run --rm -v "$PWD:/data" -v peercheck-cache:/cache -e HF_TOKEN ghcr.io/aalramadan/peercheck'  # run peercheck in the image
+peercheck setup                            # download the reference checker Hallucinator, DBLP, and the Retraction Watch list
 ```
-
-The commands of the usage example then run in the image, on the files of the current folder. The volume
-`peercheck-cache` keeps the reference database and the AI detectors between runs.
 
 ## 🚀 Usage
 
@@ -64,11 +61,11 @@ venue, and writes an HTML report for the browser with an Excel workbook of every
 For example, these commands check the submissions and the reviews of a conference whose files sit in the folder
 `my-conference`.
 
-```text
+```bash
 my-conference/
-  venue.yaml     the rules of the venue, a copy of profiles/default.yaml with its values
-  submissions/   the PDFs of the submissions
-  reviews/       the reviews, as the XML files of a review export or one CSV file
+  venue.yaml     # the rules of the venue, a copy of profiles/default.yaml
+  submissions/   # the PDFs of the submissions
+  reviews/       # the reviews, as the XML files of a review export or one CSV file
 ```
 
 ```bash
@@ -78,6 +75,10 @@ peercheck --profile venue.yaml reviews reviews/      # check the reviews, once t
 ```
 
 The first command writes `report.html` and `report.xlsx`. The second writes `reviews.html` and `reviews.xlsx`.
+
+- A number after paper or submission in a PDF name becomes the paper number, such as 12 in `CONF_2027_paper_12.pdf`.
+- A review CSV file holds the columns paper and review (the review ID, such as A) and one column per field of the
+  review form, such as the text of the review.
 
 > [!NOTE]
 > Without `--profile`, PeerCheck applies the default rules of `profiles/default.yaml`, which set IEEE, two columns,
@@ -90,10 +91,10 @@ The first command writes `report.html` and `report.xlsx`. The second writes `rev
 | `--profile` | all, before the command | The rules and settings of the venue, a copy of `profiles/default.yaml` or an example such as `icse-2027` |
 | `--out` | all | The Excel report, with the HTML page beside it, or the folder of marked PDFs for `canary` |
 | `--json` | papers, reviews | Also writes the results as JSON |
-| `--submissions` | papers | A CSV or Excel list with the number and the title of each paper, for the title check |
-| `--authors` | papers, conflicts | A CSV or Excel list of the authors of each paper |
+| `--submissions` | papers | A CSV or Excel file with the columns paper and title, for the title check |
+| `--authors` | papers, conflicts | A CSV or Excel file with the columns paper, first, last, email, and affiliation, for the author names in the PDFs and the conflict check |
 | `--canaries` | reviews | The key file of `canary`, for the check of the planted citations |
-| `--pc` | conflicts | A CSV or Excel list of the program committee |
+| `--pc` | conflicts | A CSV or Excel file with the columns first, last, email, affiliation, and an optional dblp (the DBLP person ID) |
 | `--dblp-dump` | conflicts, setup | The DBLP download `dblp.xml.gz` from dblp.org/xml, for the co-author check or the reference database |
 | `--dblp-index`, `--save-index` | reviews, conflicts | An index of co-authors that `--save-index` keeps for later runs |
 | `--key` | canary | The private file that lists the planted citation of each paper |
@@ -149,17 +150,6 @@ With Docker, the browser page needs its port, as in `docker run --rm -p 127.0.0.
 
 > [!WARNING]
 > Keep the key file of `peercheck canary` private, since it reveals the planted citation of each paper.
-
-### Inputs
-
-- PDFs with any file names. A number after paper or submission in a name becomes the paper number, such as 12 in
-  `CONF_2027_paper_12.pdf`. A PDF without one gets the next free number, which the Files sheet of the report names.
-- A submission sheet, any CSV or Excel list with a column of paper numbers, such as # or ID, and a column Title.
-- An author list, a CSV or Excel file with the columns paper, first, last, email, and affiliation.
-- Reviews, as the XML files of a review export or a CSV file with the columns paper and review (the review ID, such
-  as A) and one column per field of the review form, such as the text of the review.
-- A committee list with first, last, email, and affiliation. An optional column dblp with the DBLP person ID settles
-  a name that several DBLP authors share.
 
 ### Reports
 
