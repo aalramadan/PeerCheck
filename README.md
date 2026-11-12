@@ -24,7 +24,7 @@
 - **Python 3.10** or newer with venv (`python3-venv`)
 - **Java 11** or newer (`default-jre`)
 - **Perl** (`perl`) and **poppler** (`poppler-utils`)
-- Approximately **4 GB** of disk space for DBLP and the two AI detectors
+- Approximately **7 GB** of disk space for DBLP and the two AI detectors
 
 ## 🔧 Installation
 
