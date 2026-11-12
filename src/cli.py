@@ -47,8 +47,8 @@ def main(argv: list[str] | None = None) -> int:
 def parser() -> argparse.ArgumentParser:
     """Build the parser of the command line, with one command per run."""
     top = argparse.ArgumentParser(prog="peercheck", allow_abbrev=False,
-                                  description="Check the submissions, the reviews, and the conflicts of interest of a "
-                                              "publication venue.")
+                                  description="Check the submissions, the reviews, and the conflicts of interest of "
+                                              "IEEE and ACM venues.")
     commands = top.add_argument_group("commands, one per run").add_mutually_exclusive_group()
     commands.add_argument("--papers", type=Path, metavar="FOLDER", help="check the submission PDFs of a folder")
     commands.add_argument("--reviews", type=Path, metavar="FILE", help="check the reviews of a CSV file")

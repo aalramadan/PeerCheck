@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "PeerCheck"
 version = "1.0.0"
-description = "Local checks of the submissions and peer reviews of any publication venue"
+description = "Local checks of the submissions and peer reviews of IEEE and ACM venues"
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [

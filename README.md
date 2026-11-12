@@ -2,7 +2,7 @@
 
 [![Tests](https://github.com/aalramadan/PeerCheck/actions/workflows/tests.yml/badge.svg)](https://github.com/aalramadan/PeerCheck/actions/workflows/tests.yml) ![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-3776AB?logo=python&logoColor=white) [![Release](https://img.shields.io/github/v/release/aalramadan/PeerCheck)](https://github.com/aalramadan/PeerCheck/releases/latest) [![License](https://img.shields.io/badge/license-GPL--3.0-blue)](LICENSE)
 
-**PeerCheck** checks the **submissions**, the **reviews**, and the **conflicts of interest** of a publication venue.
+**PeerCheck** checks the **submissions**, the **reviews**, and the **conflicts of interest** of IEEE and ACM venues.
 
 - 📄 For **papers**, it checks the format and page limits, anonymity leaks, hidden text and prompts, and references
   that no bibliographic database confirms.
