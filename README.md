@@ -42,11 +42,8 @@ peercheck --setup                                       # download Hallucinator,
 > token, PeerCheck skips EditLens.
 
 > [!TIP]
-> Two optional variables serve the online lookups of the reference check. `CROSSREF_MAILTO` holds an email
-> address that goes to CrossRef with each request. CrossRef then accepts three titles per second in place of one.
-> `OPENALEX_KEY` holds a free [OpenAlex key](https://openalex.org/rest-api), which raises the number of searches
-> that OpenAlex answers per day. Without a key, OpenAlex answers about 100 searches per day. PeerCheck then
-> reports each further reference that needs OpenAlex as not looked up.
+> With an email address in `CROSSREF_MAILTO`, CrossRef answers three titles per second in place of one. A free
+> [OpenAlex key](https://openalex.org/rest-api) in `OPENALEX_KEY` raises the daily OpenAlex searches from 100 to 1,000.
 
 ## 🐳 Docker
 
@@ -61,26 +58,15 @@ peercheck --setup                          # download Hallucinator, DBLP, and th
 ## 🚀 Usage
 
 PeerCheck reads the submission PDFs or the reviews file of a venue, checks them against its template, and writes an
-HTML report and a CSV file with one row per paper, review, or conflict.
+HTML report and a CSV file with one row per paper, review, or conflict. Each finding in a report is an error (a
+broken rule of the venue), a warning (a likely problem), or an info note.
 
 ### Templates
 
 A template is a YAML file with the rules of a venue and the settings of every check. `templates/default.yaml` holds
-every rule and setting with its default and applies when no `--template` is given.
-
-1. Copy `templates/default.yaml` into the folder of the venue as `template.yaml`.
-2. Set each value according to the call for papers. A line that starts with `#` is inactive until the `#` is
-   removed.
-3. Pass the copy with `--template template.yaml`.
-
-```yaml
-checks:
-  references:
-    online_titles: false   # send only DOIs and arXiv IDs, never titles
-  # editlens:              # skip the AI detector EditLens
-  conflicts:
-    coauthor_years: 2      # count joint papers of the last two years
-```
+every rule and setting with its default and applies when no `--template` is given. To adapt these defaults to a
+venue, copy `templates/default.yaml` into the folder of the venue as `template.yaml`, set each value according to
+the call for papers, and pass the copy with `--template template.yaml`.
 
 Two templates of real venues serve as examples. Each holds the address of its call for papers and is passed by its
 key, such as `--template icse-2027`.
@@ -118,72 +104,11 @@ the check off.
 |---|---|---|
 | Conflicts of interest | `conflicts` | Co-authorship, shared email domains, matching affiliations, and, once the template sets `advisor_papers`, likely advisors |
 
-### Commands
-
-PeerCheck has three main commands, `--papers`, `--reviews`, and `--conflicts`. Each table opens with a main command
-and names the options that the command takes.
-
-#### `--papers`
-
-| Command | Description |
-|---|---|
-| `--papers <folder>` | Checks the submission PDFs (`.pdf`) of a folder |
-| `--template <file>` | Template of the venue (`.yaml`), `templates/default.yaml` by default |
-| `--submissions <file>` | Submissions file (`.csv`) for the title check |
-| `--authors <file>` | Authors file (`.csv`) for the anonymity check |
-| `--out <file>` | CSV report (`.csv`) with the HTML report (`.html`) beside it, `papers-report.csv` by default |
-
-#### `--reviews`
-
-| Command | Description |
-|---|---|
-| `--reviews <file>` | Checks the reviews of a reviews file (`.csv`) |
-| `--template <file>` | Template of the venue (`.yaml`), `templates/default.yaml` by default |
-| `--canaries <file>` | Canary key file (`.csv`) of `--canary` for the planted-citation check |
-| `--out <file>` | CSV report (`.csv`) with the HTML report (`.html`) beside it, `reviews-report.csv` by default |
-
-#### `--conflicts`
-
-| Command | Description |
-|---|---|
-| `--conflicts` | Finds conflicts of interest between the authors and the committee, with co-authorship from DBLP after `--setup` |
-| `--authors <file>` | Authors file (`.csv`), required |
-| `--pc <file>` | Committee file (`.csv`), required |
-| `--template <file>` | Template of the venue (`.yaml`), `templates/default.yaml` by default |
-| `--out <file>` | CSV report (`.csv`) with the HTML report (`.html`) beside it, `conflicts-report.csv` by default |
-
-#### Other commands
-
-| Command | Description |
-|---|---|
-| `--canary <folder> --out <folder> --canaries <file>` | Copies of the PDFs (`.pdf`) of a folder, each with a fictitious citation, and the canary key file (`.csv`) |
-| `--setup` | Downloads Hallucinator, DBLP, and the Retraction Watch data |
-| `--setup --refresh` | New download of every file of `--setup` |
-| `--setup --retraction-csv <file>` | Local Retraction Watch file (`.csv`) in place of its download |
-| `--gui` | Opens the browser interface |
-| `--help`, `--version` | Help and version of PeerCheck |
-
 ### Input format
 
 PDFs may carry any names. PeerCheck takes the paper number from the name, such as 12 in `CONF_2027_paper_12.pdf`.
-
-The other inputs are CSV files with a header row and one row per entry. `--conflicts` requires the authors
-file and the committee file. For `--papers`, the authors file and the submissions file are optional and enable the
-checks that the column Purpose names. Common variants of the header names are accepted, such as `First Name` or
-`Submission #`. The matching files in [`examples/`](examples/) serve as starting points.
-
-| File | Purpose | One row per | Columns |
-|---|---|---|---|
-| Authors file (`--authors`) | Author names for the anonymity check of `--papers`, and the authors for `--conflicts` | Author of a paper | `paper` (paper number), `first`, `last`, `email`, and `affiliation` |
-| Committee file (`--pc`) | Committee members for `--conflicts` | Committee member | `first`, `last`, `email`, `affiliation`, and an optional `dblp` (DBLP person ID) |
-| Submissions file (`--submissions`) | Paper titles for the title check of `--papers`, and the papers without a PDF | Paper | `paper` and `title` |
-| Reviews file (`--reviews`) | Reviews for `--reviews` | Review | `paper`, `review` (review ID, such as A), the optional `title`, `reviewername`, and `email`, and one column per field of the review form |
-
-The reviews file gives each field of the review form a column, such as `Overall evaluation`, `Comments for authors`,
-or `Comments for PC`. A column of short values, such as -2 or B, counts as a score. The AI detectors read only the
-text for the authors and skip the fields for the committee only, such as `Comments for PC`. The optional columns
-`reviewername` and `email` allow the citation check to find works of a reviewer whom the committee file names, once
-`--conflicts` has run after `--setup`. `--canary` generates the key file of `--canaries`.
+The other inputs are CSV files with a header row and one row per entry, as in these samples. The matching files in
+[`examples/`](examples/) serve as starting points.
 
 ```bash
 # authors.csv, the authors file for --authors, as examples/authors.csv
@@ -205,16 +130,8 @@ paper,review,Overall evaluation,Comments for authors
 
 ### Examples
 
-These commands check a venue whose files are stored in the folder `my-venue`.
-
-```bash
-my-venue/
-  template.yaml   # the template of the venue, a copy of templates/default.yaml
-  submissions/    # the PDFs of the submissions
-  reviews.csv     # the reviews file
-  authors.csv     # the authors file
-  pc.csv          # the committee file
-```
+These commands check a venue whose template, PDFs, and CSV files are stored in the folder `my-venue`.
+`peercheck --help` describes every option.
 
 ```bash
 cd my-venue
@@ -238,27 +155,11 @@ The first command writes `papers-report.html` and `papers-report.csv`. The secon
 > [!WARNING]
 > Keep the key file of `--canary` private, since it reveals the planted citation of each paper.
 
-### Reports
-
-- An **error** breaks a stated rule of the venue.
-- A **warning** marks a likely problem.
-- An **info** note gives context.
-- A **red bar** marks a paper or a review with an error or a warning.
-- **CoCoDet** labels a review as Human, Mix (partly human and partly AI), or AI. Its label AI marks the review for a
-  closer look.
-- **CoCoDet P(AI)** is the probability, from 0 to 1, that CoCoDet gives to the label AI.
-- **EditLens** labels a review as Human, AI-Edited (human writing that AI edited), or AI, as a second opinion.
-- **EditLens Score** runs from 0 for human writing to 1 for AI writing. A score below 0.0971 reads as Human, a
-  score of 0.997 or more as AI, and a score between them as AI-Edited.
-
 ## 📊 Benchmark
 
-We tested the two AI detectors on 1,409 reviews of ICLR 2017 papers, in three groups.
-
-- 1,014 human reviews, the official reviews in [PeerRead](https://github.com/allenai/PeerRead), a public dataset of
-  peer reviews, written in 2016 before AI writing tools.
-- 98 polished reviews, each a copy of one of these human reviews that a model polished.
-- 297 AI reviews, written by DiffusionGemma 26B, Gemma 4 31B, Mistral Large 4, Nemotron 3 Ultra, and Step 5.
+We tested the two AI detectors on 1,409 reviews of ICLR 2017 papers. The human reviews are the official reviews in
+[PeerRead](https://github.com/allenai/PeerRead), a public dataset of peer reviews written in 2016 before AI writing
+tools. The table counts the reviews that each detector labels as AI or AI-Edited.
 
 | Written by | Reviews | CoCoDet (AI) | EditLens (AI-Edited) | EditLens (AI) |
 |---|---|---|---|---|
@@ -278,27 +179,13 @@ We tested the two AI detectors on 1,409 reviews of ICLR 2017 papers, in three gr
 
 ## 🧪 Tests
 
-The tests reside in `tests/` and run offline. GitHub Actions runs the full suite on every push.
+The tests reside in `tests/` and run offline. GitHub Actions runs the full suite on every push. The tests of the
+review checks require PyTorch, which `pip install` provides.
 
-- **Check tests** run each check on the small PDFs and CSV files of `tests/fixtures/` and on the example
-  papers.
-- **Command tests** run the commands and check their reports and their messages.
-- **Interface tests** start the browser interface and run checks through its forms.
-- The tests of the review checks require PyTorch, which `pip install` provides. One test requires a graphics card.
-
-### Test commands
-
-Run these commands in the repository folder after `pip install -e ".[dev]"`. The option `-e` installs PeerCheck in
-editable mode. The group `[dev]` adds pytest and ruff.
-
-| Command | Description |
-|---|---|
-| `python -m pytest` | All tests |
-| `python -m pytest tests/test_references.py` | Tests of one check |
-| `python -m pytest -k gui` | Tests that match a keyword |
-| `python -m pytest -x` | All tests, up to the first failure |
-| `ruff check src tests` | Code style check |
-| `mvn -f external/submission-checker/pom.xml package` | Rebuild of the SIGSOFT jar of the anonymity check |
+```bash
+pip install -e ".[dev]"   # install PeerCheck in editable mode with pytest and ruff
+python -m pytest          # run every test
+```
 
 ## 🔒 Privacy
 
