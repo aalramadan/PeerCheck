@@ -449,6 +449,21 @@ def test_dblp_search_finds_a_title_that_hallucinator_read_from_another_part_of_t
     assert by_check(findings, "references.summary")[0].message.startswith("1 reference checked offline: 1 found")
 
 
+@pytest.mark.parametrize(("authors", "found"), [
+    (["Carla Marsh", "Dele Okafor", "Erik Lindqvist"], True), (["Hana Novak", "Petra Zeller"], False)])
+def test_dblp_record_with_the_cited_words_in_another_order_confirms_a_reference_only_of_the_cited_authors(
+        tmp_path, cache, monkeypatch, authors, found):
+    # The entry swaps two words of the title, and a line end took the hyphen out of stable-branch.
+    dblp_database(cache, ("The Effect of Mislabeled Patches by Bisection on Stable-Branch Selection.", authors))
+    title = "The effect of patches mislabeled by bisection on stablebranch selection"
+    entry = {"title": title, "ref_authors": ["C. Marsh", "D. Okafor", "E. Lindqvist"],
+             "raw_citation": f"C. Marsh, D. Okafor, and E. Lindqvist, “{title},” IEEE Trans. Softw. Eng., 2021."}
+    findings = run(tmp_path, cache, FakeHallucinator(report(entry)), monkeypatch, online=False)
+    summary = by_check(findings, "references.summary")[0].message
+    assert summary.startswith("1 reference checked offline: 1 found") is found
+    assert not by_check(findings, "references.author-mismatch")
+
+
 def test_dblp_search_counts_the_titles_of_each_word_once_for_the_references_of_a_paper(tmp_path, cache, monkeypatch):
     dblp_database(cache, (TITLE, ["Ada Quill", "Ben Reed"]))
     asked = []

@@ -240,7 +240,8 @@ def test_openalex_works_returns_the_title_and_the_authors_of_each_record(service
     service.answers.append("openalex-title.json")
     works = open_indexes.openalex_works("Attention Is All You Need")
     assert service.requests == [(open_indexes.OPENALEX_URL, {
-        "filter": 'title.search:"Attention Is All You Need"', "per-page": 10, "select": "title,authorships"})]
+        "filter": 'title.search:"Attention Is All You Need"', "per-page": 10, "select": "title,authorships",
+        "include_xpac": "true"})]
     assert works[0] == Work("Attention Is All You Need", (*VASWANI[:6], "Łukasz Kaiser", "Illia Polosukhin"))
     assert len(works) == 5
 
@@ -249,6 +250,13 @@ def test_openalex_works_asks_for_the_words_of_the_title_alone(service):
     service.answers.append({"results": []})
     open_indexes.openalex_works("“A made-up title”: on patches, ports & “quotes”")
     assert service.requests[0][1]["filter"] == 'title.search:"A made up title on patches ports quotes"'
+
+
+def test_openalex_works_searches_the_works_of_its_expansion_as_well(service):
+    # Talks and workshop papers often stand only among these works.
+    service.answers.append({"results": []})
+    open_indexes.openalex_works("A made-up title")
+    assert service.requests[0][1]["include_xpac"] == "true"
 
 
 def test_openalex_author_without_a_name_is_left_out(service):

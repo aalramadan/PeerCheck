@@ -61,6 +61,14 @@ def test_reference_bears_no_title_whose_part_before_a_colon_is_shorter_than_16_l
     assert not cited(entry, "Patches").bears("Patches: a made-up study of another matter entirely")
 
 
+def test_reference_bears_reordered_a_title_of_its_words_in_another_order_also_without_a_hyphen_of_a_line_end():
+    reference = cited(title="The effect of patches mislabeled by bisection on stablebranch selection")
+    assert reference.bears_reordered("The Effect of Mislabeled Patches by Bisection on Stable-Branch Selection.")
+    assert not reference.bears("The Effect of Mislabeled Patches by Bisection on Stable-Branch Selection.")
+    assert not reference.bears_reordered("The effect of patches on stable-branch selection")
+    assert not cited(title="Patch bisection").bears_reordered("Bisection patch")
+
+
 def test_accent_that_a_pdf_holds_as_a_mark_of_its_own_reads_as_the_accent_of_its_letter():
     entry = "J. Müller, “Über die Portierung von Korrekturen in stabile Zweige,” in Proc. Softw. Eng., 2021."
     read = "U¨ber die Portierung von Korrekturen in stabile Zweige"

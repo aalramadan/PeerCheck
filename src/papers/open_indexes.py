@@ -141,8 +141,10 @@ def openalex_works(title: str) -> list[Work]:
     """Return the OpenAlex records whose title holds the words of a title in their order, the best matches first.
 
     A search costs a part of the daily budget of the caller, which is ten times larger with the free key in
-    OPENALEX_KEY. OpenAlex answers a request beyond the budget with an error."""
-    query = {"filter": f'title.search:"{_words(title)}"', "per-page": RECORDS, "select": "title,authorships"}
+    OPENALEX_KEY. OpenAlex answers a request beyond the budget with an error. The search includes the works of the
+    expansion of OpenAlex, which hold talks and workshop papers that its main index lacks."""
+    query = {"filter": f'title.search:"{_words(title)}"', "per-page": RECORDS, "select": "title,authorships",
+             "include_xpac": "true"}
     if os.environ.get("OPENALEX_KEY"):
         query["api_key"] = os.environ["OPENALEX_KEY"]
     return [Work(record.get("title") or "", tuple(name for author in record["authorships"]

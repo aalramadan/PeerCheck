@@ -150,7 +150,8 @@ later lookup.
   such as ISTIC or JaLC, confirms its reference, since the record of such a DOI is often in another script.
 - DataCite receives the title of each open reference whose title has four words or more. OpenAlex receives the
   title of each article or paper that the check would otherwise report, first whole and then in two halves.
-  OpenReview receives those of this year and the year before, since venues of machine learning show their papers
+  The search includes the works of the expansion of OpenAlex, which hold talks and workshop papers that its main
+  index lacks. OpenReview receives those of this year and the year before, since venues of machine learning show their papers
   on OpenReview before any database.
 - An index receives four requests at a time. It receives no further request in a run once three requests in a
   row stay without an answer or once five seconds per title of the run have passed. A request that a service
@@ -186,7 +187,9 @@ the cited authors.
 - A reference bears the title of a record when the title that the tool read is nearly the title of the record,
   at a ratio of at least 95 of 100 over their letters and digits. It also bears the title when the title of the
   record stands in the entry as a whole field, with or without its subtitle. The comparison ignores case and
-  accents.
+  accents. A record that names the cited authors also confirms a reference whose title holds nearly the words of
+  the record title in another order, at the same ratio over the sorted words, also where a line end took a
+  hyphen out of a word.
 - A record names the cited authors in three cases. First, it names at least half of the cited authors.
   Second, it names only cited authors, as a record with a cut author list does. Third, it names the first author
   of an entry that goes on with et al. A record without an author to compare counts as a record of the cited

@@ -400,7 +400,7 @@ def _in_dblp(ref: Reference, records: sqlite3.Connection, counts: dict[str, int]
         ref = dataclasses.replace(ref, status="not_found", record_source="", record_authors=(), record_url="")
     found = [(title, tuple(name for (name,) in records.execute(
         "select a.name from publication_authors l join authors a on a.id = l.author_id where l.pub_id = ?", (record,))))
-        for record, title in dict.fromkeys(titles) if cited.bears(title)]
+        for record, title in dict.fromkeys(titles) if cited.bears(title) or cited.bears_reordered(title)]
     return _compared(ref, cited, found, "DBLP")
 
 
@@ -750,8 +750,9 @@ def _index_answer(ref: Reference, works_of, source: str, kept: LookupCache, halv
             works = kept.works(source, query, works_of)
         except open_indexes.LOOKUP_ERRORS:
             return None
-        answer = _compared(answer, cited, [(work.title, work.authors) for work in works if cited.bears(work.title)],
-                           source)
+        records = [(work.title, work.authors) for work in works
+                   if cited.bears(work.title) or cited.bears_reordered(work.title)]
+        answer = _compared(answer, cited, records, source)
         if answer.status == "verified":
             break
     return answer

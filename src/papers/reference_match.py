@@ -6,7 +6,7 @@ import re
 import unicodedata
 from collections.abc import Iterable
 
-from rapidfuzz import fuzz
+from rapidfuzz import fuzz, utils
 
 from peercheck import dblp
 
@@ -26,6 +26,8 @@ FIELD_OPENS, FIELD_CLOSES = "“\"'‘.,:;([`)]", "”\"'’.,:;?!)]"
 MIN_TITLE_LENGTH = 16
 # Two titles are nearly the same from this ratio of their letters and digits, out of 100.
 NEAR_TITLE = 95
+# A line end takes a hyphen out of a word or puts one in.
+HYPHEN = re.compile(r"[-\u00ad\u2010\u2011]")
 # A word after a family name is no part of it when it marks a generation or holds up to three capital initials.
 GENERATIONS = frozenset({"jr", "sr", "ii", "iii", "iv"})
 MOST_INITIALS = 3
@@ -61,6 +63,13 @@ class Citation:
         return ((len(letters(title)) >= MIN_TITLE_LENGTH and near(self.title, title))
                 or self._place(title, field=True) is not None
                 or (main != title and self._place(main, field=True) is not None))
+
+    def bears_reordered(self, title: str) -> bool:
+        """Tell whether the title of a record holds nearly the words of the title that Hallucinator read in another
+        order, also where a line end took a hyphen out of a word."""
+        cited, record = (HYPHEN.sub("", folded(text)) for text in (self.title, title))
+        return (len(letters(title)) >= MIN_TITLE_LENGTH
+                and fuzz.token_sort_ratio(cited, record, processor=utils.default_process) >= NEAR_TITLE)
 
     def holds_words(self, title: str) -> bool:
         """Tell whether the entry holds the words of a title in their order, as it holds the name of its venue."""
