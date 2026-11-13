@@ -3,12 +3,13 @@
 The review checks load PyTorch and the detector models, therefore they run in their own process. CoCoDet and
 EditLens label each review, and the report gives the result of each detector on its own. A CoCoDet label AI marks
 the review for a closer look. An EditLens label is a second opinion beside it and marks no review. The canary,
-near-duplicate, and citation checks need no model.
+near-duplicate, citation, and short-review checks need no model.
 """
 
 from __future__ import annotations
 
 import argparse
+import signal
 import sys
 from collections import Counter
 from dataclasses import replace
@@ -18,10 +19,10 @@ from peercheck import canary, dblp, inputs, report, tools
 from peercheck import profile as profiles
 from peercheck.findings import Finding, Severity, needs_review
 from peercheck.models import Review
-from peercheck.reviews import citations, cocodet, duplicates, editlens
+from peercheck.reviews import citations, cocodet, duplicates, editlens, short_reviews
 
 DETECTORS = ("cocodet", "editlens")
-CHECKS = ("duplicates", "citations")
+CHECKS = {"duplicates": duplicates, "citations": citations, "short_reviews": short_reviews}
 CAUTION = ("CoCoDet and EditLens give leads, not verdicts. The CoCoDet model card states that it \"should not be "
            "used as the sole arbiter of academic misconduct\". The Open Pangram release states that EditLens "
            "\"should NOT be used to enforce any sort of AI usage policy in an educational or professional setting\".")
@@ -39,6 +40,9 @@ def main(argv: list[str] | None = None) -> int:
             OSError, ValueError) as exc:
         print(f"peercheck: {exc}", file=sys.stderr)
         return 2
+    except KeyboardInterrupt:
+        # The command that started this process prints the message of the stop.
+        return 128 + signal.SIGINT
 
 
 def parser() -> argparse.ArgumentParser:
@@ -82,13 +86,12 @@ def run(args: argparse.Namespace) -> int:
             rows[review_id]["Canary"] = _canary_state(items)
         canaries.append(f"Canary key: {args.canaries}, which holds {_key_coverage(reviews, key)} reviewed papers.")
     pages = {"pages": venue.format.main_pages} if venue else {}
-    options = {"duplicates": _options(venue, "duplicates"),
-               "citations": {**pages, **_options(venue, "citations"),
-                             **_panel_options()}}
-    for name, module in (("duplicates", duplicates), ("citations", citations)):
-        if name in checks:
-            for review_id, items in module.check_reviews(reviews, options[name]).items():
-                found[review_id].extend(items)
+    for name in checks:
+        options = _options(venue, name)
+        if name == "citations":
+            options = {**pages, **options, **_panel_options()}
+        for review_id, items in CHECKS[name].check_reviews(reviews, options).items():
+            found[review_id].extend(items)
     for review in reviews:
         rows[review.review_id]["Needs Review"] = "yes" if needs_review(found[review.review_id]) else "no"
         rows[review.review_id]["Findings"] = report.findings_text(found[review.review_id])

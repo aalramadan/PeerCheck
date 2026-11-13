@@ -126,17 +126,34 @@ class Detector:
     def label(self, texts: list[str]) -> list[Verdict | None]:
         """Label each text; an empty text gets None."""
         verdicts: list[Verdict | None] = [None] * len(texts)
-        indexed = [(i, normalize(t)) for i, t in enumerate(texts) if normalize(t)]
-        for start in range(0, len(indexed), BATCH_SIZE):
-            batch = indexed[start:start + BATCH_SIZE]
-            encoded = self.tokenizer([t for _, t in batch], truncation=True, max_length=MAX_TOKENS,
-                                     padding=True, return_tensors="pt").to(self.device)
-            with torch.no_grad():
+        for indexes, encoded, cut in batches(self.tokenizer, [normalize(t) for t in texts], MAX_TOKENS, BATCH_SIZE):
+            encoded = encoded.to(self.device)
+            with torch.inference_mode():
                 main, content, style, fine = self.model(encoded["input_ids"], encoded["attention_mask"])
-            for row, (index, text) in enumerate(batch):
-                verdicts[index] = _verdict(main[row], content[row], style[row], fine[row],
-                                           truncated=len(self.tokenizer(text, verbose=False)["input_ids"]) > MAX_TOKENS)
+            for row, index in enumerate(indexes):
+                verdicts[index] = _verdict(main[row], content[row], style[row], fine[row], truncated=cut[row])
         return verdicts
+
+
+def batches(tokenizer, texts: list[str], max_tokens: int, size: int):
+    """Yield the indexes of the nonempty texts in batches of size texts with similar token counts, each with its
+    padded encoding and whether the cut at max_tokens shortened each text. Each text is tokenized once."""
+    kept = [i for i, text in enumerate(texts) if text]
+    if not kept:
+        return
+    # A text that the truncation cut gets overflow rows after its first row.
+    encoded = tokenizer([texts[i] for i in kept], truncation=True, max_length=max_tokens,
+                        return_overflowing_tokens=True, verbose=False)
+    rows: dict[int, list[int]] = {}
+    for row, sample in enumerate(encoded["overflow_to_sample_mapping"]):
+        rows.setdefault(sample, []).append(row)
+    order = sorted(rows, key=lambda sample: len(encoded["input_ids"][rows[sample][0]]))
+    names = [name for name in tokenizer.model_input_names if name in encoded]
+    for start in range(0, len(order), size):
+        batch = order[start:start + size]
+        padded = tokenizer.pad({name: [encoded[name][rows[s][0]] for s in batch] for name in names},
+                               return_tensors="pt")
+        yield [kept[s] for s in batch], padded, [len(rows[s]) > 1 for s in batch]
 
 
 def normalize(text: str) -> str:

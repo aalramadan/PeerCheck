@@ -1,0 +1,97 @@
+{
+ "notes": [
+  {
+   "content": {
+    "title": {
+     "value": "PADA-Coder: Improving Plan-Following Code Generation via Perturbation-Verified Attention Distillation and Dynamic Alignment"
+    },
+    "authors": {
+     "value": [
+      "Yihong Huang",
+      "Ke Qin",
+      "Rongzheng Wang",
+      "Muquan Li",
+      "Jiakai Li",
+      "Xiurui Xie",
+      "Shuang Liang"
+     ]
+    },
+    "venue": {
+     "value": "ICML 2026 regular"
+    }
+   }
+  },
+  {
+   "content": {
+    "title": {
+     "value": "Coder Reviewer Reranking for Code Generation"
+    },
+    "authors": {
+     "value": [
+      "Tianyi Zhang",
+      "Tao Yu",
+      "Tatsunori Hashimoto",
+      "Mike Lewis",
+      "Wen-tau Yih",
+      "Daniel Fried",
+      "Sida Wang"
+     ]
+    },
+    "venue": {
+     "value": "ICML 2023 Poster"
+    }
+   }
+  },
+  {
+   "content": {
+    "title": {
+     "value": "CODERL+: Improving Code Generation via Reinforcement with Execution Semantics Alignment"
+    },
+    "authors": {
+     "value": [
+      {
+       "fullname": "Xue Jiang",
+       "username": ""
+      },
+      {
+       "fullname": "Yihong Dong",
+       "username": "~Yihong_Dong1"
+      },
+      {
+       "fullname": "Mengyang Liu",
+       "username": ""
+      },
+      {
+       "fullname": "Hongyi Deng",
+       "username": ""
+      },
+      {
+       "fullname": "Tian Wang",
+       "username": ""
+      },
+      {
+       "fullname": "Yongding Tao",
+       "username": ""
+      },
+      {
+       "fullname": "Zhi Jin",
+       "username": ""
+      },
+      {
+       "fullname": "Wenpin Jiao",
+       "username": ""
+      },
+      {
+       "fullname": "Ge Li",
+       "username": ""
+      }
+     ]
+    },
+    "venue": {
+     "value": "ACL (1) 2026"
+    }
+   }
+  }
+ ],
+ "count": 10000
+}

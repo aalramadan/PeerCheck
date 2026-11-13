@@ -1,0 +1,369 @@
+{
+ "data": [
+  {
+   "id": "10.26303/2mm2-1h68",
+   "type": "dois",
+   "attributes": {
+    "titles": [
+     {
+      "title": "Attention is all you need"
+     }
+    ],
+    "creators": [
+     {
+      "nameType": "Organizational",
+      "name": "Saikiran Chandha",
+      "affiliation": [],
+      "nameIdentifiers": []
+     }
+    ]
+   },
+   "relationships": {}
+  },
+  {
+   "id": "10.17176/20230414-190229-0",
+   "type": "dois",
+   "attributes": {
+    "titles": [
+     {
+      "lang": "en",
+      "title": "Attention Is All You Need"
+     }
+    ],
+    "creators": [
+     {
+      "nameType": "Personal",
+      "givenName": "Christoph",
+      "familyName": "Krönke",
+      "name": "Krönke, Christoph",
+      "nameIdentifiers": [
+       {
+        "nameIdentifierScheme": "GND",
+        "nameIdentifier": "1021989967"
+       }
+      ],
+      "affiliation": []
+     }
+    ]
+   },
+   "relationships": {}
+  },
+  {
+   "id": "10.48550/arxiv.1706.03762",
+   "type": "dois",
+   "attributes": {
+    "titles": [
+     {
+      "title": "Attention Is All You Need"
+     }
+    ],
+    "creators": [
+     {
+      "nameType": "Personal",
+      "givenName": "Ashish",
+      "familyName": "Vaswani",
+      "name": "Vaswani, Ashish",
+      "affiliation": [],
+      "nameIdentifiers": []
+     },
+     {
+      "nameType": "Personal",
+      "givenName": "Noam",
+      "familyName": "Shazeer",
+      "name": "Shazeer, Noam",
+      "affiliation": [],
+      "nameIdentifiers": []
+     },
+     {
+      "nameType": "Personal",
+      "givenName": "Niki",
+      "familyName": "Parmar",
+      "name": "Parmar, Niki",
+      "affiliation": [],
+      "nameIdentifiers": []
+     },
+     {
+      "nameType": "Personal",
+      "givenName": "Jakob",
+      "familyName": "Uszkoreit",
+      "name": "Uszkoreit, Jakob",
+      "affiliation": [],
+      "nameIdentifiers": []
+     },
+     {
+      "nameType": "Personal",
+      "givenName": "Llion",
+      "familyName": "Jones",
+      "name": "Jones, Llion",
+      "affiliation": [],
+      "nameIdentifiers": []
+     },
+     {
+      "nameType": "Personal",
+      "givenName": "Aidan N.",
+      "familyName": "Gomez",
+      "name": "Gomez, Aidan N.",
+      "affiliation": [],
+      "nameIdentifiers": []
+     },
+     {
+      "nameType": "Personal",
+      "givenName": "Lukasz",
+      "familyName": "Kaiser",
+      "name": "Kaiser, Lukasz",
+      "affiliation": [],
+      "nameIdentifiers": []
+     },
+     {
+      "nameType": "Personal",
+      "givenName": "Illia",
+      "familyName": "Polosukhin",
+      "name": "Polosukhin, Illia",
+      "affiliation": [],
+      "nameIdentifiers": []
+     }
+    ]
+   },
+   "relationships": {}
+  },
+  {
+   "id": "10.5281/zenodo.18289747",
+   "type": "dois",
+   "attributes": {
+    "titles": [
+     {
+      "title": "Attention is all you need"
+     }
+    ],
+    "creators": [
+     {
+      "nameType": "Personal",
+      "affiliation": [
+       "Schwyz University of Teacher Education"
+      ],
+      "givenName": "Beat",
+      "familyName": "Döbeli Honegger",
+      "name": "Döbeli Honegger, Beat",
+      "nameIdentifiers": [
+       {
+        "nameIdentifierScheme": "ORCID",
+        "nameIdentifier": "0000-0002-0199-9712"
+       }
+      ]
+     }
+    ]
+   },
+   "relationships": {}
+  },
+  {
+   "id": "10.5281/zenodo.18289746",
+   "type": "dois",
+   "attributes": {
+    "titles": [
+     {
+      "title": "Attention is all you need"
+     }
+    ],
+    "creators": [
+     {
+      "nameType": "Personal",
+      "affiliation": [
+       "Schwyz University of Teacher Education"
+      ],
+      "givenName": "Beat",
+      "familyName": "Döbeli Honegger",
+      "name": "Döbeli Honegger, Beat",
+      "nameIdentifiers": [
+       {
+        "nameIdentifierScheme": "ORCID",
+        "nameIdentifier": "0000-0002-0199-9712"
+       }
+      ]
+     }
+    ]
+   },
+   "relationships": {}
+  },
+  {
+   "id": "10.5281/zenodo.14589467",
+   "type": "dois",
+   "attributes": {
+    "titles": [
+     {
+      "title": "Attention is all you need paper"
+     }
+    ],
+    "creators": [
+     {
+      "nameType": "Personal",
+      "givenName": "Tarandeep",
+      "familyName": "Singh",
+      "name": "Singh, Tarandeep",
+      "nameIdentifiers": [],
+      "affiliation": []
+     }
+    ]
+   },
+   "relationships": {}
+  },
+  {
+   "id": "10.6084/m9.figshare.28569098",
+   "type": "dois",
+   "attributes": {
+    "titles": [
+     {
+      "title": "Review Attention is All You Need"
+     }
+    ],
+    "creators": [
+     {
+      "givenName": "Plipus",
+      "familyName": "Telaumbanua",
+      "name": "Telaumbanua, Plipus",
+      "affiliation": [],
+      "nameIdentifiers": []
+     }
+    ]
+   },
+   "relationships": {}
+  },
+  {
+   "id": "10.6084/m9.figshare.28569098.v1",
+   "type": "dois",
+   "attributes": {
+    "titles": [
+     {
+      "title": "Review Attention is All You Need"
+     }
+    ],
+    "creators": [
+     {
+      "givenName": "Plipus",
+      "familyName": "Telaumbanua",
+      "name": "Telaumbanua, Plipus",
+      "affiliation": [],
+      "nameIdentifiers": []
+     }
+    ]
+   },
+   "relationships": {}
+  },
+  {
+   "id": "10.48550/arxiv.2104.04692",
+   "type": "dois",
+   "attributes": {
+    "titles": [
+     {
+      "title": "Not All Attention Is All You Need"
+     }
+    ],
+    "creators": [
+     {
+      "nameType": "Personal",
+      "givenName": "Hongqiu",
+      "familyName": "Wu",
+      "name": "Wu, Hongqiu",
+      "affiliation": [],
+      "nameIdentifiers": []
+     },
+     {
+      "nameType": "Personal",
+      "givenName": "Hai",
+      "familyName": "Zhao",
+      "name": "Zhao, Hai",
+      "affiliation": [],
+      "nameIdentifiers": []
+     },
+     {
+      "nameType": "Personal",
+      "givenName": "Min",
+      "familyName": "Zhang",
+      "name": "Zhang, Min",
+      "affiliation": [],
+      "nameIdentifiers": []
+     }
+    ]
+   },
+   "relationships": {}
+  },
+  {
+   "id": "10.48550/arxiv.2501.06425",
+   "type": "dois",
+   "attributes": {
+    "titles": [
+     {
+      "title": "Tensor Product Attention Is All You Need"
+     }
+    ],
+    "creators": [
+     {
+      "nameType": "Personal",
+      "givenName": "Yifan",
+      "familyName": "Zhang",
+      "name": "Zhang, Yifan",
+      "affiliation": [],
+      "nameIdentifiers": []
+     },
+     {
+      "nameType": "Personal",
+      "givenName": "Yifeng",
+      "familyName": "Liu",
+      "name": "Liu, Yifeng",
+      "affiliation": [],
+      "nameIdentifiers": []
+     },
+     {
+      "nameType": "Personal",
+      "givenName": "Huizhuo",
+      "familyName": "Yuan",
+      "name": "Yuan, Huizhuo",
+      "affiliation": [],
+      "nameIdentifiers": []
+     },
+     {
+      "nameType": "Personal",
+      "givenName": "Zhen",
+      "familyName": "Qin",
+      "name": "Qin, Zhen",
+      "affiliation": [],
+      "nameIdentifiers": []
+     },
+     {
+      "nameType": "Personal",
+      "givenName": "Yang",
+      "familyName": "Yuan",
+      "name": "Yuan, Yang",
+      "affiliation": [],
+      "nameIdentifiers": []
+     },
+     {
+      "nameType": "Personal",
+      "givenName": "Quanquan",
+      "familyName": "Gu",
+      "name": "Gu, Quanquan",
+      "affiliation": [],
+      "nameIdentifiers": []
+     },
+     {
+      "nameType": "Personal",
+      "givenName": "Andrew Chi-Chih",
+      "familyName": "Yao",
+      "name": "Yao, Andrew Chi-Chih",
+      "affiliation": [],
+      "nameIdentifiers": []
+     }
+    ]
+   },
+   "relationships": {}
+  }
+ ],
+ "meta": {
+  "total": 106,
+  "totalPages": 11,
+  "page": 1
+ },
+ "links": {
+  "self": "https://api.datacite.org/dois?query=titles.title%3A%22Attention+Is+All+You+Need%22&sort=relevance&page%5Bsize%5D=10&fields%5Bdois%5D=titles%2Ccreators",
+  "next": "https://api.datacite.org/dois?fields%5Bdois%5D=titles%2Ccreators&page%5Bnumber%5D=2&page%5Bsize%5D=10&query=titles.title%3A%22Attention+Is+All+You+Need%22"
+ }
+}

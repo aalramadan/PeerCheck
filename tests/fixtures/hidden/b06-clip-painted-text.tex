@@ -1,0 +1,9 @@
+\input{common}
+\usepackage{pdfrender}
+\begin{document}
+\noindent\pdfliteral page{q}\textpdfrender{TextRenderingMode=Clip}{\Huge\bfseries One Hundred Runs of Each Test}\pdfliteral page{0 0 0.6 rg 0 0 612 792 re f Q}
+
+\visibleintro{} \pdfliteral page{q}\textpdfrender{TextRenderingMode=FillClip}{Each run starts from a clean checkout of the project.}\pdfliteral page{Q}
+
+\visibleresults
+\end{document}

@@ -15,12 +15,18 @@ from peercheck.models import Paper
 from peercheck.papers import layout
 
 PAPERS = Path(__file__).parent / "fixtures" / "papers"
+LAYOUT = Path(__file__).parent / "fixtures" / "layout"
+MARGINS = Path(__file__).parent / "fixtures" / "margins"
 needs_banal = pytest.mark.skipif(not (shutil.which("perl") and shutil.which("pdftohtml")),
                                  reason="banal needs perl and pdftohtml")
 
 
 def _inspect(name):
     return layout.inspect(Paper(1, PAPERS / name), profile.load("icse-2027"))
+
+
+def _inspect_layout(name):
+    return layout.inspect(Paper(1, LAYOUT / name), profile.load("icse-2027"))
 
 
 def _checks(result):
@@ -52,7 +58,7 @@ def test_main_text_over_ten_pages_breaks_the_limit():
 @needs_banal
 def test_a4_one_column_draft_breaks_the_format_rules():
     checks = _checks(_inspect("article-a4-12pt.pdf"))
-    assert {"layout.paper-size", "layout.body-font", "layout.columns", "layout.margins"} <= checks
+    assert {"layout.paper-size", "layout.body-font", "layout.columns"} <= checks
     assert "layout.no-references" not in checks
 
 
@@ -221,3 +227,217 @@ def test_exempt_section_that_opens_its_page_frees_that_page_too(tmp_path):
 def test_fse_profile_exempts_the_data_availability_section():
     rules = profile.load("fse-2027").format
     assert rules.exempt_sections == ("data availability",) and rules.exempt_pages_max == 1
+
+
+def _margin_findings(margins, template="icse-2027"):
+    report = {"pages": [{}], "w": 900, "margin": margins}
+    found = layout.evaluate(layout.measure(report), profile.load(template).format, "Abstract")
+    return [(f.check, f.severity, f.message) for f in found if f.check == "layout.margins"]
+
+
+def test_margin_narrower_than_the_template_beyond_the_tolerance_is_an_error():
+    assert _margin_findings([52, 48, 53, 48]) == [("layout.margins", Severity.ERROR, (
+        "margins 52, 48, 53, 48 pt, narrower than the 52, 48, 72, 48 pt of the template by more than 18 pt"))]
+    assert _margin_findings([52, 48, 54, 30]) == []
+
+
+def test_margins_wider_than_the_template_break_no_rule():
+    assert _margin_findings([76, 72, 108, 72]) == []
+
+
+@needs_banal
+def test_wide_text_block_breaks_the_margins_of_the_template():
+    result = layout.inspect(Paper(1, MARGINS / "ieee-wide-text.pdf"), profile.load("icse-2027"))
+    assert "layout.margins" in _checks(result)
+
+
+@needs_banal
+def test_acmsmall_paper_without_the_review_option_keeps_the_margins_of_the_fse_profile():
+    result = layout.inspect(Paper(1, MARGINS / "acm-clean.pdf"), profile.load("fse-2027"))
+    assert "layout.margins" not in _checks(result)
+
+
+def test_fse_profile_allows_a_running_head_that_banal_counts_as_text_and_nothing_narrower():
+    assert _margin_findings([60, 42, 36, 44], "fse-2027") == []
+    assert [check for check, _, _ in _margin_findings([59, 42, 36, 44], "fse-2027")] == ["layout.margins"]
+    assert [check for check, _, _ in _margin_findings([84, 42, 36, 19], "fse-2027")] == ["layout.margins"]
+
+
+@needs_banal
+def test_acmart_abstract_without_a_label_counts_as_an_abstract():
+    assert "layout.missing-abstract" not in _checks(_inspect_layout("acm-unlabeled-abstract.pdf"))
+
+
+@needs_banal
+def test_acmart_paper_without_an_abstract_is_a_warning():
+    assert "layout.missing-abstract" in _checks(_inspect_layout("acm-no-abstract.pdf"))
+
+
+def _lacks_abstract(first_page):
+    found = layout.evaluate(layout.measure({"pages": [{}], "w": 900}), profile.load("icse-2027").format, first_page)
+    return "layout.missing-abstract" in {f.check for f in found}
+
+
+def _first_page(lines, words, follows="1 Introduction"):
+    """Return the text of a first page with a title, lines of text without a label, and what follows them."""
+    text = "\n".join(" ".join(["flaky"] * words) for _ in range(lines))
+    return f"Ranking Flaky Test Failures\nAnonymous Author(s)\n{text}\n{follows}\nFlaky tests pass and fail.\n"
+
+
+@pytest.mark.parametrize("follows", [
+    "CCS Concepts: \u2022 Software and its engineering \u2192 Software testing and debugging.",
+    "Additional Key Words and Phrases: flaky tests, regression testing", "ACM Reference Format:",
+    "1 Introduction", "1\nINTRODUCTION", "I. INTRODUCTION", "Introduction",
+], ids=["ccs-concepts", "key-words", "reference-format", "number", "number-on-its-own-line", "roman-number",
+        "no-number"])
+def test_abstract_without_a_label_ends_at_the_top_matter_of_acmart_or_at_the_introduction(follows):
+    assert not _lacks_abstract(_first_page(10, 13, follows))
+
+
+@pytest.mark.parametrize(("lines", "words", "missing"), [
+    (10, 13, False), (9, 13, True), (17, 8, False), (20, 7, True),
+], ids=["130-words", "117-words", "lines-of-8-words", "lines-of-7-words"])
+def test_abstract_without_a_label_takes_130_words_in_lines_of_8_words_or_more(lines, words, missing):
+    assert _lacks_abstract(_first_page(lines, words)) is missing
+
+
+def test_author_blocks_above_the_first_section_are_no_abstract():
+    author = ("Jane Example\nDepartment of Computer Science and Engineering\nExample University\n"
+              "Example City, Exampleland\njane@example.org\n")
+    assert _lacks_abstract(f"Ranking Flaky Test Failures\n{author * 12}I. INTRODUCTION\nFlaky tests pass and fail.\n")
+
+
+def test_rows_of_numbers_above_the_first_section_are_no_lines_of_an_abstract():
+    rows = "\n".join(" ".join(str(row * 10 + column) for column in range(10)) for row in range(20))
+    assert _lacks_abstract(f"Ranking Flaky Test Failures\nAnonymous Author(s)\n{rows}\n1\nIntroduction\n")
+
+
+def test_heading_in_another_form_of_the_word_satisfies_the_required_heading():
+    report = {"pages": [{"headings": ["1 Introduction"]}, {"headings": ["9 Concluding Remarks"]}], "w": 2000}
+    found = layout.evaluate(layout.measure(report), profile.load("icse-2027").format, "Abstract")
+    assert "layout.missing-heading" not in {f.check for f in found}
+
+
+def test_heading_of_another_word_does_not_satisfy_the_required_heading():
+    report = {"pages": [{"headings": ["1 Introduction"]}, {"headings": ["9 Future Plans", "Concepts"]}], "w": 2000}
+    found = layout.evaluate(layout.measure(report), profile.load("icse-2027").format, "Abstract")
+    assert [f.message for f in found if f.check == "layout.missing-heading"] == ["no heading containing 'conclusion'"]
+
+
+def test_short_required_heading_is_not_satisfied_by_another_form_of_the_word():
+    rules = dataclasses.replace(profile.load("icse-2027").format, required_headings=("introduction", "threats"))
+    report = {"pages": [{"headings": ["1 Introduction", "2 Threat Model"]}, {"headings": ["6 Conclusion"]}], "w": 2000}
+    found = layout.evaluate(layout.measure(report), rules, "Abstract")
+    assert [f.message for f in found if f.check == "layout.missing-heading"] == ["no heading containing 'threats'"]
+
+
+def _without_heading(pdf, heading, monkeypatch):
+    """Inspect a PDF under the ICSE 2027 profile as if banal had missed one of its headings."""
+    report = layout.run_banal(pdf)
+    for page in report["pages"]:
+        page["headings"] = [name for name in page.get("headings", []) if heading not in name.lower()]
+    monkeypatch.setattr(layout, "run_banal", lambda pdf: report)
+    return layout.inspect(Paper(1, pdf), profile.load("icse-2027"))
+
+
+@needs_banal
+def test_heading_that_banal_missed_is_found_in_the_text_of_the_pdf(monkeypatch):
+    result = _without_heading(LAYOUT / "ieee-year-ends-page.pdf", "conclusion", monkeypatch)
+    assert "layout.missing-heading" not in _checks(result)
+
+
+@needs_banal
+def test_heading_that_the_pdf_does_not_hold_stays_missing():
+    icse = profile.load("icse-2027")
+    rules = dataclasses.replace(icse.format, required_headings=("introduction", "threats"))
+    result = layout.inspect(Paper(1, LAYOUT / "ieee-year-ends-page.pdf"), dataclasses.replace(icse, format=rules))
+    assert [f.message for f in result.findings if f.check == "layout.missing-heading"] == [
+        "no heading containing 'threats'"]
+
+
+@needs_banal
+def test_table_caption_in_capital_letters_is_no_section_heading():
+    result = _inspect_layout("ieee-capital-caption.pdf")
+    assert [f.message for f in result.findings if f.check == "layout.missing-heading"] == [
+        "no heading containing 'conclusion'"]
+
+
+def _inspect_drawn(tmp_path, monkeypatch, draw, pages=1, **measures):
+    """Inspect a PDF whose pages the draw function fills, given each page and its number, under the ICSE 2027
+    profile, as if banal had found its Introduction and the given measures."""
+    with pymupdf.open() as document:
+        for number in range(1, pages + 1):
+            draw(document.new_page(), number)
+        document.save(tmp_path / "paper.pdf")
+    report = {"pages": [{"headings": ["I. INTRODUCTION"]}, *[{}] * (pages - 1)], "w": 900 * pages, **measures}
+    monkeypatch.setattr(layout, "run_banal", lambda pdf: report)
+    return layout.inspect(Paper(1, tmp_path / "paper.pdf"), profile.load("icse-2027"))
+
+
+@pytest.mark.parametrize(("line", "missing"), [
+    ("VI. LESSONS, THREATS TO VALIDITY AND CONCLUSION", False),
+    ("CONCLUSIONS OF EARLIER STUDIES", True),
+    ("I. Conclusions of the earlier studies differ, as the next section shows.", True),
+], ids=["numbered-capitals", "capitals-without-a-number", "numbered-sentence"])
+def test_only_a_numbered_line_in_capital_letters_is_a_heading_that_banal_missed(tmp_path, monkeypatch, line, missing):
+    def draw(page, number):
+        page.insert_text((72, 100), "The studies of flaky tests reach the results of Table", fontsize=10)
+        page.insert_text((72, 114), line, fontsize=10)
+
+    result = _inspect_drawn(tmp_path, monkeypatch, draw)
+    assert ("layout.missing-heading" in _checks(result)) is missing
+
+
+@needs_banal
+def test_year_that_ends_a_page_is_no_page_number():
+    result = _inspect_layout("ieee-year-ends-page.pdf")
+    assert "layout.page-numbers" not in _checks(result)
+    assert result.layout.page_number_margin is None
+
+
+@needs_banal
+def test_page_numbers_that_count_up_below_the_text_are_reported():
+    result = layout.inspect(Paper(1, MARGINS / "ieee-clean.pdf"), profile.load("icse-2027"))
+    assert "layout.page-numbers" in _checks(result)
+
+
+def _footer(form):
+    """Return a function that draws a line of body text and the footer that the form gives for the page, if any."""
+    def draw(page, number):
+        page.insert_text((72, 100), "The ranking places a flaky failure first.", fontsize=10)
+        if form(number):
+            page.insert_text((300, 760), form(number), fontsize=8)
+    return draw
+
+
+@pytest.mark.parametrize(("form", "pages", "reported"), [
+    (str, 4, True),
+    (lambda number: f"{number}/4", 4, True),
+    (lambda number: str(number) if number > 1 else None, 2, True),
+    (lambda number: "2026", 4, False),
+    (lambda number: "2026" if number > 1 else None, 2, False),
+    (lambda number: str(number) if number in (2, 3) else None, 5, False),
+], ids=["number", "number-and-page-count", "none-on-the-title-page", "same-number-on-each-page", "one-year",
+        "on-two-of-five-pages"])
+def test_numbers_below_the_text_are_page_numbers_where_they_count_up_with_the_pages(
+        tmp_path, monkeypatch, form, pages, reported):
+    result = _inspect_drawn(tmp_path, monkeypatch, _footer(form), pages, nummargin=30)
+    assert ("layout.page-numbers" in _checks(result)) is reported
+    assert (result.layout.page_number_margin is not None) is reported
+
+
+def test_page_number_between_dashes_of_a_larger_type_is_reported(tmp_path, monkeypatch):
+    def draw(page, number):
+        page.insert_text((72, 100), "The ranking places a flaky failure first.", fontsize=10)
+        page.insert_text((290, 760), "-", fontsize=12)
+        page.insert_text((300, 760), str(number), fontsize=8)
+        page.insert_text((310, 760), "-", fontsize=12)
+
+    assert "layout.page-numbers" in _checks(_inspect_drawn(tmp_path, monkeypatch, draw, pages=4, nummargin=30))
+
+
+def test_page_numbers_of_banal_stay_for_a_pdf_that_only_banal_reads(tmp_path, monkeypatch):
+    pdf = tmp_path / "paper.pdf"
+    pdf.write_text("no PDF", encoding="utf-8")
+    monkeypatch.setattr(layout, "run_banal", lambda pdf: {"pages": [{}], "w": 900, "nummargin": 30})
+    assert "layout.page-numbers" in _checks(layout.inspect(Paper(1, pdf), profile.load("icse-2027")))

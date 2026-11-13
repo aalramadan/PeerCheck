@@ -127,6 +127,15 @@ class TestThresholds:
             "paragraph 2 here and paragraph 1 of review B, Jaccard 1.00"
         )
 
+    def test_a_paragraph_inside_a_longer_one_is_found_at_the_ratio_of_their_sizes(self):
+        longer = TEMPLATE + " The authors should also release the scripts of the second experiment."
+        ratio = len(duplicates._shingles(TEMPLATE, 5)) / len(duplicates._shingles(longer, 5))
+        reviews = [review("A", TEMPLATE), review("B", longer, 2)]
+        found = duplicates.check_reviews(reviews, {"threshold": ratio})
+        assert [f.evidence for f in found["A"]] == [
+            f"paragraph 1 here and paragraph 1 of review B, Jaccard {ratio:.2f}"]
+        assert duplicates.check_reviews(reviews, {"threshold": ratio + 0.01}) == {"A": [], "B": []}
+
     def test_invalid_threshold_raises(self):
         with pytest.raises(ValueError, match="threshold"):
             duplicates.check_reviews([review("A", TEMPLATE)], {"threshold": 0})

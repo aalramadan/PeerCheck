@@ -48,6 +48,19 @@ def test_build_with_undefined_references_gives_one_note_with_the_count(case, cou
     assert finding.message == f"{count} marks of undefined references or citations, such as ?? or [?], on page 1."
 
 
+def test_error_text_of_word_counts_as_a_mark_also_where_it_wraps():
+    (finding,) = run(FIXTURES / "word-errors.pdf")
+    assert finding.message == "3 marks of undefined references or citations, such as ?? or [?], on page 1."
+    first, second = finding.evidence.split(" | ")
+    assert "Fig. Error! Reference source not found. and" in first
+    assert "as Error! Bookmark not defined. describes" in second
+
+
+def test_other_error_message_in_the_text_gives_no_finding(tmp_path):
+    pdf = write_pages(tmp_path / "log.pdf", "The log prints <b>Error! File not found.</b> Error! Reference missing.")
+    assert run(pdf) == []
+
+
 @pytest.mark.parametrize("pdf", CLEAN, ids=lambda pdf: pdf.name)
 def test_clean_build_gives_no_finding(pdf):
     assert run(pdf) == []

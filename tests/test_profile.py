@@ -97,11 +97,70 @@ def test_unknown_profile_names_the_shipped_ones():
         profile.load("no-such-venue")
 
 
+def test_template_file_that_does_not_exist_is_named_as_a_missing_file(tmp_path):
+    with pytest.raises(profile.ProfileError, match="template file not found: .*venue.yaml"):
+        profile.load(str(tmp_path / "venue.yaml"))
+
+
+@pytest.mark.parametrize("name", ["icse-2027.yaml", "templates/icse-2027.yaml"])
+def test_shipped_template_named_as_a_file_that_does_not_exist_gets_the_shipped_keys(tmp_path, monkeypatch, name):
+    monkeypatch.chdir(tmp_path)
+    with pytest.raises(profile.ProfileError,
+                       match=f"template file not found: {name}; shipped templates: fse-2027, icse-2027"):
+        profile.load(name)
+
+
+def test_template_file_that_is_no_yaml_is_rejected_with_the_line_of_the_mistake(tmp_path):
+    path = tmp_path / "venue.yaml"
+    path.write_text("name: A venue\nformat:\n\tstyle: IEEE\n", encoding="utf-8")
+    with pytest.raises(profile.ProfileError, match="template venue: line 3 is no valid YAML") as caught:
+        profile.load(str(path))
+    assert caught.value.__cause__.problem in str(caught.value)
+
+
+def test_template_file_with_a_yaml_mistake_that_has_no_line_is_rejected_as_a_file(tmp_path):
+    path = tmp_path / "venue.yaml"
+    path.write_text('name: "A\x01venue"\n', encoding="utf-8")
+    with pytest.raises(profile.ProfileError, match="template venue: the file is no valid YAML"):
+        profile.load(str(path))
+
+
+@pytest.mark.parametrize(("name", "value"), [
+    ("columns", "two"), ("main_pages", [10]), ("main_pages", None), ("reference_pages", float("inf")),
+    ("body_font_max", "large"), ("margins", [52, 48, "wide", 48]), ("margins", [52, 48, [1], 48])])
+def test_format_rule_that_is_no_number_is_rejected_with_its_name(tmp_path, name, value):
+    data = _shipped("icse-2027")
+    data["format"][name] = value
+    with pytest.raises(profile.ProfileError, match=f"template venue: {name} must"):
+        _load(tmp_path, data)
+
+
+def test_format_rule_set_to_nothing_takes_its_default(tmp_path):
+    data = _shipped("icse-2027")
+    data["format"].update(paper_size_tolerance=None, margin_tolerance=None, body_font_max=None)
+    rules = _load(tmp_path, data).format
+    assert (rules.paper_size_tolerance, rules.margin_tolerance, rules.body_font_max) == (5.0, 18.0, None)
+
+
 def test_profile_file_with_an_unknown_key_is_rejected(tmp_path):
     data = _shipped("icse-2027")
     data["format"]["page_limit"] = 10
     with pytest.raises(profile.ProfileError, match="page_limit"):
         _load(tmp_path, data)
+
+
+def test_profile_file_with_a_number_as_a_key_is_rejected_with_the_key(tmp_path):
+    data = _shipped("icse-2027")
+    data["format"][7] = 1
+    with pytest.raises(profile.ProfileError, match="template venue, format: unknown keys 7"):
+        _load(tmp_path, data)
+
+
+def test_profile_file_in_another_encoding_than_utf_8_is_rejected_as_a_template(tmp_path):
+    path = tmp_path / "venue.yaml"
+    path.write_bytes("name: Caf\u00e9\n".encode("latin-1"))
+    with pytest.raises(profile.ProfileError, match="template venue: the file is not saved as UTF-8"):
+        profile.load(str(path))
 
 
 def test_file_pattern_needs_one_group(tmp_path):
@@ -139,7 +198,7 @@ def test_a_check_runs_while_its_key_stands_in_the_template(tmp_path):
 def test_every_check_of_the_default_template_runs_except_the_accessibility_notes():
     venue = profile.load(profile.DEFAULT)
     keys = ("layout", "sigsoft", "hidden_text", "references", "cocodet", "editlens", "duplicates", "citations",
-            "canary", "conflicts")
+            "short_reviews", "canary", "conflicts")
     assert all(venue.runs(key) for key in keys) and not venue.runs("accessibility")
 
 

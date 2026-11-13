@@ -7,12 +7,16 @@ import datetime
 import html
 import re
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from peercheck import __version__
 from peercheck.findings import Finding, Severity, count, needs_review
 from peercheck.inputs import EXCEL_SUFFIXES
 from peercheck.papers.layout import REPORT_COLUMNS
-from peercheck.papers.pipeline import PapersRun
+
+# The pipeline loads every paper check, which the process of the reviews never runs.
+if TYPE_CHECKING:
+    from peercheck.papers.pipeline import PapersRun
 
 HTML_STYLE = """
 :root{--bg:#ffffff;--fg:#1f2328;--muted:#59636e;--line:#d1d9e0;--head:#f6f8fa;--error:#cf222e;--warning:#9a6700;
@@ -82,9 +86,10 @@ def findings_text(findings: list[Finding]) -> str:
 
 
 def csv_path(out: Path | None, default: str, *sources: Path | None) -> Path:
-    """Return the path of a CSV report, refusing an Excel name and the path of an input file."""
+    """Return the path of a CSV report, refusing an Excel name, the name of the page, a folder, and an input file."""
     path = out or Path(default)
-    if path.suffix.lower() in EXCEL_SUFFIXES:
+    # The page takes the name of the CSV file with .html, therefore a CSV file of that name would replace the page.
+    if path.suffix.lower() in (*EXCEL_SUFFIXES, ".html") or path.is_dir():
         raise ValueError(f"--out names the CSV file of the report, such as {default}")
     for source in sources:
         if source is not None and path.resolve() == Path(source).resolve():

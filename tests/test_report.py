@@ -1,6 +1,8 @@
 """Tests of the CSV files and the HTML pages of the reports."""
 
 import csv
+import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -67,6 +69,13 @@ def test_report_path_refuses_an_excel_name_and_the_path_of_an_input(tmp_path):
         report.csv_path(tmp_path / "report.xlsx", "reviews-report.csv")
     with pytest.raises(ValueError, match="would overwrite the input"):
         report.csv_path(tmp_path / "." / "reviews.csv", "reviews-report.csv", reviews)
+
+
+@pytest.mark.parametrize("name", ["report.html", "REPORT.HTML", "reports"])
+def test_report_path_refuses_the_name_of_its_html_page_and_a_folder(tmp_path, name):
+    (tmp_path / "reports").mkdir()
+    with pytest.raises(ValueError, match="--out names the CSV file of the report, such as papers-report.csv"):
+        report.csv_path(tmp_path / name, "papers-report.csv")
 
 
 def test_text_that_looks_like_a_formula_stays_text_while_a_negative_score_stays_a_number(tmp_path):
@@ -169,3 +178,8 @@ def test_html_page_leaves_out_the_columns_it_is_given(tmp_path):
     report.write_rows_html(out, "PeerCheck, Reviews", rows, {}, "Review ID", ("Content Sources",))
     page = out.read_text()
     assert "CoCoDet Verdict" in page and "Content Sources" not in page and "gpt4o" not in page
+
+
+def test_report_module_loads_without_the_paper_checks():
+    code = "import sys, peercheck.report; sys.exit('peercheck.papers.pipeline' in sys.modules)"
+    assert subprocess.run([sys.executable, "-c", code], check=False).returncode == 0

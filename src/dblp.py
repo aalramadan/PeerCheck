@@ -13,7 +13,12 @@ A person matches dblp in one of three ways.
   homonym suffix, such as " 0001", is removed, together with the records whose names share the
   first and the last word, such as Lionel C. Briand for Lionel Briand, since dblp may keep one
   person under both forms. The first and the last word are compared without a generational suffix,
-  such as Jr., and with ae, oe, ue, and aa as one letter, such as Juergen Mueller for Jürgen Müller.
+  such as Jr. An umlaut also matches its ASCII spelling, such as Juergen Mueller for Jürgen Müller,
+  while two plain names stay apart, such as Xue and Xu. A plain name that no person record holds
+  also finds the other plain spelling of an umlaut, where ae, oe, ue, or aa stands before a
+  consonant, such as Jorg for Joerg. Two names that both hold middle names name one person only
+  where a middle name of one starts as one of the other does, which keeps Mona Reza Farid apart
+  from Mona Amin Farid.
 - When several person records match, or a dblp disambiguation page holds the name, the affiliation
   notes of each record are compared with Person.affiliation by the method of ISCA-2021-Script
   (github.com/hibagus/ISCA-2021-Script, filter_affiliation, fuzzy partial ratio of at least 80),
@@ -22,9 +27,10 @@ A person matches dblp in one of three ways.
   UW, picks no record. One surviving record resolves the name. Otherwise the identity is ambiguous
   and keeps the names of every matching record, with their number, for a person to check.
 
-Each scan reads the whole dump. A further scan runs only for the names of a matched record that no
-earlier scan covered, such as an alias with another first name, and for a merged record whose
-target came earlier in the dump.
+The dump is read twice, first for the person records and then for the publications under the names
+of the matched records. Each read hands lxml only the records it may need, which it finds in the raw
+bytes. A further read of the person records runs only for a merged record whose target came earlier
+in the dump.
 """
 
 from __future__ import annotations
@@ -33,9 +39,11 @@ import gzip
 import json
 import re
 import unicodedata
-from collections.abc import Iterable, Iterator
+from collections.abc import Callable, Collection, Iterable, Iterator
 from dataclasses import dataclass, field
+from itertools import product
 from pathlib import Path
+from typing import BinaryIO
 
 from lxml import etree
 from rapidfuzz import fuzz
@@ -51,12 +59,28 @@ AFFILIATION_MIN = 80
 # Affiliations of at most this many letters, such as UW, may name several organizations.
 SHORT_AFFILIATION = 3
 MAX_SCANS = 3
-INDEX_VERSION = 1
+# An index of version 1 resolved the names by other rules. It loads, and is built again.
+INDEX_VERSION = 2
+PEOPLE = ("www", "person")
+# The start of the tags of people and of authors, cut to five bytes, the longest that CPython searches fast.
+_PEOPLE_TAGS, _AUTHOR_TAG = (b"<www", b"<pers"), b"<auth"
+_CHUNK = 1 << 17
+_ATTRIBUTES = rb"""(?:\s+[\w:.-]+\s*=\s*(?:"[^"<]*"|'[^'<]*'))*\s*"""
+_ROOT = re.compile(rb"<dblp" + _ATTRIBUTES + rb">")
+_RECORD_END = re.compile(rb"</(?:" + "|".join(RECORDS).encode() + rb")\s*>")
+_RAW_AUTHOR = re.compile(rb"<author" + _ATTRIBUTES + rb">([^<]*)</author\s*>")
+_REFERENCE = re.compile(r"&([^;\x00]*);")
+# Characters that no XML text holds: the first parts raw names, the second marks a reference of no known character.
+_BREAK, _DOUBT = "\x00", "\x01"
+_Spans = Callable[[bytes, int, int], list[tuple[int, int]]]
 _HOMEPAGES = "homepages/"
 _HOMONYM = re.compile(r"\s+\d{4}$")
 _GENERATIONS = frozenset(["jr", "sr", "ii", "iii"])
-# The second letter of the ASCII spellings of umlauts and of å, such as ue in Mueller.
-_DIGRAPH = re.compile(r"(?<=[aou])e|(?<=a)a")
+# The ASCII spellings of the letters that fold to one letter, such as ue in Mueller.
+_UMLAUTS = str.maketrans({"ä": "ae", "ö": "oe", "ü": "ue", "å": "aa", "ø": "oe", "Ä": "Ae", "Ö": "Oe", "Ü": "Ue",
+                          "Å": "Aa", "Ø": "Oe"})
+# The second letter of ae, oe, ue, and aa before a consonant, where the two letters may spell an umlaut.
+_DIGRAPH = re.compile(r"(?:(?<=[aou])e|(?<=a)a)(?=[b-df-hj-np-tv-z])")
 _PID = re.compile(r"(?:^|^pid/|/pid/|homepages/)([a-z0-9]+/[A-Za-z0-9_-]+)$")
 _WORD = re.compile(r"[a-z0-9]+")
 _DOI = re.compile(r"(?:doi\.org/|^doi:)(10\.\d{4,9}/\S+)$", re.IGNORECASE)
@@ -98,6 +122,7 @@ class DblpIndex:
     identities: dict[str, Identity] = field(default_factory=dict)
     names: dict[str, list[str]] = field(default_factory=dict)
     source: str = ""
+    version: int = INDEX_VERSION
     _by_name: dict[str, list[str]] = field(default_factory=dict, init=False, repr=False, compare=False)
     _by_doi: dict[str, str] = field(default_factory=dict, init=False, repr=False, compare=False)
 
@@ -131,8 +156,8 @@ class DblpIndex:
         return self.publications[key] if key else None
 
     def missing(self, people: Iterable[Person]) -> list[Person]:
-        """Return the people the index holds no identity for, such as people added after it was built."""
-        return [person for person in people if self.identity(person) is None]
+        """Return the people the index holds no identity for, who are all of them under an older format."""
+        return [person for person in people if self.version != INDEX_VERSION or self.identity(person) is None]
 
     def save(self, path: Path) -> None:
         """Write the index to a gzip-compressed JSON file."""
@@ -153,7 +178,7 @@ def load_index(path: Path) -> DblpIndex:
     """Read an index that DblpIndex.save wrote."""
     with gzip.open(path, "rt", encoding="utf-8") as handle:
         data = json.load(handle)
-    if data.get("version") != INDEX_VERSION:
+    if data.get("version") not in (1, INDEX_VERSION):
         raise ValueError(f"{path} holds a dblp index of another version; build it again")
     return DblpIndex(
         publications={row[0]: Publication(row[0], row[1], row[2], row[3], tuple(row[4])) for row in data["publications"]},
@@ -163,6 +188,7 @@ def load_index(path: Path) -> DblpIndex:
         },
         names=data["names"],
         source=data["source"],
+        version=data["version"],
     )
 
 
@@ -176,27 +202,20 @@ def build_index(dump: Path, people: Iterable[Person], dtd: Path | None = None) -
     """Scan the dblp dump and index the publications of the given people."""
     people = list({person_key(p): p for p in people}.values())
     scan = _Scan(dump, dtd or dump.with_name("dblp.dtd"))
-    loose = {loose_key(p.name) for p in people} - {""}
-    exact: set[str] = set()
+    loose = {key for p in people for key in _umlaut_keys(p.name)} - {""}
     pids = {parse_pid(p.dblp) for p in people} - {""}
     for _ in range(MAX_SCANS):
-        scan.run(loose, exact, pids)
+        scan.read_people(loose, pids)
         identities = {person_key(p): _resolve(p, scan) for p in people}
-        exact = {name for i in identities.values() for name in i.names if not scan.covers(name)}
         pids = {i.pid for i in identities.values() if i.method == "pid not found" and i.pid not in scan.pids}
         loose = set()
-        if not exact and not pids:
+        if not pids:
             break
-    kept = {name for i in identities.values() for name in i.names}
+    scan.read_publications(frozenset(name for i in identities.values() for name in i.names))
     names: dict[str, list[str]] = {}
     for p in people:
         names.setdefault(fold(p.name), []).append(person_key(p))
-    return DblpIndex(
-        publications={k: p for k, p in scan.publications.items() if kept.intersection(p.authors)},
-        identities=identities,
-        names=names,
-        source=str(dump),
-    )
+    return DblpIndex(publications=scan.publications, identities=identities, names=names, source=str(dump))
 
 
 def fold(text: str) -> str:
@@ -213,12 +232,25 @@ def base_name(name: str) -> str:
     return _HOMONYM.sub("", name.strip())
 
 
-def loose_key(name: str) -> str:
-    """Return the first and the last word of a folded name without suffixes, with ae, oe, ue, and aa as one letter."""
-    words = fold(base_name(name)).split()
-    while len(words) > 1 and words[-1] in _GENERATIONS:
-        words.pop()
-    return _DIGRAPH.sub("", f"{words[0]} {words[-1]}" if len(words) > 1 else "".join(words))
+def loose_keys(name: str) -> tuple[str, ...]:
+    """Return the first and the last word of a folded name without suffixes, in each spelling of its umlauts.
+
+    Jürgen Müller gives jurgen muller, juergen muller, jurgen mueller, and juergen mueller, and a plain name one key.
+    """
+    base = base_name(name)
+    first, _middle, last = _name_words(base)
+    if base.isascii():
+        return (f"{first} {last}".strip(),)
+    spelled = _name_words(base.translate(_UMLAUTS))
+    pairs = product((first, spelled[0]), (last, spelled[2]))
+    return tuple(dict.fromkeys(f"{one} {other}".strip() for one, other in pairs))
+
+
+def _umlaut_keys(name: str) -> tuple[str, ...]:
+    """Return the loose keys of a name, then each with ae, oe, ue, and aa before a consonant as one letter."""
+    keys = loose_keys(name)
+    plain = tuple([_DIGRAPH.sub("", key) for key in keys])
+    return keys if plain == keys else tuple(dict.fromkeys(keys + plain))
 
 
 def parse_pid(text: str) -> str:
@@ -226,6 +258,14 @@ def parse_pid(text: str) -> str:
     text = re.sub(r"\.(?:html|xml|bib|rss|nt|rdf|ttl)$", "", text.strip().rstrip("/"))
     match = _PID.search(text)
     return match.group(1) if match else ""
+
+
+def _name_words(name: str) -> tuple[str, list[str], str]:
+    """Return the first word, the middle words, and the last word of a folded name without a generational suffix."""
+    words = fold(name).split()
+    while len(words) > 1 and words[-1] in _GENERATIONS:
+        words.pop()
+    return (words[0] if words else ""), words[1:-1], (words[-1] if len(words) > 1 else "")
 
 
 def person_key(person: Person) -> str:
@@ -255,7 +295,7 @@ class _DtdResolver(etree.Resolver):
 
 
 class _Scan:
-    """The publications and person records that the scans of one dump collected so far."""
+    """The publications and person records that the reads of one dump collected so far."""
 
     def __init__(self, dump: Path, dtd: Path) -> None:
         if not dump.is_file():
@@ -268,34 +308,41 @@ class _Scan:
         self.by_name: dict[str, list[str]] = {}
         self.by_loose: dict[str, list[str]] = {}
         self.redirects: dict[str, str] = {}
-        self.loose: set[str] = set()
-        self.exact: set[str] = set()
         self.pids: set[str] = set()
+        self.entities = _entities(dtd)
 
-    def covers(self, name: str) -> bool:
-        """Return True if an earlier scan collected the publications under a dblp name."""
-        return name in self.exact or loose_key(name) in self.loose
-
-    def run(self, loose: set[str], exact: set[str], pids: set[str]) -> None:
-        """Read the dump once and collect what the new names and person IDs select."""
-        # Targets of merged records join the wanted IDs during the scan, while only the IDs wanted from
+    def read_people(self, loose: set[str], pids: set[str]) -> None:
+        """Read the dump once and collect the person records that the names and person IDs select."""
+        # Targets of merged records join the wanted IDs during the read, while only the IDs wanted from
         # the start count as covered, since a target may precede its merged record in the dump.
         wanted = set(pids)
-        for element in self._elements():
-            if element.tag in ("www", "person"):
-                self._person(element, loose, exact, wanted)
-            else:
-                self._publication(element, loose, exact)
-        self.loose |= loose
-        self.exact |= exact
+        named = _name_spans(
+            lambda names: {name for name in set(names) if not loose.isdisjoint(_umlaut_keys(name))}, self.entities,
+        )
+
+        def spans(data: bytes, start: int, end: int) -> list[tuple[int, int]]:
+            if all(data.find(tag, start, end) < 0 for tag in _PEOPLE_TAGS):
+                return []
+            # A person ID selects by the key of a record, which only lxml reads.
+            return [(start, end)] if pids else named(data, start, end)
+
+        for element in self._elements(spans):
+            if element.tag in PEOPLE:
+                self._person(element, loose, wanted)
         self.pids |= pids
 
-    def _elements(self) -> Iterator[etree._Element]:
+    def read_publications(self, names: frozenset[str]) -> None:
+        """Read the dump once and collect the publications with an author under one of the dblp names."""
+        for element in self._elements(_name_spans(names.intersection, self.entities)):
+            if element.tag not in PEOPLE:
+                self._publication(element, names)
+
+    def _elements(self, spans: _Spans) -> Iterator[etree._Element]:
         opener = gzip.open if self.dump.suffix == ".gz" else open
         with opener(self.dump, "rb") as handle:
             events = etree.iterparse(
-                handle, events=("end",), tag=RECORDS, load_dtd=True, resolve_entities=True, no_network=True,
-                huge_tree=True,
+                _Selected(handle, spans), events=("end",), tag=RECORDS, load_dtd=True, resolve_entities=True,
+                no_network=True, huge_tree=True,
             )
             events.resolvers.add(_DtdResolver(self.dtd))
             for _, element in events:
@@ -305,12 +352,10 @@ class _Scan:
                 while element.getprevious() is not None:
                     del element.getparent()[0]
 
-    def _publication(self, element, loose: set[str], exact: set[str]) -> None:
+    def _publication(self, element, names: frozenset[str]) -> None:
         authors = tuple((child.text or "").strip() for child in element if child.tag == "author")
-        if not _wanted(authors, loose, exact):
-            return
         key = element.get("key", "")
-        if key in self.publications:
+        if names.isdisjoint(authors) or key in self.publications:
             return
         year = (element.findtext("year") or "").strip()
         title = element.find("title")
@@ -322,7 +367,7 @@ class _Scan:
             authors=authors,
         )
 
-    def _person(self, element, loose: set[str], exact: set[str], pids: set[str]) -> None:
+    def _person(self, element, loose: set[str], pids: set[str]) -> None:
         key = element.get("key", "")
         if not key.startswith(_HOMEPAGES):
             return
@@ -334,7 +379,7 @@ class _Scan:
                 pids.add(self.redirects[pid])
             return
         names = tuple((child.text or "").strip() for child in element if child.tag == "author")
-        if pid in self.records or not (pid in pids or _wanted(names, loose, exact)):
+        if pid in self.records or not (pid in pids or any(not loose.isdisjoint(_umlaut_keys(name)) for name in names)):
             return
         self.records[pid] = _Record(
             pid=pid,
@@ -346,14 +391,94 @@ class _Scan:
         )
         for name in names:
             self.by_name.setdefault(fold(base_name(name)), []).append(pid)
-            self.by_loose.setdefault(loose_key(name), []).append(pid)
+            for key in _umlaut_keys(name):
+                self.by_loose.setdefault(key, []).append(pid)
 
 
-def _wanted(names: tuple[str, ...], loose: set[str], exact: set[str]) -> bool:
-    # Folding every name of the dump is the cost of a scan, so a scan by exact names skips it.
-    if loose:
-        return any(name in exact or loose_key(name) in loose for name in names)
-    return any(name in exact for name in names)
+class _Selected:
+    """The dump as a file that holds only the records a test selects, so that lxml parses few records.
+
+    A record ends at its end tag, which the raw bytes show while they hold no comment, CDATA section, or processing
+    instruction. From the first of these on, and where the dump defines an entity of its own, it passes unchanged.
+    """
+
+    def __init__(self, handle: BinaryIO, spans: _Spans) -> None:
+        self.parts = self._parts(handle, spans)
+
+    def read(self, _size: int = -1) -> bytes:
+        """Return the next bytes that are left of the dump, empty at its end."""
+        return next((part for part in self.parts if part), b"")
+
+    @staticmethod
+    def _parts(handle: BinaryIO, spans: _Spans) -> Iterator[bytes]:
+        data = handle.read(_CHUNK)
+        root = _ROOT.search(data)
+        plain = root is not None and b"<!ENTITY" not in data[:root.start()]
+        start = root.end() if plain else 0
+        yield data[:start]
+        while plain and data.find(b"<!", start) < 0 and data.find(b"<?", start) < 0:
+            end = _record_end_before(data, start, len(data))
+            more = handle.read(_CHUNK)
+            if end == start and not more:
+                break
+            # A record longer than a chunk finds its end in the bytes that follow.
+            yield b"".join(data[first:last] for first, last in spans(data, start, end))
+            data, start = data[end:] + more, 0
+        yield data[start:]
+        yield from iter(lambda: handle.read(_CHUNK), b"")
+
+
+def _record_end_before(data: bytes, start: int, at: int) -> int:
+    """Return the offset after the last record end tag between two offsets, or the first offset without one."""
+    while (at := data.rfind(b"</", start, at)) >= 0:
+        match = _RECORD_END.match(data, at)
+        if match:
+            return match.end()
+    return start
+
+
+def _name_spans(pick: Callable[[list[str]], Collection[str]], entities: dict[str, str]) -> _Spans:
+    """Return a test that gives the spans of the records with an author whose name the pick keeps."""
+    def spans(data: bytes, start: int, end: int) -> list[tuple[int, int]]:
+        raw = _RAW_AUTHOR.findall(data, start, end)
+        names = _texts(raw, entities) if len(raw) == data.count(_AUTHOR_TAG, start, end) else None
+        if names is None:
+            return [(start, end)]
+        kept = pick(names)
+        found = set()
+        for needle in {b">" + one + b"<" for one, name in zip(raw, names) if name in kept} if kept else ():
+            at = data.find(needle, start, end)
+            while at >= 0:
+                found.add((_record_end_before(data, start, at), _RECORD_END.search(data, at).end()))
+                at = data.find(needle, at + 1, end)
+        return sorted(found)
+    return spans
+
+
+def _texts(raw: list[bytes], entities: dict[str, str]) -> list[str] | None:
+    """Return raw author names as lxml reads them, or None where their bytes leave a doubt."""
+    try:
+        text = _BREAK.encode().join(raw).decode("ascii")
+    except UnicodeDecodeError:
+        return None
+    if "&" in text:
+        text = _REFERENCE.sub(lambda reference: _character(reference.group(1), entities), text)
+    return None if _DOUBT in text else list(map(str.strip, text.split(_BREAK)))
+
+
+def _character(reference: str, entities: dict[str, str]) -> str:
+    if not reference.startswith("#"):
+        return entities.get(reference, _DOUBT)
+    try:
+        return chr(int(f"0{reference[1:]}", 16) if reference.startswith("#x") else int(reference[1:]))
+    except (ValueError, OverflowError):
+        return _DOUBT
+
+
+def _entities(dtd: Path) -> dict[str, str]:
+    """Return the text of each entity of the DTD that stands for plain characters, with the five of XML."""
+    own = {e.name: e.content for e in etree.DTD(str(dtd)).entities() if e.content and not set("&<") & set(e.content)}
+    return {**own, "amp": "&", "lt": "<", "gt": ">", "apos": "'", "quot": '"'}
 
 
 def _title(element) -> str:
@@ -388,8 +513,14 @@ def _resolve(person: Person, scan: _Scan) -> Identity:
         return Identity(names=record.names, pid=pid, records=1, method="pid")
     # Records that add middle names join the exact matches, since dblp may keep a person under both forms.
     exact = scan.by_name.get(fold(person.name), [])
-    pids = dict.fromkeys(exact + scan.by_loose.get(loose_key(person.name), []))
-    candidates = [scan.records[pid] for pid in pids]
+    # The other plain spelling of an umlaut, such as Jorg for Joerg, counts only where no record holds the name.
+    for spell in (loose_keys, _umlaut_keys):
+        keys = spell(person.name)
+        loose = [pid for key in keys for pid in scan.by_loose.get(key, [])
+                 if _fits(person.name, keys, scan.records[pid], spell)]
+        candidates = [scan.records[pid] for pid in dict.fromkeys(exact + loose)]
+        if candidates:
+            break
     if not candidates:
         return Identity()
     people = [r for r in candidates if not r.disambiguation]
@@ -406,3 +537,14 @@ def _resolve(person: Person, scan: _Scan) -> Identity:
             return Identity(names=fitting[0].names, pid=fitting[0].pid, records=1, method="name and affiliation")
     names = tuple(dict.fromkeys(name for r in sorted(candidates, key=lambda r: r.pid) for name in r.names))
     return Identity(names=names, records=len(candidates), ambiguous=True, method="ambiguous name")
+
+
+def _fits(name: str, keys: tuple[str, ...], record: _Record, spell: Callable[[str], tuple[str, ...]]) -> bool:
+    """Return True if a name of the record shares the first and last word in a spelling and fits the middle names."""
+    middle = _name_words(base_name(name))[1]
+    for other in record.names:
+        theirs = _name_words(base_name(other))[1]
+        agree = not middle or not theirs or any(one[0] == word[0] for one in middle for word in theirs)
+        if agree and not set(keys).isdisjoint(spell(other)):
+            return True
+    return False

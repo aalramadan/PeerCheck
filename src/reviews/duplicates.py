@@ -101,20 +101,22 @@ def _shingles(text: str, size: int) -> frozenset[str]:
 def _similar_pairs(items: list[_Paragraph], threshold: float, num_perm: int) -> list[tuple[int, int, float]]:
     # At the threshold itself, the index misses about half of the pairs at that similarity.
     lsh = MinHashLSH(threshold=threshold / 2, num_perm=num_perm)
-    hashes = []
-    for key, item in enumerate(items):
-        minhash = MinHash(num_perm=num_perm)
-        minhash.update_batch([shingle.encode("utf-8") for shingle in item.shingles])
+    encoded = ([shingle.encode("utf-8") for shingle in item.shingles] for item in items)
+    hashes = list(MinHash.generator(encoded, num_perm=num_perm))
+    for key, minhash in enumerate(hashes):
         lsh.insert(key, minhash)
-        hashes.append(minhash)
     pairs = []
     for key, minhash in enumerate(hashes):
         for other in sorted(lsh.query(minhash)):
             if other <= key or items[other].review == items[key].review:
                 continue
-            # LSH only proposes candidates, so the exact Jaccard similarity decides.
             a, b = items[key].shingles, items[other].shingles
-            similarity = len(a & b) / len(a | b)
+            # Two sets are never more alike than the ratio of their sizes.
+            if min(len(a), len(b)) / max(len(a), len(b)) < threshold:
+                continue
+            # LSH only proposes candidates, so the exact Jaccard similarity decides.
+            shared = len(a & b)
+            similarity = shared / (len(a) + len(b) - shared)
             if similarity >= threshold:
                 pairs.append((key, other, similarity))
     return pairs

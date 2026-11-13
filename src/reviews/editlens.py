@@ -30,6 +30,8 @@ from huggingface_hub import get_token, snapshot_download
 from huggingface_hub.errors import GatedRepoError
 from transformers import AutoModelForSequenceClassification, AutoTokenizer
 
+from peercheck.reviews.cocodet import batches
+
 MODEL_REPO = "pangram/editlens_roberta-large"
 MODEL_REVISION = "f93e1ace74528cfb48f337ab2fe946fb71a728cb"
 MAX_TOKENS = 512
@@ -81,16 +83,12 @@ class Detector:
     def label(self, texts: list[str]) -> list[Verdict | None]:
         """Label each text; an empty text gets None."""
         verdicts: list[Verdict | None] = [None] * len(texts)
-        indexed = [(i, normalize(t)) for i, t in enumerate(texts) if normalize(t)]
-        for start in range(0, len(indexed), BATCH_SIZE):
-            batch = indexed[start:start + BATCH_SIZE]
-            encoded = self.tokenizer([t for _, t in batch], truncation=True, max_length=MAX_TOKENS,
-                                     padding=True, return_tensors="pt").to(self.device)
-            with torch.no_grad():
-                logits = self.model(**encoded).logits
-            for row, (index, text) in enumerate(batch):
-                verdicts[index] = _verdict(logits[row], truncated=len(self.tokenizer(text, verbose=False)["input_ids"]) > MAX_TOKENS,
-                                           words=count_words(text))
+        normalized = [normalize(t) for t in texts]
+        for indexes, encoded, cut in batches(self.tokenizer, normalized, MAX_TOKENS, BATCH_SIZE):
+            with torch.inference_mode():
+                logits = self.model(**encoded.to(self.device)).logits
+            for row, index in enumerate(indexes):
+                verdicts[index] = _verdict(logits[row], truncated=cut[row], words=count_words(normalized[index]))
         return verdicts
 
 

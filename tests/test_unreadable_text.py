@@ -153,6 +153,14 @@ def test_page_is_garbled_from_fifty_unreadable_characters_that_make_up_a_fifth(c
     assert PageText(1, characters=characters, unreadable=unreadable).garbled is garbled
 
 
+@pytest.mark.parametrize(("text", "unreadable"), [
+    ("\ufffd\ue000\U000f0000\U0010fffd", 4), ("\x00\x08\x0e\x1b\x7f\x84\x86\x9f", 8),
+    ("flaky tests\t\n\x0b\x0c\r\x1c\x1f\x85\xa0", 0), ("\ud7ff\uf900\ufffc\ufffe", 0),
+], ids=["replacement-and-private-use", "control", "white-space", "neighbors"])
+def test_replacement_private_use_and_control_characters_other_than_white_space_are_unreadable(text, unreadable):
+    assert len(unreadable_text.UNREADABLE.findall(text)) == unreadable
+
+
 @pytest.mark.parametrize(("words", "common", "foreign"), [
     (49, 0, False), (50, 2, True), (100, 5, False), (400, 160, False),
 ], ids=["too-few-words", "two-percent", "five-percent", "english"])

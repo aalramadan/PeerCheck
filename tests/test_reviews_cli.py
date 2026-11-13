@@ -6,15 +6,17 @@ from types import SimpleNamespace
 
 import pytest
 
-from peercheck import canary
+from peercheck import canary, dblp, tools
+from peercheck import profile as profiles
 from peercheck.findings import Finding, Severity
-from peercheck.models import Review
+from peercheck.models import Person, Review
 
 pytest.importorskip("torch")
 cli = pytest.importorskip("peercheck.reviews.cli")
 editlens = pytest.importorskip("peercheck.reviews.editlens")
 
-REVIEWS = Path(__file__).parent / "fixtures" / "easychair" / "reviews.csv"
+FIXTURES = Path(__file__).parent / "fixtures"
+REVIEWS = FIXTURES / "easychair" / "reviews.csv"
 
 
 def _venue(tmp_path: Path, editlens_on: bool = False, canary_on: bool = True) -> str:
@@ -107,8 +109,68 @@ def test_canary_check_stays_off_while_the_template_leaves_out_its_key(tmp_path, 
     out = tmp_path / "reviews.csv"
     venue = _venue(tmp_path, canary_on=False)
     assert cli.main([str(REVIEWS), "--template", venue, "--canaries", str(key), "--out", str(out)]) == 0
-    assert "The template turns off cocodet, editlens, duplicates, citations, canary." in capsys.readouterr().err
+    assert ("The template turns off cocodet, editlens, duplicates, citations, short_reviews, canary."
+            in capsys.readouterr().err)
     assert "Canary" not in _rows(out)[0] and "Canary key" not in out.with_suffix(".html").read_text(encoding="utf-8")
+
+
+def test_short_review_check_notes_a_review_of_one_sentence_without_marking_it(tmp_path):
+    out = tmp_path / "reviews.csv"
+    venue = Path(_venue(tmp_path, canary_on=False))
+    venue.write_text(venue.read_text(encoding="utf-8") + "  short_reviews:\n", encoding="utf-8")
+    assert cli.main([str(REVIEWS), "--template", str(venue), "--out", str(out)]) == 0
+    assert [(row["Review ID"], _checks(row), row["Needs Review"]) for row in _rows(out)] == [
+        ("7A", [], "no"), ("7B", ["short_reviews.few-sentences"], "no")]
+    assert "Checks: short_reviews." in out.with_suffix(".html").read_text(encoding="utf-8")
+
+
+def test_the_options_of_a_template_reach_its_review_check(tmp_path):
+    out = tmp_path / "reviews.csv"
+    venue = Path(_venue(tmp_path, canary_on=False))
+    venue.write_text(venue.read_text(encoding="utf-8") + "  short_reviews:\n    min_sentences: 1\n", encoding="utf-8")
+    assert cli.main([str(REVIEWS), "--template", str(venue), "--out", str(out)]) == 0
+    assert [_checks(row) for row in _rows(out)] == [[], []]
+
+
+def test_the_page_limit_of_the_template_reaches_the_citation_check(tmp_path):
+    reviews, out = tmp_path / "reviews.csv", tmp_path / "report.csv"
+    reviews.write_text("paper,review,Comments for authors\n"
+                       "7,A,\"Please cite Smith et al. (2019), Lee and Park (2021), and Rao (2020).\"\n",
+                       encoding="utf-8")
+    venue = Path(_venue(tmp_path, canary_on=False))
+    rules = venue.read_text(encoding="utf-8").replace("main_pages: 10", "main_pages: 2")
+    venue.write_text(rules + "  citations:\n", encoding="utf-8")
+    assert cli.main([str(reviews), "--template", str(venue), "--out", str(out)]) == 0
+    row = _rows(out)[0]
+    assert _checks(row) == ["citations.requests", "citations.many-requests"]
+    assert "more than one per page of a 2-page paper" in row["Findings"]
+
+
+def test_the_saved_coauthor_index_reaches_the_citation_check(tmp_path, monkeypatch):
+    monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path / "cache"))
+    saved = dblp.files(tools.cache_dir())[2]
+    saved.parent.mkdir(parents=True)
+    reviewer = Person("Jürgen", "Müller", "j.mueller@testville.example")
+    dblp.build_index(FIXTURES / "dblp" / "dblp.xml", [reviewer]).save(saved)
+    out = tmp_path / "report.csv"
+    venue = Path(_venue(tmp_path, canary_on=False))
+    venue.write_text(venue.read_text(encoding="utf-8") + "  citations:\n", encoding="utf-8")
+    assert cli.main([str(FIXTURES / "reviews" / "reviews.csv"), "--template", str(venue), "--out", str(out)]) == 0
+    assert _checks(_rows(out)[0]) == ["citations.requests", "citations.self-citation-request"]
+
+
+def test_the_default_template_holds_the_key_of_every_review_check():
+    venue = profiles.load(profiles.DEFAULT)
+    assert [name for name in (*cli.DETECTORS, *cli.CHECKS, "canary") if not venue.runs(name)] == []
+
+
+def test_interrupt_ends_the_review_process_without_a_message_of_its_own(tmp_path, monkeypatch, capsys):
+    def interrupted(args):
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(cli, "run", interrupted)
+    assert cli.main([str(tmp_path / "reviews.csv")]) == 130
+    assert capsys.readouterr().err == ""
 
 
 def test_reviews_command_never_writes_its_report_over_the_reviews_file(tmp_path, capsys):

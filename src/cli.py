@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import importlib.util
 import os
+import signal
 import subprocess
 import sys
 from pathlib import Path
@@ -13,7 +14,7 @@ from peercheck import __version__, canary, conflicts, dblp, gui, inputs, report,
 from peercheck import profile as profiles
 from peercheck.findings import needs_review
 from peercheck.models import Person
-from peercheck.papers import pipeline, references
+from peercheck.papers import pipeline, reference_setup
 
 COMMANDS = ("papers", "reviews", "conflicts", "canary", "setup", "gui")
 # The options that each command reads. Any other option beside a command is a mistake that stops the run.
@@ -42,11 +43,15 @@ def main(argv: list[str] | None = None) -> int:
     except EXPECTED_ERRORS as exc:
         print(f"peercheck: {exc}", file=sys.stderr)
         return 2
+    except KeyboardInterrupt:
+        print("peercheck: stopped", file=sys.stderr)
+        # The exit status that a shell gives a command that Ctrl+C ends.
+        return 128 + signal.SIGINT
 
 
 def parser() -> argparse.ArgumentParser:
     """Build the parser of the command line, with one command per run."""
-    top = argparse.ArgumentParser(prog="peercheck", allow_abbrev=False,
+    top = argparse.ArgumentParser(prog="peercheck", allow_abbrev=False, add_help=False,
                                   description="Check the submissions, the reviews, and the conflicts of interest of "
                                               "IEEE and ACM venues.")
     commands = top.add_argument_group("commands, one per run").add_mutually_exclusive_group()
@@ -76,7 +81,10 @@ def parser() -> argparse.ArgumentParser:
     options.add_argument("--retraction-csv", type=Path, metavar="FILE",
                          help="local Retraction Watch file (CSV) for --setup, in place of its download")
     options.add_argument("--refresh", action="store_true", help="download every file of --setup again")
-    top.add_argument("--version", action="version", version=f"PeerCheck {__version__}")
+    # Beside the other options, since argparse lists its own --help under a second heading "options".
+    options.add_argument("-h", "--help", action="help", help="show this help and exit")
+    options.add_argument("--version", action="version", version=f"PeerCheck {__version__}",
+                         help="show the version and exit")
     return top
 
 
@@ -198,7 +206,7 @@ def run_canary(args: argparse.Namespace) -> int:
 
 def run_setup(args: argparse.Namespace) -> int:
     """Download Hallucinator, the DBLP database, and the Retraction Watch list of the reference check."""
-    for path in references.install_tools(tools.cache_dir(), args.retraction_csv, args.refresh):
+    for path in reference_setup.install_tools(tools.cache_dir(), args.retraction_csv, args.refresh):
         print(f"installed {path}")
     return 0
 

@@ -103,12 +103,21 @@ def available() -> list[str]:
 def load(name_or_path: str) -> Profile:
     """Load a shipped profile by its key, such as icse-2027, or a profile file by its path."""
     path = Path(name_or_path)
-    if path.suffix in (".yaml", ".yml") and path.is_file():
-        return parse(yaml.safe_load(path.read_text(encoding="utf-8")), path.stem)
-    resource = PROFILES / f"{name_or_path}.yaml"
-    if not resource.is_file():
-        raise ProfileError(f"unknown template {name_or_path!r}; shipped templates: {', '.join(available())}")
-    return parse(yaml.safe_load(resource.read_text(encoding="utf-8")), name_or_path)
+    if path.suffix in (".yaml", ".yml"):
+        key, missing = path.stem, f"template file not found: {name_or_path}"
+    else:
+        path, key, missing = PROFILES / f"{name_or_path}.yaml", name_or_path, f"unknown template {name_or_path!r}"
+    if not path.is_file():
+        raise ProfileError(f"{missing}; shipped templates: {', '.join(available())}")
+    try:
+        data = yaml.safe_load(path.read_text(encoding="utf-8"))
+    except UnicodeDecodeError as exc:
+        raise ProfileError(f"template {key}: the file is not saved as UTF-8") from exc
+    except yaml.YAMLError as exc:
+        mark = getattr(exc, "problem_mark", None)
+        raise ProfileError(f"template {key}: {f'line {mark.line + 1}' if mark else 'the file'} is no valid YAML "
+                           f"({getattr(exc, 'problem', None) or exc})") from exc
+    return parse(data, key)
 
 
 def parse(data: Any, key: str) -> Profile:
@@ -144,23 +153,23 @@ def parse(data: Any, key: str) -> Profile:
         format=FormatRules(
             style=str(rules["style"]),
             paper_size=_numbers(rules["paper_size"], 2, key, "paper_size"),
-            paper_size_tolerance=float(rules.get("paper_size_tolerance", 5)),
-            columns=int(rules["columns"]),
-            main_pages=int(rules["main_pages"]),
-            reference_pages=int(rules["reference_pages"]),
+            paper_size_tolerance=_number(rules, "paper_size_tolerance", key, 5),
+            columns=_number(rules, "columns", key, kind=int),
+            main_pages=_number(rules, "main_pages", key, kind=int),
+            reference_pages=_number(rules, "reference_pages", key, kind=int),
             margins=None if rules.get("margins") is None else _numbers(rules["margins"], 4, key, "margins"),
-            margin_tolerance=float(rules.get("margin_tolerance", 18)),
-            body_font_max=_optional_number(rules.get("body_font_max")),
-            body_font_min=_optional_number(rules.get("body_font_min")),
-            leading_min=_optional_number(rules.get("leading_min")),
-            reference_font_min=_optional_number(rules.get("reference_font_min")),
+            margin_tolerance=_number(rules, "margin_tolerance", key, 18),
+            body_font_max=_number(rules, "body_font_max", key),
+            body_font_min=_number(rules, "body_font_min", key),
+            leading_min=_number(rules, "leading_min", key),
+            reference_font_min=_number(rules, "reference_font_min", key),
             page_numbers=str(rules.get("page_numbers", "ignore")),
             required_headings=tuple(
                 h.lower() for h in strings(rules.get("required_headings"), f"template {key}: required_headings")),
             require_abstract=bool(rules.get("require_abstract", True)),
             exempt_sections=tuple(
                 s.lower() for s in strings(rules.get("exempt_sections"), f"template {key}: exempt_sections")),
-            exempt_pages_max=_optional_number(rules.get("exempt_pages_max")),
+            exempt_pages_max=_number(rules, "exempt_pages_max", key),
         ),
         checks={str(name): _check_options(str(name), options, f"template {key}: checks.{name}")
                 for name, options in checks.items()},
@@ -192,7 +201,7 @@ def _check_options(name: str, options: Any, where: str) -> dict[str, Any]:
 
 
 def _keys(data: dict, allowed: set[str], required: set[str], where: str) -> None:
-    unknown = sorted(set(data) - allowed)
+    unknown = sorted(str(name) for name in set(data) - allowed)
     if unknown:
         raise ProfileError(f"{where}: unknown keys {', '.join(unknown)}")
     missing = sorted(required - set(data))
@@ -201,10 +210,21 @@ def _keys(data: dict, allowed: set[str], required: set[str], where: str) -> None
 
 
 def _numbers(value: Any, size: int, key: str, name: str) -> tuple:
-    if not isinstance(value, (list, tuple)) or len(value) != size:
+    try:
+        numbers = tuple(float(v) for v in value) if isinstance(value, (list, tuple)) else ()
+    except (TypeError, ValueError):
+        numbers = ()
+    if len(numbers) != size:
         raise ProfileError(f"template {key}: {name} must list {size} numbers")
-    return tuple(float(v) for v in value)
+    return numbers
 
 
-def _optional_number(value: Any) -> float | None:
-    return None if value is None else float(value)
+def _number(rules: dict, name: str, key: str, default: float | None = None, kind: type = float) -> float | None:
+    """Return a format rule as a number: its default without a value, or None for an optional rule without one."""
+    value = default if rules.get(name) is None else rules[name]
+    if value is None and name in OPTIONAL_FORMAT_KEYS:
+        return None
+    try:
+        return kind(value)
+    except (TypeError, ValueError, OverflowError) as exc:
+        raise ProfileError(f"template {key}: {name} must be a number, not {value!r}") from exc

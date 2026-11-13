@@ -1,0 +1,24 @@
+% An IEEE paper as Word saves it after the targets of three cross-references were deleted. Word prints its error
+% text in bold in place of each of them, here once wrapped over two lines. make_fixtures.py compiles it once into
+% word-errors.pdf. The quoted log message must never count as a mark.
+\pdftrailerid{}
+\pdfinfoomitdate=1
+\pdfsuppressptexinfo=-1
+\documentclass[conference]{IEEEtran}
+\newcommand{\lost}{\textbf{Error! Reference source not found.}}
+\begin{document}
+\title{Ranking Flaky Test Failures}
+\author{\IEEEauthorblockN{Anonymous Author(s)}}
+\maketitle
+\begin{abstract}
+Flaky tests pass and fail on the same code. The ranking places the flaky failure first.
+\end{abstract}
+\section{Introduction}
+Flaky tests pass and fail on the same code. The pipeline of the tool appears in Fig.~\lost\ and
+the projects of the study in Table~\lost\ of the next section. The build log of each project
+prints ``Error! File not found.'' when a test resource is missing, which the tool reads as a
+sign of a flaky failure.
+\section{Method}
+The tool ranks the failures of a build by their history, as \textbf{Error! Bookmark not defined.}
+describes for the order of the tests.
+\end{document}

@@ -7,7 +7,7 @@
 - 📄 For **papers**, it checks the format and page limits, anonymity leaks, hidden text and prompts, and references
   that no bibliographic database confirms.
 - 📝 For **reviews**, it runs two AI detectors, CoCoDet and EditLens, and finds text copied between reviews, excessive
-  citation requests, and planted citations.
+  citation requests, very short reviews, and planted citations.
 - 🤝 For **conflicts of interest**, it compares the co-authorship, the email domains, and the affiliations of the
   authors and the committee members.
 
@@ -41,13 +41,20 @@ peercheck --setup                                       # download Hallucinator,
 > EditLens requires a free [Hugging Face token](https://huggingface.co/settings/tokens) in `HF_TOKEN`. Without a
 > token, PeerCheck skips EditLens.
 
+> [!TIP]
+> Two optional variables serve the online lookups of the reference check. `CROSSREF_MAILTO` holds an email
+> address that goes to CrossRef with each request. CrossRef then accepts three titles per second in place of one.
+> `OPENALEX_KEY` holds a free [OpenAlex key](https://openalex.org/rest-api), which raises the number of searches
+> that OpenAlex answers per day. Without a key, OpenAlex answers about 100 searches per day. PeerCheck then
+> reports each further reference that needs OpenAlex as not looked up.
+
 ## 🐳 Docker
 
 The image `ghcr.io/aalramadan/peercheck` contains PeerCheck and its requirements.
 
 ```bash
 docker pull ghcr.io/aalramadan/peercheck   # pull or update the image
-alias peercheck='docker run --rm -v "$PWD:/data" -v peercheck-cache:/cache -e HF_TOKEN ghcr.io/aalramadan/peercheck'  # run PeerCheck inside the container
+alias peercheck='docker run --rm -v "$PWD:/data" -v peercheck-cache:/cache -e HF_TOKEN -e CROSSREF_MAILTO -e OPENALEX_KEY ghcr.io/aalramadan/peercheck'  # run PeerCheck inside the container
 peercheck --setup                          # download Hallucinator, DBLP, and the Retraction Watch data
 ```
 
@@ -75,7 +82,8 @@ checks:
     coauthor_years: 2      # count joint papers of the last two years
 ```
 
-Two templates of real venues serve as examples, each with the address of its call for papers.
+Two templates of real venues serve as examples. Each holds the address of its call for papers and is passed by its
+key, such as `--template icse-2027`.
 
 | Template | Venue | Format | Pages |
 |---|---|---|---|
@@ -90,8 +98,8 @@ the check off.
 | Check | Template key | Detects |
 |---|---|---|
 | Format | `layout` | Page size, columns, margins, fonts, page limits, unusual density, damaged files, unresolved references, title mismatches, and oversized images |
-| Anonymity and template | `sigsoft` | Author names, email addresses, affiliations, and identifying links in the text and the metadata, and a wrong template |
-| Hidden text | `hidden_text` | White, invisible, or tiny text, hidden prompts, and embedded scripts |
+| Anonymity and template | `sigsoft` | Author names, email addresses, affiliations, ORCID iDs, funding statements, and identifying links in the text and the metadata, and a wrong template |
+| Hidden text | `hidden_text` | White, invisible, or tiny text, replacement text that differs from the visible text, hidden prompts, and embedded scripts |
 | References | `references` | Unconfirmed and retracted references |
 
 #### Reviews (`--reviews`)
@@ -101,13 +109,14 @@ the check off.
 | AI detection | `cocodet`, `editlens` | Reviews likely written or edited by a language model |
 | Copied text | `duplicates` | Paragraphs shared between reviews |
 | Citation requests | `citations` | Requests to cite works, including works of the reviewer |
+| Short reviews | `short_reviews` | Reviews of one or two sentences |
 | Planted citation | `canary` | Reviews that cite the planted work |
 
 #### Conflicts of interest (`--conflicts`)
 
 | Check | Template key | Detects |
 |---|---|---|
-| Conflicts of interest | `conflicts` | Co-authorship, shared email domains, and matching affiliations |
+| Conflicts of interest | `conflicts` | Co-authorship, shared email domains, matching affiliations, and, once the template sets `advisor_papers`, likely advisors |
 
 ### Commands
 
@@ -300,8 +309,8 @@ editable mode. The group `[dev]` adds pytest and ruff.
 
 | Setting | Data sent | Destination |
 |---|---|---|
-| `online: true` and `online_titles: true` | Titles, DOIs, and arXiv IDs of references missing from DBLP | CrossRef, arXiv, Semantic Scholar, OpenAlex, PubMed, doi.org, and other sources of Hallucinator |
-| `online: true` and `online_titles: false` | DOIs of references, and arXiv IDs of references missing from DBLP | doi.org and arXiv |
+| `online: true` and `online_titles: true` | Titles, DOIs, and arXiv IDs of references missing from DBLP | CrossRef, DataCite, doi.org, PubMed, the ACL Anthology, OpenAlex, and OpenReview |
+| `online: true` and `online_titles: false` | DOIs and arXiv IDs of references missing from DBLP | CrossRef, DataCite, and doi.org |
 | `online: false` | None | None |
 
 ## 📜 License

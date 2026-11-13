@@ -1,0 +1,45 @@
+% A made-up paper for the tests of the reference list. Every entry is invented. Build twice with pdflatex.
+% Entry 3 holds a line that TeX stretches before a long word, entry 4 a line that opens with the word supplementary,
+% and entry 7 a link that TeX breaks over two lines. Entry 2 starts above the footnote of the first column and ends
+% at the top of the second column, and entry 23 starts on the first page and ends on the second page.
+\documentclass[conference]{IEEEtran}
+\usepackage[T1]{fontenc}
+\usepackage{lipsum}
+\usepackage{url}
+\pagestyle{plain}
+\begin{document}
+\title{A Made-up Study of Patch Backporting}
+\author{\IEEEauthorblockN{Anonymous Authors}}
+\maketitle
+\begin{abstract}
+\lipsum[1][1-4]
+\end{abstract}
+\section{Introduction}
+\lipsum[2-4]
+The tool is available online.\footnote{The replication package of this made-up study has no address, since the
+study does not exist. This footnote stands below the first column of the reference list.}
+\lipsum[5][1-3]
+
+\begin{thebibliography}{99}
+\bibitem{b1} A. Quill and B. Reed, ``Tracing backported patches across stable branches of long-lived projects,'' in
+\emph{Proc. Int. Conf. Softw. Testing, Verification and Validation}, 2021, pp. 101--112.
+\bibitem{b2} C. Marsh, D. Okafor, E. Lindqvist, F. Abara, G. Petrov, and H. Yilmaz, ``Do the stable branches of\pagebreak{}
+long-lived open source projects receive the fixes that the users of these branches need?'' in
+\emph{Proc. Int. Conf. Softw. Eng.}, 2022, pp. 44--55.
+\bibitem{b3} F. Tanaka and G. He, ``Portbench: A
+\mbox{Benchmark-of-backported-patches-for-large-language-models,''} \emph{arXiv preprint arXiv:2401.00001}, 2024.
+\bibitem{b4} H. Novak, ``Merge conflicts in cherry-picked commits and their resolution by maintainers of open source
+projects, with\linebreak
+supplementary material on the conflicts of 40 projects,'' \emph{Empirical Softw. Eng.}, vol. 28, no. 3, pp. 1--34, 2023.
+\bibitem{b5} I. Castellanos, J. Brandt, K. Adeyemi, L. Fontaine, M. Grigoryan, N. Halvorsen, and O. Iwasaki,
+``A large-scale study of patch porting in the kernel of an operating system,'' \emph{IEEE Trans. Softw. Eng.},
+vol. 49, no. 7, pp. 3801--3819, 2023.
+\bibitem{b6} P. Zeller, \emph{Maintaining Stable Releases: A Field Guide}. Springfield: Meadow Press, 2019.
+\bibitem{b7} Made-up Project, ``Backport policy of the stable branches,'' 2024. [Online]. Available:
+\url{https://example.org/made-up-project/documentation/maintainers/stable-branches/backport-policy.html}
+\newcount\n \n=8
+\loop \bibitem{x} Q. Author and R. Author, ``Made-up title number \the\n\ on the maintenance\ifnum\n=23 \pagebreak\fi{} of stable
+branches and the porting of patches,'' in \emph{Proc. Int. Conf. Softw. Testing, Verification and Validation}, 2020, pp. 1--10.
+\advance\n by 1 \ifnum\n<75 \repeat
+\end{thebibliography}
+\end{document}

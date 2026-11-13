@@ -7,8 +7,9 @@ The check reads Review.author_text and extracts three kinds of items.
 - arXiv identifiers of the two arXiv schemes, YYMM.NNNNN and archive/YYMMNNN, after the word arXiv
   or in an arxiv.org link.
 - Reference-like strings, namely a numbered or bulleted line with a year and a mark of a reference
-  (et al., initials, a venue, or pages), an author-year citation such as "Smith et al. (2020)", and
-  a quoted title in title case.
+  (et al., initials, a venue, or pages), an author-year citation such as "Smith et al. (2020)" or
+  "(Smith, 2020)", and a quoted title in title case. A bulleted comment with a citation inside a
+  sentence gives its citations, and a title quoted right beside a citation counts with it as one work.
 
 A review with items gets citations.requests (INFO) with their count, the items, and any request
 phrase such as "should cite". A review that cites more works than the paper has pages gets
@@ -21,9 +22,9 @@ the author of the review (Review.reviewer) and the authors of the other reviews 
 DOIs cited in reviews to the publications of the reviewers in the same way. An item matches a
 publication by DOI (arXiv items through the arXiv DOI 10.48550/arXiv.<id>), by a publication title
 that the item contains, or, for an author-year citation, by the surname of the first author and the
-year. Each reviewer with matches gives citations.self-citation-request (WARNING) with the matched
-dblp records and, for the author of the review, the number of that reviewer's reviews with such
-requests.
+year. A citation in a bulleted comment also matches a title that the comment spells out. Each
+reviewer with matches gives citations.self-citation-request (WARNING) with the matched dblp records
+and, for the author of the review, the number of that reviewer's reviews with such requests.
 
 Options (profile key "citations"):
 
@@ -46,11 +47,13 @@ from pathlib import Path
 from rapidfuzz import fuzz
 
 from peercheck.dblp import DblpIndex, Publication, base_name, fold, load_index
-from peercheck.findings import Finding, Severity
+from peercheck.findings import Finding, Severity, excerpt
 from peercheck.models import Person, Review
 
 DEFAULTS = {"dblp_index": None, "pages": 10, "title_min": 90}
 TITLE_MIN_CHARS = 20
+# The most characters that an item keeps of the line it stands in.
+LINE_LIMIT = 160
 _DOI = re.compile(r"\b(10\.\d{4,9}/[-._;()/:a-z0-9]+)", re.IGNORECASE)
 _ARXIV = re.compile(
     r"arxiv(?:\.org/(?:abs|pdf)/|\s*:\s*|\s+)((?:\d{4}\.\d{4,5}|[a-z-]+(?:\.[a-z]{2})?/\d{7}))(?:v\d+)?",
@@ -61,7 +64,24 @@ _YEAR = r"((?:19|20)\d{2})[a-z]?"
 _ET_AL = re.compile(rf"\b({_LETTERS})\s+et\s+al\.?,?\s*[(\[]?\s*{_YEAR}\s*[)\]]?")
 _TWO = re.compile(rf"\b({_LETTERS})\s+(?:and|&)\s+{_LETTERS},?\s*[(\[]\s*{_YEAR}\s*[)\]]")
 _ONE = re.compile(rf"\b({_LETTERS})\s+[(\[]\s*{_YEAR}\s*[)\]]")
+_AMPERSAND = re.compile(rf"\b({_LETTERS})\s+&\s+{_LETTERS},?\s+{_YEAR}\b")
+_BRACKETED_TWO = re.compile(rf"(?<=[(\[;])\s*({_LETTERS})\s+and\s+{_LETTERS},?\s*{_YEAR}\b")
+# One word before a year may also be a short month, an acronym such as NeurIPS, or stand before a count of 2000 items.
+_BRACKETED = re.compile(
+    rf"(?<=[(\[;])\s*(?!(?:Jan|Feb|Mar|Apr|Jun|Jul|Aug|Sept?|Oct|Nov|Dec),|\w*[A-Z]{{2}})"
+    rf"({_LETTERS}),\s*{_YEAR}(?=\s*[)\];,])"
+)
+_CITATIONS = (_ET_AL, _TWO, _ONE, _AMPERSAND, _BRACKETED_TWO, _BRACKETED)
+_CITED_YEAR = re.compile(_YEAR)
+# A citation after running text and before more text stands in a sentence, unlike the authors of a reference entry.
+_LOWERCASE_WORD = re.compile(r"\b[a-z]{4,}\b")
+_AFTER_A_WORD = re.compile(r"[^\W\d_]\s+[(\[]?\s*$")
 _QUOTED = re.compile(r"[\"“]([^\"”\n]{15,250})[\"”]")
+# A quoted passage of the paper, such as one that names authors, a table label, or a figure number, is no title.
+_PASSAGE = re.compile(
+    r"^[(\[]|\bet al\b|\s[+<>=]\s|\b(?:fig(?:ure|\.)?|table|sec(?:tion|\.)?|eq(?:uation|\.)?)\s*\d", re.IGNORECASE)
+# A quoted title may end with its year or its citation in brackets.
+_YEAR_AT_END = re.compile(r"\s*[(\[][^()\[\]]*(?:19|20)\d{2}[a-z]?\s*[)\]]$")
 _LIST_ITEM = re.compile(r"^\s*(?:\[\d{1,3}\]|\d{1,3}[.)]|[-*•])\s+")
 _HAS_YEAR = re.compile(r"\b(?:19|20)\d{2}\b")
 # A line that opens with initials and a surname, or with a surname, a comma, and an initial.
@@ -85,7 +105,7 @@ _NOT_SURNAMES = {
     "in", "on", "at", "by", "since", "from", "until", "after", "before", "during", "the", "this", "that", "these",
     "those", "section", "table", "figure", "fig", "version", "release", "year", "spring", "summer", "fall", "autumn",
     "winter", "january", "february", "march", "april", "may", "june", "july", "august", "september", "october",
-    "november", "december", "java", "python", "and", "or", "see", "also", "e", "g", "i",
+    "november", "december", "java", "python", "and", "or", "see", "also", "e", "g", "i", "ours",
 }
 
 
@@ -98,6 +118,7 @@ class Item:
     doi: str = ""
     surname: str = ""
     year: int | None = None
+    comment: str = ""
 
 
 def check_reviews(reviews: list[Review], options: dict) -> dict[str, list[Finding]]:
@@ -146,30 +167,49 @@ def extract(text: str) -> list[Item]:
             continue
         taken: list[tuple[int, int]] = []
         for match in _DOI.finditer(line):
-            items.append(Item("doi", _short(line), doi=_trim_doi(match.group(1))))
+            items.append(Item("doi", excerpt(line, LINE_LIMIT), doi=_trim_doi(match.group(1))))
             taken.append(match.span())
         for match in _ARXIV.finditer(line):
-            items.append(Item("arxiv", _short(line), doi=f"10.48550/arxiv.{match.group(1).lower()}"))
+            items.append(Item("arxiv", excerpt(line, LINE_LIMIT), doi=f"10.48550/arxiv.{match.group(1).lower()}"))
             taken.append(match.span())
+        cited = [m for pattern in _CITATIONS for m in pattern.finditer(line)
+                 if _is_surname(m.group(1))] if _CITED_YEAR.search(line) else []
         listed = _LIST_ITEM.match(line) and _REFERENCE_MARK.search(line)
-        if _HAS_YEAR.search(line) and (listed or _REFERENCE_START.match(line)):
+        entry = _HAS_YEAR.search(line) and (listed or _REFERENCE_START.match(line))
+        comment = excerpt(_LIST_ITEM.sub("", line), LINE_LIMIT) if entry else ""
+        # An entry that opens with its authors may hold a venue before a year in brackets, which reads as a citation.
+        if entry and (taken or _REFERENCE_START.match(comment) or not _in_a_sentence(line, cited)):
             # A reference entry names one work, already counted when it carries a DOI or an arXiv identifier.
             if not taken:
-                items.append(Item("reference", _short(_LIST_ITEM.sub("", line))))
+                items.append(Item("reference", comment))
             continue
-        for pattern in (_ET_AL, _TWO, _ONE):
-            for match in pattern.finditer(line):
-                surname = match.group(1)
-                if _overlaps(match.span(), taken) or not _is_surname(surname):
-                    continue
-                items.append(Item("citation", match.group(0).strip(" ,"), surname=surname, year=int(match.group(2))))
-                taken.append(match.span())
+        named: dict[int, tuple[int, int]] = {}
+        for match in cited:
+            if _overlaps(match.span(), taken):
+                continue
+            named[len(items)] = match.span()
+            items.append(Item("citation", match.group(0).strip(" ,"), surname=match.group(1), year=int(match.group(2)),
+                              comment=comment))
+            taken.append(match.span())
         for match in _QUOTED.finditer(line):
-            if _is_title(match.group(1)):
+            if not _is_title(match.group(1)):
+                continue
+            # A title quoted beside a citation names the same work, which keeps the surname and the year. Each
+            # citation joins one title, the leftmost first, as in a list of titles with their citations.
+            beside = min((number for number, span in named.items() if _beside(line, span, match.span())),
+                         key=named.get, default=None)
+            if beside is None:
                 items.append(Item("title", match.group(1).strip()))
+            else:
+                del named[beside]
+                items[beside] = replace(items[beside], kind="title", text=match.group(1).strip())
     unique: dict[tuple[str, str], Item] = {}
     for item in items:
-        unique.setdefault((item.doi or item.kind, item.doi or fold(item.text)), item)
+        key = (item.doi or item.kind, item.doi or fold(item.text))
+        first = unique.setdefault(key, item)
+        # A repeated citation keeps each comment around it, since any of them may spell out the title.
+        if item.comment not in first.comment:
+            unique[key] = replace(first, comment=f"{first.comment}\n{item.comment}".strip())
     return list(unique.values())
 
 
@@ -212,12 +252,15 @@ def _match(item: Item, publication: Publication, title_min: int) -> str:
         surname = fold(item.surname).split()
         if surname and first[-len(surname):] == surname and publication.year == item.year:
             return "first author and year"
+    # A citation holds no title, therefore only the bulleted comment around it can spell one out.
+    cited = item.kind == "citation"
+    if cited and not item.comment:
         return ""
-    title, text = fold(publication.title), fold(item.text)
+    title, text = fold(publication.title), fold(item.comment if cited else item.text)
     # The partial ratio finds a title inside a longer item; a shorter item has to match the title as a whole.
     ratio = fuzz.partial_ratio if len(title) <= len(text) else fuzz.ratio
     if len(title) >= TITLE_MIN_CHARS and ratio(title, text) >= title_min:
-        return "title"
+        return "title in the same comment" if cited else "title"
     return ""
 
 
@@ -290,17 +333,27 @@ def _is_surname(word: str) -> bool:
     return word[0].isupper() and not word.isupper() and word.lower() not in _NOT_SURNAMES
 
 
+def _in_a_sentence(line: str, cited: list[re.Match]) -> bool:
+    word = _LOWERCASE_WORD.search(line)
+    return bool(word) and any(_AFTER_A_WORD.search(line, word.end(), m.start()) and re.search(r"\w", line[m.end():])
+                              for m in cited)
+
+
+def _beside(line: str, first: tuple[int, int], second: tuple[int, int]) -> bool:
+    between = line[min(first[1], second[1]):max(first[0], second[0])]
+    return len(between) <= 3 and not re.search(r"\w", between)
+
+
 def _is_title(text: str) -> bool:
+    text = _YEAR_AT_END.sub("", text.strip())
+    if _PASSAGE.search(text):
+        return False
     words = [w for w in re.findall(r"[^\W\d_]+", text) if len(w) >= 4]
     return len(text.split()) >= 3 and bool(words) and sum(w[0].isupper() for w in words) >= 0.6 * len(words)
 
 
 def _overlaps(span: tuple[int, int], taken: list[tuple[int, int]]) -> bool:
     return any(start < span[1] and span[0] < end for start, end in taken)
-
-
-def _short(text: str, limit: int = 160) -> str:
-    return text if len(text) <= limit else text[: limit - 3].rstrip() + "..."
 
 
 def _works(count: int) -> str:

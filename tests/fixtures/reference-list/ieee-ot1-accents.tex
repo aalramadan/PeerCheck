@@ -1,0 +1,29 @@
+% A made-up paper for the tests of the reference list. Every entry and every name is invented. Build with pdflatex.
+% The paper loads no font encoding, so TeX draws each accent of the names as a glyph of its own over or under its
+% letter, and raises the accent over a capital. The list stands under the heading References Cited.
+\documentclass[conference]{IEEEtran}
+\usepackage{lipsum}
+\renewcommand{\refname}{References Cited}
+\begin{document}
+\title{A Made-up Study of Accented Names}
+\author{Ada Quill and Bo Reed}
+\maketitle
+\begin{abstract}
+\lipsum[1][1-3]
+\end{abstract}
+\section{Introduction}
+\lipsum[2][1-4]
+
+\begin{thebibliography}{9}
+\bibitem{b1} C. P{\u{a}}rvenkm{\u{a}}r and {\'S}. Qu{\'\i}llfeather, ``Tracing na{\"\i}ve patches across the stable
+branches of long-lived projects,'' in \emph{Proc. Int. Symp. Made-up Softw. Maintenance}, 2021, pp. 101--112.
+\bibitem{b2} {\v{Z}}. Odu{\~n}ale and F. L{\^a}rsenb{\`e}, ``Merge conflicts in cherry-picked commits and their
+resolution by the maintainers,'' \emph{J. Made-up Softw. Evol.}, vol. 12, no. 3, pp. 44--55, 2022.
+\bibitem{b3} {\"O}. Mirovi{\v{c}} and {\AA}. Tanak{\"a}wa, ``Flaky tests in the continuous integration of large
+made-up repositories,'' in \emph{Proc. Int. Symp. Made-up Softw. Maintenance}, 2023, pp. 201--212.
+\bibitem{b4} {\H{O}}. Hollisw{\H{o}}rth and {\.Z}. Abern{\=a}thie, ``Refactoring recommendations from the history of
+invented code reviews,'' \emph{J. Made-up Softw. Evol.}, vol. 13, no. 1, pp. 1--12, 2023.
+\bibitem{b5} {\c{C}}. Ca{\c{s}}tellane and D. Dru{\.z}hkov, ``Incremental compilation for the regression suites of
+imaginary compilers,'' in \emph{Proc. Int. Symp. Made-up Softw. Maintenance}, 2024, pp. 301--312.
+\end{thebibliography}
+\end{document}

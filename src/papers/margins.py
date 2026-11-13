@@ -1,5 +1,6 @@
 """Content that runs into the margins of the template, page by page: words, images, and drawings whose visible ink lies
-beyond the text block of the profile, apart from the running heads, page numbers, and line numbers of the template."""
+beyond the text block of the profile, apart from the running heads, page numbers, and line numbers of the template
+and the stamp of a preprint server."""
 
 from __future__ import annotations
 
@@ -10,7 +11,7 @@ from pathlib import Path
 
 import pymupdf
 
-from peercheck.findings import Finding, Severity
+from peercheck.findings import Finding, Severity, excerpt
 from peercheck.models import Paper
 from peercheck.profile import FormatRules, Profile
 
@@ -31,11 +32,13 @@ RULE_HEIGHT = 1.5
 LINE_NUMBER = re.compile(r"[0-9]+")
 MIN_LINE_NUMBERS = 3
 ALIGNMENT = 1.0
+PREPRINT_ID = re.compile(r"arXiv:\S+")
+# The letters of a font that names no descender height reach below their text box, by less than this part of its height.
+LETTER_REACH = 0.3
 INK_ZOOM = 2
 # Gray levels from this value up count as blank paper, such as the near-white background of a photo.
 PAPER_GRAY = 245
 INK = bytes(0 if level < PAPER_GRAY else 1 for level in range(256))
-EXCERPT_LIMIT = 120
 
 
 @dataclass(eq=False)
@@ -151,7 +154,7 @@ def _page_marks(page: pymupdf.Page, rules: FormatRules, tolerance: float) -> Pag
     top, right, bottom, left = rules.margins
     block = pymupdf.Rect(frame.x0 + left, frame.y0 + top, frame.x1 - right, frame.y1 - bottom)
     marks = [mark for mark in _marks(page, frame) if mark.overshoot(block) > 0]
-    template = _line_numbers(marks, block)
+    template = _line_numbers(marks, block) | _preprint_stamp(marks, block)
     template |= _running_heads([mark for mark in marks if mark not in template], block, tolerance)
     return PageMarks(page.number, block, marks, template)
 
@@ -160,11 +163,12 @@ def _marks(page: pymupdf.Page, frame: pymupdf.Rect) -> list[Mark]:
     """Return the words, images, and drawings of the page, each cut to the page."""
     boxes = [("text", tuple(word[:4]), word[4]) for word in page.get_text("words", flags=WORD_FLAGS)]
     boxes += [("image", tuple(info["bbox"]), "") for info in page.get_image_info()]
-    for path in page.get_drawings():
+    # get_cdrawings gives the paths of get_drawings as plain tuples, in about two thirds of the time.
+    for path in page.get_cdrawings():
         # A stroke reaches half its width beyond the points of its path.
         half = (path.get("width") or 0.0) / 2 if "s" in path["type"] else 0.0
-        rect = path["rect"]
-        boxes.append(("drawing", (rect.x0 - half, rect.y0 - half, rect.x1 + half, rect.y1 + half), ""))
+        x0, y0, x1, y1 = path["rect"]
+        boxes.append(("drawing", (x0 - half, y0 - half, x1 + half, y1 + half), ""))
     marks = []
     for kind, (x0, y0, x1, y1), text in boxes:
         box = pymupdf.Rect(max(x0, frame.x0), max(y0, frame.y0), min(x1, frame.x1), min(y1, frame.y1))
@@ -214,6 +218,19 @@ def _runs(column: list[Mark]) -> list[list[Mark]]:
         else:
             runs.append([mark])
     return runs
+
+
+def _preprint_stamp(marks: list[Mark], block: pymupdf.Rect) -> set[Mark]:
+    """Return the words of the stamp that arXiv prints up the left margin, which is no content of the paper.
+
+    The stamp reads from the bottom up, therefore the tops of its letters share the left edge of its identifier.
+    """
+    beside = [mark for mark in marks if mark.kind == "text" and mark.span(block, "left")[0] >= 0]
+    found = set()
+    for mark in beside:
+        if PREPRINT_ID.fullmatch(mark.text) and mark.rect.height > mark.rect.width:
+            found.update(word for word in beside if abs(word.rect.x0 - mark.rect.x0) <= ALIGNMENT)
+    return found
 
 
 def _running_heads(marks: list[Mark], block: pymupdf.Rect, tolerance: float) -> set[Mark]:
@@ -280,7 +297,8 @@ def _render(page: pymupdf.Page, blanked: set[Mark]) -> PageInk:
     pix = page.get_pixmap(matrix=matrix, colorspace=pymupdf.csGRAY, alpha=False, annots=False)
     pix.set_origin(0, 0)
     for mark in blanked:
-        pix.set_rect(pymupdf.IRect(_pixels(mark.rect)), (255,))
+        reach = LETTER_REACH * min(mark.rect.width, mark.rect.height) if mark.kind == "text" else 0.0
+        pix.set_rect(pymupdf.IRect(_pixels(mark.rect + (0, 0, 0, reach))), (255,))
     return PageInk(pix.samples.translate(INK), pix.width, pix.height, pix.stride)
 
 
@@ -298,7 +316,7 @@ def _finding(page: pymupdf.Page, reached: dict[str, tuple[float, list[Mark]]], t
     kinds = ", ".join(kind for kind in KINDS if any(mark.kind == kind for mark in marks))
     message = f"content ({kinds}) runs {' and '.join(parts)}, beyond the tolerance of {tolerance:g} pt"
     words = " ".join(mark.text for mark in sorted(marks, key=lambda mark: (mark.rect.y0, mark.rect.x0)) if mark.text)
-    return Finding(f"{CHECK}.overflow", Severity.ERROR, message, page.number + 1, _excerpt(words))
+    return Finding(f"{CHECK}.overflow", Severity.ERROR, message, page.number + 1, excerpt(words))
 
 
 def _shown(side: str, page: pymupdf.Page) -> str:
@@ -308,9 +326,6 @@ def _shown(side: str, page: pymupdf.Page) -> str:
     shown = (round(x * turn.a + y * turn.c), round(x * turn.b + y * turn.d))
     return next(name for name, direction in DIRECTIONS.items() if direction == shown)
 
-
-def _excerpt(text: str) -> str:
-    return text if len(text) <= EXCERPT_LIMIT else text[: EXCERPT_LIMIT - 3].rstrip() + "..."
 
 
 def _error(message: str, page: int | None = None) -> Finding:

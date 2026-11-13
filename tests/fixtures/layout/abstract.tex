@@ -1,0 +1,9 @@
+% The abstract of the acmart fixtures of this folder, of the length of a real abstract.
+Flaky tests pass and fail on the same version of the code, and a developer who sees such a failure cannot tell
+whether the change under review broke the program or whether the test fails at random. Rerunning every failed test
+costs build time that large projects do not have. This paper ranks the failures of a build by the chance that each
+failure is flaky. The ranking draws on two signals that every project already records: the history of each test in
+earlier builds and the distance between the files of the change and the files that the test covers. On 4,210 failures
+of ten open-source projects, the ranking places a flaky failure first in 71\% of the builds that hold one, and a
+developer who reruns only the three highest ranked failures finds 93\% of the flaky ones. The ranking needs no
+instrumentation and adds less than one second to a build.

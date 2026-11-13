@@ -17,10 +17,10 @@ format:
   exempt_sections: [data availability]
   # PeerCheck warns when the exempt section runs longer than a page, which may hold text moved out of the limit.
   exempt_pages_max: 1
-  # Margins of an acmart v2.20 acmsmall paper with the review and anonymous options, as banal
-  # measures them (top, right, bottom, left), with the tolerance of the IEEE templates.
+  # Margins of an acmart v2.20 acmsmall paper with the review and anonymous options, as banal measures them (top,
+  # right, bottom, left). The tolerance covers the top margin of 60 pt that banal gives without the review option.
   margins: [84, 42, 36, 44]
-  margin_tolerance: 18
+  margin_tolerance: 24
   # acmsmall sets the body in 10 pt and the references in 8 pt, which banal reports as 10.3 and 8.3 pt.
   body_font_max: 10.5
   # banal reports lines 12 pt apart for acmsmall, 9.3 pt type for the 9pt option, and lines 10.2 pt apart for
@@ -57,5 +57,6 @@ checks:
   editlens:
   duplicates:
   citations:
+  short_reviews:
   canary:
   conflicts:

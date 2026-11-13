@@ -1,6 +1,6 @@
-"""Author identity hidden in the objects of a submission PDF: figure paths and metadata, the XMP of images, comment
-authors, link targets, embedded file names, and earlier revisions. The page text, the document metadata, and each
-author match that the SIGSOFT checker reports in the same value are left to that checker."""
+"""Author identity in a submission PDF that the SIGSOFT checker does not report: figure paths and metadata, the XMP of
+images, comment authors, link targets, embedded file names, home folders in the document metadata, earlier revisions,
+and on the first page a funding statement, an ORCID iD outside a link, and an email at a domain with a hyphen."""
 
 from __future__ import annotations
 
@@ -8,22 +8,23 @@ import html
 import re
 import unicodedata
 import zlib
+from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
 import pymupdf
 
-from peercheck.findings import Finding, Severity
+from peercheck.findings import EVIDENCE_LIMIT, Finding, Severity, excerpt
 from peercheck.models import Paper, Person
 from peercheck.profile import Profile
 
 CHECK = "identity"
-EXCERPT_LIMIT = 120
 # A small stream may inflate to gigabytes, therefore decoding stops at this size.
 STREAM_LIMIT = 1 << 20
 # Each earlier revision costs a text extraction, and a PDF may hold thousands of incremental saves.
 MAX_REVISIONS = 20
 
+DOCUMENT_INFO = "the document information ({key})"
 FIGURE_FILE = "the file path of an included figure (PTEX.FileName)"
 FIGURE_INFO = "the metadata of an included figure (PTEX.InfoDict {key})"
 OBJECT_XMP = "the XMP metadata of {owner}"
@@ -37,9 +38,12 @@ OWNERS = {"/Image": "an image", "/Form": "an included figure", "/Page": "a page"
 # The annotations that PDFBox reads as markup, whose author field (/T) the SIGSOFT checker matches.
 MARKUP = frozenset({"/Text", "/FreeText", "/Line", "/Square", "/Circle", "/Polygon", "/PolyLine", "/Highlight",
                     "/Underline", "/Squiggly", "/StrikeOut", "/Stamp", "/Caret", "/Ink", "/FileAttachment", "/Sound"})
-SEVERITIES = {"author": Severity.ERROR, "home-folder": Severity.WARNING, "comment-author": Severity.WARNING}
+SEVERITIES = {"author": Severity.ERROR, "home-folder": Severity.WARNING, "comment-author": Severity.WARNING,
+              "funding": Severity.WARNING, "orcid": Severity.WARNING, "email": Severity.ERROR}
 MESSAGES = {"author": "Name or email of an author of this paper in {place}",
-            "home-folder": "Home folder of a user account in {place}", "comment-author": "Name in {place}"}
+            "home-folder": "Home folder of a user account in {place}", "comment-author": "Name in {place}",
+            "funding": "Funding statement on the first page", "orcid": "ORCID iD on the first page",
+            "email": "Email address on the first page"}
 
 HOME_FOLDER = re.compile(
     r"(?<![\w.~-])(?:(?:/mnt/[a-z]|/cygdrive/[a-z])?/(?:users|home|homes)/"
@@ -56,6 +60,8 @@ MIDDLE_INITIAL = r"(?:\s[^\W\d_]\.)?"
 MORE_INITIALS = r"(?:\s?-?\s?[^\W\d_]\.)*"
 EMAIL_BEFORE, EMAIL_AFTER = r"(?<![\w.%+-])", r"(?![\w-]|\.\w)"
 LATEX_ACCENT = re.compile(r"\\[`'^\"~=.uvHtcdbkr]\s*\{?\s*([^\W\d_])\s*\}?")
+# What folding changes in ASCII text besides the case: white space other than one space, and the accents ^ and `.
+FOLDED_ASCII = re.compile(r"\s\s|[^\S ]|[\^`]")
 SPECIAL_LETTERS = {"ø": "o", "ł": "l", "æ": "ae", "œ": "oe", "ß": "ss", "đ": "d", "ð": "d", "þ": "th", "ı": "i"}
 XMP_PACKET = re.compile(rb"<x:x[ma]pmeta\b.*?</x:x[ma]pmeta>", re.DOTALL)
 XML_TEXT = re.compile(r">([^<>]+)<")
@@ -64,6 +70,27 @@ XMP_SYNTAX = frozenset({"rdf:about", "rdf:parseType", "x:xmptk"})
 DICT_NAME = re.compile(r"/([^\s/<>\[\]()%{}]+)")
 # An %%EOF without startxref, such as one inside a stream, ends no revision.
 REVISION_END = re.compile(rb"startxref\s+\d+\s+%%EOF")
+# A sentence on who funded the work: This work was supported by, The work of ... was funded by, a sentence that opens
+# with Supported by, or received funding from.
+FUNDED = (r"(?:(?<![a-z])(?:(?:this|our)\s(?:work|research|study|paper|project|material|publication)"
+          r"|the\s(?:research|authors?)|the\swork\sof\s[^.;]{2,60}?)\s(?:is|are|was|were|ha(?:s|ve)\sbeen)\s"
+          r"(?:[a-z]+\s){0,3}?|(?<![a-z]\s)(?=(?-i:[A-Z])))(?:supported|funded|financed|sponsored)\s"
+          r"(?:[a-z]+\s){0,3}?by\s|\breceived\sfunding\sfrom\s")
+WITHHELD = r"(?:anonym|blind|redacted|omitted|removed|withheld|hidden|xxx)"
+# The funder that such a sentence names: a name with a capital letter, or a grant or a gift, neither one withheld.
+FUNDER = (rf"(?:the\s|an?\s)?(?:(?!\W*{WITHHELD})(?-i:[A-Z])|(?![^.;]{{0,60}}?{WITHHELD})(?:[a-z-]+\s){{0,2}}"
+          r"(?:grant|fellowship|scholarship|award|fund|funding|gift|donation)s?\b)")
+# The number of a grant holds three digits or follows no., number, or #, which leaves out the verb in grant 3rd-party.
+GRANT_NUMBER = r"(?!(?:19|20)\d\d\b)(?=[\w/-]*\d)[a-z0-9][\w/-]{3,}"
+GRANT = (r"(?:grant|award)s?\s(?:agreements?\s)?(?:(?:nos?\.?|numbers?|#)\s?|(?=(?:[^\s\d]*\d){3}))" + GRANT_NUMBER
+         + r"|contracts?\s(?:nos?\.?|numbers?|#)\s?" + GRANT_NUMBER)
+FUNDING = re.compile(rf"(?i:(?:{FUNDED})(?={FUNDER})|\b(?:{GRANT}))")
+ORCID = re.compile(r"(?<![\w-])\d{4}-\d{4}-\d{4}-\d{3}[\dX](?![\w-])")
+# The email pattern of the SIGSOFT checker, findEmails in PdfChecker.java, stops at a hyphen in the first part of a
+# domain, therefore an address at uni-nowhere.edu gets no finding there.
+# The last part of a domain stands in lower-case letters, unlike a sentence that follows a measure such as top-5.
+DOMAIN_END = r"\.[a-z]{2,}(?![\w-])"
+HYPHEN_EMAIL = re.compile(r"(?:\{[\w.%+,\s-]+\}|(?<![\w.%+-])[\w.%+-]+)\s?@\s?\w+-[\w-]*(?:\.[\w-]+)*" + DOMAIN_END)
 
 
 @dataclass(frozen=True)
@@ -77,12 +104,15 @@ class Value:
 
 
 def check(paper: Paper, profile: Profile, workdir: Path) -> list[Finding]:
-    """Return a finding for each author name, home-folder path, comment author, or earlier revision in the PDF."""
+    """Return a finding for each author name, home-folder path, comment author, or earlier revision in the PDF, and
+    for a funding statement, an ORCID iD, or an email on its first page."""
     patterns = _author_patterns(paper.authors)
+    funding = profile.options("anonymity").get("flag_acknowledgments", True)
     try:
         with pymupdf.open(paper.pdf, filetype="pdf") as document:
-            found = sorted(_value_findings(_values(document), patterns), key=lambda f: f.page or 0)
-            return found + _revision_findings(document, Path(paper.pdf), patterns)
+            values = _values(document)
+            found = _value_findings(values, patterns) + _first_page_findings(document, values, patterns, funding)
+            return sorted(found, key=lambda f: f.page or 0) + _revision_findings(document, Path(paper.pdf), patterns)
     except Exception as exc:  # noqa: BLE001 - one PDF that MuPDF cannot read must not stop the run over all papers
         return [Finding(f"{CHECK}.error", Severity.WARNING,
                         f"The identity scan could not read the PDF ({type(exc).__name__}).")]
@@ -130,8 +160,10 @@ def _words(folded: str) -> str:
     return r"\s".join(map(re.escape, folded.split()))
 
 
-def _fold(text: str) -> tuple[str, list[int]]:
+def _fold(text: str) -> tuple[str, Sequence[int]]:
     """Return the text in lower case without accents and with single spaces, and the place of each character."""
+    if text.isascii() and not FOLDED_ASCII.search(text):
+        return text.lower(), range(len(text))
     chars: list[str] = []
     places: list[int] = []
     for place, char in enumerate(text):
@@ -153,6 +185,8 @@ def _fold(text: str) -> tuple[str, list[int]]:
 
 def _matches(text: str, patterns: list[tuple[int, re.Pattern[str]]], separators: bool) -> list[tuple[int, int, int]]:
     """Return the number of the author and the span of each match, also with path separators read as spaces."""
+    if not patterns:
+        return []
     readings = (text, PATH_SEPARATORS.sub(" ", text)) if separators else (text,)
     found = []
     for reading in readings:
@@ -163,10 +197,11 @@ def _matches(text: str, patterns: list[tuple[int, re.Pattern[str]]], separators:
 
 
 def _values(document: pymupdf.Document) -> list[Value]:
-    """Return the texts of the figures, images, comments, links, and embedded files of the PDF with their places."""
+    """Return the texts of the metadata, figures, images, comments, links, and embedded files of the PDF with their
+    places."""
     pages, figures = _first_pages(document)
     catalog = document.pdf_catalog()
-    values = []
+    values = _document_values(document)
     for xref in range(1, document.xref_length()):
         keys = document.xref_get_keys(xref)
         page, read = pages.get(xref), xref in figures
@@ -191,6 +226,16 @@ def _values(document: pymupdf.Document) -> list[Value]:
         values += [Value(FILE_NAME, text) for text in dict.fromkeys((name, info["filename"], info["ufilename"]))]
         values.append(Value(FILE_DESCRIPTION, info["description"]))
     return [value for value in values if value.text.strip()]
+
+
+def _document_values(document: pymupdf.Document) -> list[Value]:
+    """Return the entries of the document information and the texts of the XMP packet of the document."""
+    values = [Value(DOCUMENT_INFO.format(key=key), text, None, True) for key, text in _entries(document, -1, "Info")]
+    metadata = _reference(document, document.pdf_catalog(), "Metadata")
+    if metadata:
+        place = OBJECT_XMP.format(owner="the document")
+        values += [Value(place, text, None, True) for text in _xmp_texts(_stream(document, metadata))]
+    return values
 
 
 def _first_pages(document: pymupdf.Document) -> tuple[dict[int, int], set[int]]:
@@ -249,6 +294,8 @@ def _file_names(document: pymupdf.Document, xref: int, key: str) -> list[str]:
     kind, value = document.xref_get_key(xref, key)
     if kind == "string":
         return [value]
+    if kind == "null":
+        return []
     return list(dict.fromkeys(_string(document, xref, f"{key}/{name}") for name in ("UF", "F", "DOS", "Mac", "Unix")))
 
 
@@ -295,7 +342,7 @@ def _value_findings(values: list[Value], patterns: list[tuple[int, re.Pattern[st
     findings = []
     for (code, place, _), hits in groups.items():
         pages = [page for page, _ in hits if page]
-        evidence = _excerpt(" | ".join(dict.fromkeys(text for _, text in hits)))
+        evidence = excerpt(" | ".join(dict.fromkeys(text for _, text in hits)))
         findings.append(Finding(f"{CHECK}.{code}", SEVERITIES[code], MESSAGES[code].format(place=place),
                                 min(pages, default=None), evidence))
     return findings
@@ -303,21 +350,49 @@ def _value_findings(values: list[Value], patterns: list[tuple[int, re.Pattern[st
 
 def _hit(value: Value, patterns: list[tuple[int, re.Pattern[str]]]) -> tuple[str, object, str] | None:
     """Return the code, the group key, and the evidence of what a value reveals, or None if it reveals nothing new."""
-    if value.read_by_sigsoft:
-        # The SIGSOFT checker reports an author match in this value, and it reads only a figure path with separators.
-        if _matches(value.text, patterns, value.place == FIGURE_FILE):
-            return None
-    else:
+    if not value.read_by_sigsoft:
         match = next(iter(_matches(value.text, patterns, True)), None)
         if match:
             number, start, end = match
             return "author", number, _around(value.text, start, end)
     home = _home_folder(value.text)
+    comment = value.place == COMMENT_AUTHOR and _is_name(value.text)
+    if not (home or comment):
+        return None
+    # The SIGSOFT checker reports an author match in this value, and it reads only a figure path with separators.
+    if value.read_by_sigsoft and _matches(value.text, patterns, value.place == FIGURE_FILE):
+        return None
     if home:
         return "home-folder", home["user"].strip().casefold(), _around(value.text, home.start(), home.end())
-    if value.place == COMMENT_AUTHOR and _is_name(value.text):
-        return "comment-author", _fold(value.text)[0].strip(), " ".join(value.text.split())
-    return None
+    return "comment-author", _fold(value.text)[0].strip(), " ".join(value.text.split())
+
+
+def _first_page_findings(document: pymupdf.Document, values: list[Value], patterns: list[tuple[int, re.Pattern[str]]],
+                         funding: bool) -> list[Finding]:
+    """Return a finding for a funding statement, for the ORCID iDs outside a link, and for the emails at a domain with
+    a hyphen on the first page. An email of an author of the paper is left to the SIGSOFT checker."""
+    if not len(document):
+        return []
+    text = " ".join(document[0].get_text().split())
+    statement = FUNDING.search(text) if funding else None
+    links = text + " ".join(value.text for value in values if value.place == LINK_TARGET and value.page == 1)
+    hits = {
+        "funding": [text[statement.start():]] if statement else [],
+        "orcid": [number for number in dict.fromkeys(ORCID.findall(text))
+                  if _is_orcid(number) and f"orcid.org/{number}" not in links],
+        "email": [email for email in dict.fromkeys(match.group() for match in HYPHEN_EMAIL.finditer(text))
+                  if _is_name(email) and not _matches(email, patterns, False)],
+    }
+    return [Finding(f"{CHECK}.{code}", SEVERITIES[code], MESSAGES[code], 1, excerpt(" | ".join(found)))
+            for code, found in hits.items() if found]
+
+
+def _is_orcid(number: str) -> bool:
+    """Tell whether the last character of an ORCID iD is its check character, by ISO 7064 MOD 11-2."""
+    total = 0
+    for digit in number.replace("-", "")[:-1]:
+        total = (total + int(digit)) * 2
+    return "0123456789X"[(12 - total % 11) % 11] == number[-1]
 
 
 def _home_folder(text: str) -> re.Match[str] | None:
@@ -349,13 +424,12 @@ def _revision_findings(document: pymupdf.Document, pdf: Path,
                     if number not in named:
                         named.add(number)
                         where = "the page text" if page else "the document metadata"
-                        message = (f"Name or email of an author of this paper in {where} of an earlier revision that "
-                                   "an incremental save keeps")
+                        message = f"Name or email of an author of this paper in {where} of an earlier revision"
                         found.append(Finding(f"{CHECK}.earlier-revision", Severity.ERROR, message, page,
                                              _around(text, start, stop)))
     if found:
         return found
-    message = f"The PDF keeps {count} saved revisions from incremental saves, which leave the earlier ones readable"
+    message = f"The PDF holds {count} revisions, and the earlier ones stay readable"
     if searched:
         message += "; no earlier revision names an author of this paper"
     return [Finding(f"{CHECK}.revisions", Severity.INFO, message, evidence=f"{count} revisions")]
@@ -373,21 +447,14 @@ def _revision_texts(data: bytes) -> list[tuple[int | None, str]] | None:
 def _texts(document: pymupdf.Document) -> list[tuple[int | None, str]]:
     """Return the text of each page with its number and the values of the document information and XMP."""
     texts: list[tuple[int | None, str]] = [(number, page.get_text()) for number, page in enumerate(document, start=1)]
-    texts += [(None, value) for value in document.metadata.values() if value]
-    metadata = _reference(document, document.pdf_catalog(), "Metadata")
-    if metadata:
-        texts += [(None, text) for text in _xmp_texts(_stream(document, metadata))]
-    return texts
+    return texts + [(None, value.text) for value in _document_values(document)]
 
 
 def _around(text: str, start: int, end: int) -> str:
-    """Return the text around a span, cut to EXCERPT_LIMIT characters with an ellipsis at each cut."""
-    if len(text) > EXCERPT_LIMIT:
-        begin = max(0, min(start - (EXCERPT_LIMIT - (end - start)) // 2, len(text) - EXCERPT_LIMIT))
-        cut = text[begin:begin + EXCERPT_LIMIT]
-        text = ("..." if begin else "") + cut + ("..." if begin + EXCERPT_LIMIT < len(text) else "")
+    """Return the text around a span, cut to EVIDENCE_LIMIT characters with an ellipsis at each cut."""
+    if len(text) > EVIDENCE_LIMIT:
+        begin = max(0, min(start - (EVIDENCE_LIMIT - (end - start)) // 2, len(text) - EVIDENCE_LIMIT))
+        cut = text[begin:begin + EVIDENCE_LIMIT]
+        text = ("..." if begin else "") + cut + ("..." if begin + EVIDENCE_LIMIT < len(text) else "")
     return " ".join(text.split())
 
-
-def _excerpt(text: str) -> str:
-    return text if len(text) <= EXCERPT_LIMIT else text[: EXCERPT_LIMIT - 3].rstrip() + "..."

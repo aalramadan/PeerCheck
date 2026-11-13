@@ -1,0 +1,1190 @@
+{
+ "meta": {
+  "notice": "No API key, so this request shares one free daily budget ($0.10) with everyone on your network's IP address. Get a free key with its own $1/day at https://openalex.org/settings/api and add api_key=YOUR_KEY to your requests. An AI agent can get one for its user in one call: POST https://api.openalex.org/api-keys with {\"email\": \"<your user's email>\"}; we email them a link, and the key works once they click it. Docs for agents: https://help.openalex.org/llms.txt",
+  "count": 78,
+  "db_response_time_ms": 108,
+  "page": 1,
+  "per_page": 5,
+  "groups_count": null,
+  "x_query": {
+   "oql": "get works with (stemmed \"Attention Is All You Need\") in the title",
+   "x_new_oql": "get works with (stemmed \"Attention Is All You Need\") in the title",
+   "oqo": {
+    "get_rows": "works",
+    "filter_rows": [
+     {
+      "column_id": "display_name.search",
+      "value": "\"Attention Is All You Need\"",
+      "operator": "has"
+     }
+    ]
+   },
+   "url": "/works?filter=display_name.search:%22Attention Is All You Need%22&per_page=5",
+   "order": "best matches first",
+   "order_default": true
+  },
+  "cost_usd": 0.001
+ },
+ "results": [
+  {
+   "title": "Attention Is All You Need",
+   "authorships": [
+    {
+     "author_position": "first",
+     "author": {
+      "id": "https://openalex.org/A5103024730",
+      "display_name": "Ashish Vaswani",
+      "orcid": "https://orcid.org/0000-0002-7794-2085",
+      "observed_orcids": [
+       "https://orcid.org/0000-0002-7794-2085"
+      ]
+     },
+     "institutions": [
+      {
+       "id": "https://openalex.org/I1291425158",
+       "display_name": "Google (United States)",
+       "ror": "https://ror.org/00njsd438",
+       "country_code": "US",
+       "type": "company",
+       "lineage": [
+        "https://openalex.org/I1291425158",
+        "https://openalex.org/I4210128969"
+       ]
+      }
+     ],
+     "countries": [
+      "US"
+     ],
+     "is_corresponding": false,
+     "raw_author_name": "Ashish Vaswani",
+     "raw_affiliation_strings": [
+      "Google Brain",
+      "Google (United States), Mountain View, United States"
+     ],
+     "raw_orcid": null,
+     "affiliations": [
+      {
+       "raw_affiliation_string": "Google Brain",
+       "institution_ids": [
+        "https://openalex.org/I1291425158"
+       ]
+      },
+      {
+       "raw_affiliation_string": "Google (United States), Mountain View, United States",
+       "institution_ids": [
+        "https://openalex.org/I1291425158"
+       ]
+      }
+     ]
+    },
+    {
+     "author_position": "middle",
+     "author": {
+      "id": "https://openalex.org/A5021878400",
+      "display_name": "Noam Shazeer",
+      "orcid": null,
+      "observed_orcids": []
+     },
+     "institutions": [
+      {
+       "id": "https://openalex.org/I1291425158",
+       "display_name": "Google (United States)",
+       "ror": "https://ror.org/00njsd438",
+       "country_code": "US",
+       "type": "company",
+       "lineage": [
+        "https://openalex.org/I1291425158",
+        "https://openalex.org/I4210128969"
+       ]
+      }
+     ],
+     "countries": [
+      "US"
+     ],
+     "is_corresponding": false,
+     "raw_author_name": "Noam Shazeer",
+     "raw_affiliation_strings": [
+      "Google Brain",
+      "Google (United States), Mountain View, United States"
+     ],
+     "raw_orcid": null,
+     "affiliations": [
+      {
+       "raw_affiliation_string": "Google Brain",
+       "institution_ids": [
+        "https://openalex.org/I1291425158"
+       ]
+      },
+      {
+       "raw_affiliation_string": "Google (United States), Mountain View, United States",
+       "institution_ids": [
+        "https://openalex.org/I1291425158"
+       ]
+      }
+     ]
+    },
+    {
+     "author_position": "middle",
+     "author": {
+      "id": "https://openalex.org/A5005777963",
+      "display_name": "Niki Parmar",
+      "orcid": null,
+      "observed_orcids": []
+     },
+     "institutions": [
+      {
+       "id": "https://openalex.org/I1174212",
+       "display_name": "University of Southern California",
+       "ror": "https://ror.org/03taz7m60",
+       "country_code": "US",
+       "type": "education",
+       "lineage": [
+        "https://openalex.org/I1174212"
+       ]
+      },
+      {
+       "id": "https://openalex.org/I1291425158",
+       "display_name": "Google (United States)",
+       "ror": "https://ror.org/00njsd438",
+       "country_code": "US",
+       "type": "company",
+       "lineage": [
+        "https://openalex.org/I1291425158",
+        "https://openalex.org/I4210128969"
+       ]
+      }
+     ],
+     "countries": [
+      "US"
+     ],
+     "is_corresponding": false,
+     "raw_author_name": "Niki Parmar",
+     "raw_affiliation_strings": [
+      "Google Research",
+      "University of Southern California, Los Angeles, United States"
+     ],
+     "raw_orcid": null,
+     "affiliations": [
+      {
+       "raw_affiliation_string": "Google Research",
+       "institution_ids": [
+        "https://openalex.org/I1291425158"
+       ]
+      },
+      {
+       "raw_affiliation_string": "University of Southern California, Los Angeles, United States",
+       "institution_ids": [
+        "https://openalex.org/I1174212"
+       ]
+      }
+     ]
+    },
+    {
+     "author_position": "middle",
+     "author": {
+      "id": "https://openalex.org/A5022416424",
+      "display_name": "Jakob Uszkoreit",
+      "orcid": "https://orcid.org/0000-0001-5066-7530",
+      "observed_orcids": [
+       "https://orcid.org/0000-0001-5066-7530"
+      ]
+     },
+     "institutions": [
+      {
+       "id": "https://openalex.org/I1291425158",
+       "display_name": "Google (United States)",
+       "ror": "https://ror.org/00njsd438",
+       "country_code": "US",
+       "type": "company",
+       "lineage": [
+        "https://openalex.org/I1291425158",
+        "https://openalex.org/I4210128969"
+       ]
+      }
+     ],
+     "countries": [
+      "US"
+     ],
+     "is_corresponding": false,
+     "raw_author_name": "Jakob Uszkoreit",
+     "raw_affiliation_strings": [
+      "Google Research",
+      "Google (United States), Mountain View, United States"
+     ],
+     "raw_orcid": null,
+     "affiliations": [
+      {
+       "raw_affiliation_string": "Google Research",
+       "institution_ids": [
+        "https://openalex.org/I1291425158"
+       ]
+      },
+      {
+       "raw_affiliation_string": "Google (United States), Mountain View, United States",
+       "institution_ids": [
+        "https://openalex.org/I1291425158"
+       ]
+      }
+     ]
+    },
+    {
+     "author_position": "middle",
+     "author": {
+      "id": "https://openalex.org/A5023448834",
+      "display_name": "Llion Jones",
+      "orcid": null,
+      "observed_orcids": []
+     },
+     "institutions": [
+      {
+       "id": "https://openalex.org/I1291425158",
+       "display_name": "Google (United States)",
+       "ror": "https://ror.org/00njsd438",
+       "country_code": "US",
+       "type": "company",
+       "lineage": [
+        "https://openalex.org/I1291425158",
+        "https://openalex.org/I4210128969"
+       ]
+      }
+     ],
+     "countries": [
+      "US"
+     ],
+     "is_corresponding": false,
+     "raw_author_name": "Llion Jones",
+     "raw_affiliation_strings": [
+      "Google Research",
+      "Google (United States), Mountain View, United States"
+     ],
+     "raw_orcid": null,
+     "affiliations": [
+      {
+       "raw_affiliation_string": "Google Research",
+       "institution_ids": [
+        "https://openalex.org/I1291425158"
+       ]
+      },
+      {
+       "raw_affiliation_string": "Google (United States), Mountain View, United States",
+       "institution_ids": [
+        "https://openalex.org/I1291425158"
+       ]
+      }
+     ]
+    },
+    {
+     "author_position": "middle",
+     "author": {
+      "id": "https://openalex.org/A5079288315",
+      "display_name": "Aidan N. Gomez",
+      "orcid": "https://orcid.org/0000-0001-5601-5437",
+      "observed_orcids": [
+       "https://orcid.org/0000-0001-5601-5437"
+      ]
+     },
+     "institutions": [
+      {
+       "id": "https://openalex.org/I1291425158",
+       "display_name": "Google (United States)",
+       "ror": "https://ror.org/00njsd438",
+       "country_code": "US",
+       "type": "company",
+       "lineage": [
+        "https://openalex.org/I1291425158",
+        "https://openalex.org/I4210128969"
+       ]
+      },
+      {
+       "id": "https://openalex.org/I185261750",
+       "display_name": "University of Toronto",
+       "ror": "https://ror.org/03dbr7087",
+       "country_code": "CA",
+       "type": "education",
+       "lineage": [
+        "https://openalex.org/I185261750"
+       ]
+      }
+     ],
+     "countries": [
+      "CA",
+      "US"
+     ],
+     "is_corresponding": false,
+     "raw_author_name": "Aidan N.Gomez",
+     "raw_affiliation_strings": [
+      "University of Toronto",
+      "Google (United States), Mountain View, United States"
+     ],
+     "raw_orcid": null,
+     "affiliations": [
+      {
+       "raw_affiliation_string": "University of Toronto",
+       "institution_ids": [
+        "https://openalex.org/I185261750"
+       ]
+      },
+      {
+       "raw_affiliation_string": "Google (United States), Mountain View, United States",
+       "institution_ids": [
+        "https://openalex.org/I1291425158"
+       ]
+      }
+     ]
+    },
+    {
+     "author_position": "middle",
+     "author": {
+      "id": "https://openalex.org/A5031789995",
+      "display_name": "Łukasz Kaiser",
+      "orcid": "https://orcid.org/0000-0003-1092-6010",
+      "observed_orcids": [
+       "https://orcid.org/0000-0003-1092-6010"
+      ]
+     },
+     "institutions": [
+      {
+       "id": "https://openalex.org/I1291425158",
+       "display_name": "Google (United States)",
+       "ror": "https://ror.org/00njsd438",
+       "country_code": "US",
+       "type": "company",
+       "lineage": [
+        "https://openalex.org/I1291425158",
+        "https://openalex.org/I4210128969"
+       ]
+      }
+     ],
+     "countries": [
+      "US"
+     ],
+     "is_corresponding": false,
+     "raw_author_name": "Lukasz Kaiser",
+     "raw_affiliation_strings": [
+      "Google Brain",
+      "Google (United States), Mountain View, United States"
+     ],
+     "raw_orcid": null,
+     "affiliations": [
+      {
+       "raw_affiliation_string": "Google Brain",
+       "institution_ids": [
+        "https://openalex.org/I1291425158"
+       ]
+      },
+      {
+       "raw_affiliation_string": "Google (United States), Mountain View, United States",
+       "institution_ids": [
+        "https://openalex.org/I1291425158"
+       ]
+      }
+     ]
+    },
+    {
+     "author_position": "last",
+     "author": {
+      "id": "https://openalex.org/A5045719436",
+      "display_name": "Illia Polosukhin",
+      "orcid": null,
+      "observed_orcids": []
+     },
+     "institutions": [
+      {
+       "id": "https://openalex.org/I1291425158",
+       "display_name": "Google (United States)",
+       "ror": "https://ror.org/00njsd438",
+       "country_code": "US",
+       "type": "company",
+       "lineage": [
+        "https://openalex.org/I1291425158",
+        "https://openalex.org/I4210128969"
+       ]
+      }
+     ],
+     "countries": [
+      "US"
+     ],
+     "is_corresponding": false,
+     "raw_author_name": "Illia Polosukhin",
+     "raw_affiliation_strings": [
+      "Google (United States), Mountain View, United States"
+     ],
+     "raw_orcid": null,
+     "affiliations": [
+      {
+       "raw_affiliation_string": "Google (United States), Mountain View, United States",
+       "institution_ids": [
+        "https://openalex.org/I1291425158"
+       ]
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "title": "Attention Is All You Need In Speech Separation",
+   "authorships": [
+    {
+     "author_position": "first",
+     "author": {
+      "id": "https://openalex.org/A5023830739",
+      "display_name": "Cem Subakan",
+      "orcid": "https://orcid.org/0000-0002-7593-6589",
+      "observed_orcids": [
+       "https://orcid.org/0000-0002-7593-6589"
+      ]
+     },
+     "institutions": [
+      {
+       "id": "https://openalex.org/I4210164802",
+       "display_name": "Mila - Quebec Artificial Intelligence Institute",
+       "ror": "https://ror.org/05c22rx21",
+       "country_code": "CA",
+       "type": "facility",
+       "lineage": [
+        "https://openalex.org/I4210164802"
+       ]
+      }
+     ],
+     "countries": [
+      "CA"
+     ],
+     "is_corresponding": false,
+     "raw_author_name": "Cem Subakan",
+     "raw_affiliation_strings": [
+      "Mila-Quebec AI Institute, Canada"
+     ],
+     "raw_orcid": null,
+     "affiliations": [
+      {
+       "raw_affiliation_string": "Mila-Quebec AI Institute, Canada",
+       "institution_ids": [
+        "https://openalex.org/I4210164802"
+       ]
+      }
+     ]
+    },
+    {
+     "author_position": "middle",
+     "author": {
+      "id": "https://openalex.org/A5040811098",
+      "display_name": "Mirco Ravanelli",
+      "orcid": "https://orcid.org/0000-0002-3929-5526",
+      "observed_orcids": [
+       "https://orcid.org/0000-0002-3929-5526",
+       "https://orcid.org/0000-0001-8479-3121"
+      ]
+     },
+     "institutions": [
+      {
+       "id": "https://openalex.org/I4210164802",
+       "display_name": "Mila - Quebec Artificial Intelligence Institute",
+       "ror": "https://ror.org/05c22rx21",
+       "country_code": "CA",
+       "type": "facility",
+       "lineage": [
+        "https://openalex.org/I4210164802"
+       ]
+      }
+     ],
+     "countries": [
+      "CA"
+     ],
+     "is_corresponding": false,
+     "raw_author_name": "Mirco Ravanelli",
+     "raw_affiliation_strings": [
+      "Mila-Quebec AI Institute, Canada"
+     ],
+     "raw_orcid": null,
+     "affiliations": [
+      {
+       "raw_affiliation_string": "Mila-Quebec AI Institute, Canada",
+       "institution_ids": [
+        "https://openalex.org/I4210164802"
+       ]
+      }
+     ]
+    },
+    {
+     "author_position": "middle",
+     "author": {
+      "id": "https://openalex.org/A5047682990",
+      "display_name": "Samuele Cornell",
+      "orcid": "https://orcid.org/0000-0002-5358-1844",
+      "observed_orcids": [
+       "https://orcid.org/0000-0002-5358-1844"
+      ]
+     },
+     "institutions": [
+      {
+       "id": "https://openalex.org/I122534668",
+       "display_name": "Marche Polytechnic University",
+       "ror": "https://ror.org/00x69rs40",
+       "country_code": "IT",
+       "type": "education",
+       "lineage": [
+        "https://openalex.org/I122534668"
+       ]
+      }
+     ],
+     "countries": [
+      "IT"
+     ],
+     "is_corresponding": false,
+     "raw_author_name": "Samuele Cornell",
+     "raw_affiliation_strings": [
+      "Università Politecnica delle Marche, Italy"
+     ],
+     "raw_orcid": null,
+     "affiliations": [
+      {
+       "raw_affiliation_string": "Università Politecnica delle Marche, Italy",
+       "institution_ids": [
+        "https://openalex.org/I122534668"
+       ]
+      }
+     ]
+    },
+    {
+     "author_position": "middle",
+     "author": {
+      "id": "https://openalex.org/A5028787566",
+      "display_name": "Mirko Bronzi",
+      "orcid": null,
+      "observed_orcids": []
+     },
+     "institutions": [
+      {
+       "id": "https://openalex.org/I4210164802",
+       "display_name": "Mila - Quebec Artificial Intelligence Institute",
+       "ror": "https://ror.org/05c22rx21",
+       "country_code": "CA",
+       "type": "facility",
+       "lineage": [
+        "https://openalex.org/I4210164802"
+       ]
+      }
+     ],
+     "countries": [
+      "CA"
+     ],
+     "is_corresponding": false,
+     "raw_author_name": "Mirko Bronzi",
+     "raw_affiliation_strings": [
+      "Mila-Quebec AI Institute, Canada"
+     ],
+     "raw_orcid": null,
+     "affiliations": [
+      {
+       "raw_affiliation_string": "Mila-Quebec AI Institute, Canada",
+       "institution_ids": [
+        "https://openalex.org/I4210164802"
+       ]
+      }
+     ]
+    },
+    {
+     "author_position": "last",
+     "author": {
+      "id": "https://openalex.org/A5063943539",
+      "display_name": "Jianyuan Zhong",
+      "orcid": "https://orcid.org/0009-0006-9954-9563",
+      "observed_orcids": [
+       "https://orcid.org/0009-0006-9954-9563"
+      ]
+     },
+     "institutions": [
+      {
+       "id": "https://openalex.org/I5388228",
+       "display_name": "University of Rochester",
+       "ror": "https://ror.org/022kthw22",
+       "country_code": "US",
+       "type": "education",
+       "lineage": [
+        "https://openalex.org/I5388228"
+       ]
+      }
+     ],
+     "countries": [
+      "US"
+     ],
+     "is_corresponding": false,
+     "raw_author_name": "Jianyuan Zhong",
+     "raw_affiliation_strings": [
+      "University of Rochester, USA"
+     ],
+     "raw_orcid": null,
+     "affiliations": [
+      {
+       "raw_affiliation_string": "University of Rochester, USA",
+       "institution_ids": [
+        "https://openalex.org/I5388228"
+       ]
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "title": "Channel Attention Is All You Need for Video Frame Interpolation",
+   "authorships": [
+    {
+     "author_position": "first",
+     "author": {
+      "id": "https://openalex.org/A5031461471",
+      "display_name": "Myungsub Choi",
+      "orcid": "https://orcid.org/0000-0003-4731-3074",
+      "observed_orcids": [
+       "https://orcid.org/0000-0003-4731-3074"
+      ]
+     },
+     "institutions": [
+      {
+       "id": "https://openalex.org/I139264467",
+       "display_name": "Seoul National University",
+       "ror": "https://ror.org/04h9pn542",
+       "country_code": "KR",
+       "type": "education",
+       "lineage": [
+        "https://openalex.org/I139264467"
+       ]
+      }
+     ],
+     "countries": [
+      "KR"
+     ],
+     "is_corresponding": false,
+     "raw_author_name": "Myungsub Choi",
+     "raw_affiliation_strings": [
+      "Seoul National University"
+     ],
+     "raw_orcid": null,
+     "affiliations": [
+      {
+       "raw_affiliation_string": "Seoul National University",
+       "institution_ids": [
+        "https://openalex.org/I139264467"
+       ]
+      }
+     ]
+    },
+    {
+     "author_position": "middle",
+     "author": {
+      "id": "https://openalex.org/A5101422101",
+      "display_name": "Heewon Kim",
+      "orcid": "https://orcid.org/0000-0001-7777-9823",
+      "observed_orcids": [
+       "https://orcid.org/0000-0001-7777-9823"
+      ]
+     },
+     "institutions": [
+      {
+       "id": "https://openalex.org/I139264467",
+       "display_name": "Seoul National University",
+       "ror": "https://ror.org/04h9pn542",
+       "country_code": "KR",
+       "type": "education",
+       "lineage": [
+        "https://openalex.org/I139264467"
+       ]
+      }
+     ],
+     "countries": [
+      "KR"
+     ],
+     "is_corresponding": false,
+     "raw_author_name": "Heewon Kim",
+     "raw_affiliation_strings": [
+      "Seoul National University"
+     ],
+     "raw_orcid": null,
+     "affiliations": [
+      {
+       "raw_affiliation_string": "Seoul National University",
+       "institution_ids": [
+        "https://openalex.org/I139264467"
+       ]
+      }
+     ]
+    },
+    {
+     "author_position": "middle",
+     "author": {
+      "id": "https://openalex.org/A5006594639",
+      "display_name": "Bohyung Han",
+      "orcid": "https://orcid.org/0000-0003-3099-3616",
+      "observed_orcids": [
+       "https://orcid.org/0000-0003-3099-3616"
+      ]
+     },
+     "institutions": [
+      {
+       "id": "https://openalex.org/I139264467",
+       "display_name": "Seoul National University",
+       "ror": "https://ror.org/04h9pn542",
+       "country_code": "KR",
+       "type": "education",
+       "lineage": [
+        "https://openalex.org/I139264467"
+       ]
+      }
+     ],
+     "countries": [
+      "KR"
+     ],
+     "is_corresponding": false,
+     "raw_author_name": "Bohyung Han",
+     "raw_affiliation_strings": [
+      "Seoul National University"
+     ],
+     "raw_orcid": null,
+     "affiliations": [
+      {
+       "raw_affiliation_string": "Seoul National University",
+       "institution_ids": [
+        "https://openalex.org/I139264467"
+       ]
+      }
+     ]
+    },
+    {
+     "author_position": "middle",
+     "author": {
+      "id": null,
+      "display_name": "Ning Xu",
+      "orcid": null,
+      "observed_orcids": []
+     },
+     "institutions": [
+      {
+       "id": "https://openalex.org/I1311688040",
+       "display_name": "Amazon (United States)",
+       "ror": "https://ror.org/04mv4n011",
+       "country_code": "US",
+       "type": "company",
+       "lineage": [
+        "https://openalex.org/I1311688040"
+       ]
+      }
+     ],
+     "countries": [
+      "US"
+     ],
+     "is_corresponding": false,
+     "raw_author_name": "Ning Xu",
+     "raw_affiliation_strings": [
+      "Amazon Go"
+     ],
+     "raw_orcid": null,
+     "affiliations": [
+      {
+       "raw_affiliation_string": "Amazon Go",
+       "institution_ids": [
+        "https://openalex.org/I1311688040"
+       ]
+      }
+     ]
+    },
+    {
+     "author_position": "last",
+     "author": {
+      "id": "https://openalex.org/A5046504049",
+      "display_name": "Kyoung Mu Lee",
+      "orcid": "https://orcid.org/0000-0001-7210-1036",
+      "observed_orcids": [
+       "https://orcid.org/0000-0001-7210-1036"
+      ]
+     },
+     "institutions": [
+      {
+       "id": "https://openalex.org/I139264467",
+       "display_name": "Seoul National University",
+       "ror": "https://ror.org/04h9pn542",
+       "country_code": "KR",
+       "type": "education",
+       "lineage": [
+        "https://openalex.org/I139264467"
+       ]
+      }
+     ],
+     "countries": [
+      "KR"
+     ],
+     "is_corresponding": false,
+     "raw_author_name": "Kyoung Mu Lee",
+     "raw_affiliation_strings": [
+      "Seoul National University"
+     ],
+     "raw_orcid": null,
+     "affiliations": [
+      {
+       "raw_affiliation_string": "Seoul National University",
+       "institution_ids": [
+        "https://openalex.org/I139264467"
+       ]
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "title": "Attention Is All You Need",
+   "authorships": [
+    {
+     "author_position": "first",
+     "author": {
+      "id": "https://openalex.org/A5020811661",
+      "display_name": "J. M. Bishop",
+      "orcid": "https://orcid.org/0000-0003-0749-7737",
+      "observed_orcids": [
+       "https://orcid.org/0000-0003-0749-7737"
+      ]
+     },
+     "institutions": [],
+     "countries": [],
+     "is_corresponding": false,
+     "raw_author_name": "J. Mark Bishop",
+     "raw_affiliation_strings": [],
+     "raw_orcid": null,
+     "affiliations": []
+    },
+    {
+     "author_position": "last",
+     "author": {
+      "id": "https://openalex.org/A5120210075",
+      "display_name": "Gabriel Seiberth",
+      "orcid": null,
+      "observed_orcids": []
+     },
+     "institutions": [],
+     "countries": [],
+     "is_corresponding": false,
+     "raw_author_name": "Gabriel Seiberth",
+     "raw_affiliation_strings": [],
+     "raw_orcid": null,
+     "affiliations": []
+    }
+   ]
+  },
+  {
+   "title": "Attention is all you need: utilizing attention in AI-enabled drug discovery",
+   "authorships": [
+    {
+     "author_position": "first",
+     "author": {
+      "id": "https://openalex.org/A5100354636",
+      "display_name": "Yang Zhang",
+      "orcid": "https://orcid.org/0000-0002-1317-120X",
+      "observed_orcids": [
+       "https://orcid.org/0000-0002-1317-120X"
+      ]
+     },
+     "institutions": [
+      {
+       "id": "https://openalex.org/I53411278",
+       "display_name": "Chengdu University of Traditional Chinese Medicine",
+       "ror": "https://ror.org/00pcrz470",
+       "country_code": "CN",
+       "type": "education",
+       "lineage": [
+        "https://openalex.org/I53411278"
+       ]
+      }
+     ],
+     "countries": [
+      "CN"
+     ],
+     "is_corresponding": false,
+     "raw_author_name": "Yang Zhang",
+     "raw_affiliation_strings": [
+      "Innovative Institute of Chinese Medicine and Pharmacy, Academy for Interdiscipline, Chengdu University of Traditional Chinese Medicine , Chengdu, China"
+     ],
+     "raw_orcid": null,
+     "affiliations": [
+      {
+       "raw_affiliation_string": "Innovative Institute of Chinese Medicine and Pharmacy, Academy for Interdiscipline, Chengdu University of Traditional Chinese Medicine , Chengdu, China",
+       "institution_ids": [
+        "https://openalex.org/I53411278"
+       ]
+      }
+     ]
+    },
+    {
+     "author_position": "middle",
+     "author": {
+      "id": "https://openalex.org/A5114406704",
+      "display_name": "Caiqi Liu",
+      "orcid": "https://orcid.org/0009-0000-6924-6429",
+      "observed_orcids": [
+       "https://orcid.org/0009-0000-6924-6429"
+      ]
+     },
+     "institutions": [
+      {
+       "id": "https://openalex.org/I156144747",
+       "display_name": "Harbin Medical University",
+       "ror": "https://ror.org/05jscf583",
+       "country_code": "CN",
+       "type": "education",
+       "lineage": [
+        "https://openalex.org/I156144747"
+       ]
+      },
+      {
+       "id": "https://openalex.org/I4210103956",
+       "display_name": "Third Affiliated Hospital of Harbin Medical University",
+       "ror": "https://ror.org/01f77gp95",
+       "country_code": "CN",
+       "type": "healthcare",
+       "lineage": [
+        "https://openalex.org/I4210103956"
+       ]
+      }
+     ],
+     "countries": [
+      "CN"
+     ],
+     "is_corresponding": false,
+     "raw_author_name": "Caiqi Liu",
+     "raw_affiliation_strings": [
+      "Department of Gastrointestinal Medical Oncology, Harbin Medical University Cancer Hospital, No.150 Haping Road, Nangang District , Harbin, Heilongjiang 150081, China",
+      "Key Laboratory of Molecular Oncology of Heilongjiang Province, No.150 Haping Road, Nangang District , Harbin, Heilongjiang 150081, China"
+     ],
+     "raw_orcid": null,
+     "affiliations": [
+      {
+       "raw_affiliation_string": "Department of Gastrointestinal Medical Oncology, Harbin Medical University Cancer Hospital, No.150 Haping Road, Nangang District , Harbin, Heilongjiang 150081, China",
+       "institution_ids": [
+        "https://openalex.org/I156144747",
+        "https://openalex.org/I4210103956"
+       ]
+      },
+      {
+       "raw_affiliation_string": "Key Laboratory of Molecular Oncology of Heilongjiang Province, No.150 Haping Road, Nangang District , Harbin, Heilongjiang 150081, China",
+       "institution_ids": []
+      }
+     ]
+    },
+    {
+     "author_position": "middle",
+     "author": {
+      "id": "https://openalex.org/A5062715191",
+      "display_name": "Mujiexin Liu",
+      "orcid": "https://orcid.org/0000-0002-0215-6397",
+      "observed_orcids": [
+       "https://orcid.org/0000-0002-0215-6397"
+      ]
+     },
+     "institutions": [
+      {
+       "id": "https://openalex.org/I53411278",
+       "display_name": "Chengdu University of Traditional Chinese Medicine",
+       "ror": "https://ror.org/00pcrz470",
+       "country_code": "CN",
+       "type": "education",
+       "lineage": [
+        "https://openalex.org/I53411278"
+       ]
+      }
+     ],
+     "countries": [
+      "CN"
+     ],
+     "is_corresponding": false,
+     "raw_author_name": "Mujiexin Liu",
+     "raw_affiliation_strings": [
+      "Chongqing Key Laboratory of Sichuan-Chongqing Co-construction for Diagnosis and Treatment of Infectious Diseases Integrated Traditional Chinese and Western Medicine, College of Medical Technology, Chengdu University of Traditional Chinese Medicine , Chengdu, China"
+     ],
+     "raw_orcid": null,
+     "affiliations": [
+      {
+       "raw_affiliation_string": "Chongqing Key Laboratory of Sichuan-Chongqing Co-construction for Diagnosis and Treatment of Infectious Diseases Integrated Traditional Chinese and Western Medicine, College of Medical Technology, Chengdu University of Traditional Chinese Medicine , Chengdu, China",
+       "institution_ids": [
+        "https://openalex.org/I53411278"
+       ]
+      }
+     ]
+    },
+    {
+     "author_position": "middle",
+     "author": {
+      "id": "https://openalex.org/A5101545938",
+      "display_name": "Tianyuan Liu",
+      "orcid": "https://orcid.org/0000-0001-7367-8128",
+      "observed_orcids": [
+       "https://orcid.org/0000-0001-7367-8128"
+      ]
+     },
+     "institutions": [
+      {
+       "id": "https://openalex.org/I146399215",
+       "display_name": "University of Tsukuba",
+       "ror": "https://ror.org/02956yf07",
+       "country_code": "JP",
+       "type": "education",
+       "lineage": [
+        "https://openalex.org/I146399215"
+       ]
+      }
+     ],
+     "countries": [
+      "JP"
+     ],
+     "is_corresponding": false,
+     "raw_author_name": "Tianyuan Liu",
+     "raw_affiliation_strings": [
+      "Graduate School of Science and Technology, University of Tsukuba , Tsukuba, Japan"
+     ],
+     "raw_orcid": null,
+     "affiliations": [
+      {
+       "raw_affiliation_string": "Graduate School of Science and Technology, University of Tsukuba , Tsukuba, Japan",
+       "institution_ids": [
+        "https://openalex.org/I146399215"
+       ]
+      }
+     ]
+    },
+    {
+     "author_position": "middle",
+     "author": {
+      "id": "https://openalex.org/A5041539298",
+      "display_name": "Hao Lin",
+      "orcid": "https://orcid.org/0000-0001-6265-2862",
+      "observed_orcids": [
+       "https://orcid.org/0000-0001-6265-2862",
+       "https://orcid.org/0009-0009-1603-2772",
+       "https://orcid.org/0009-0003-0533-1298"
+      ]
+     },
+     "institutions": [
+      {
+       "id": "https://openalex.org/I150229711",
+       "display_name": "University of Electronic Science and Technology of China",
+       "ror": "https://ror.org/04qr3zq92",
+       "country_code": "CN",
+       "type": "education",
+       "lineage": [
+        "https://openalex.org/I150229711"
+       ]
+      }
+     ],
+     "countries": [
+      "CN"
+     ],
+     "is_corresponding": true,
+     "raw_author_name": "Hao Lin",
+     "raw_affiliation_strings": [
+      "School of Life Science and Technology, University of Electronic Science and Technology of China , Chengdu 610054, China"
+     ],
+     "raw_orcid": "https://orcid.org/0000-0001-6265-2862",
+     "affiliations": [
+      {
+       "raw_affiliation_string": "School of Life Science and Technology, University of Electronic Science and Technology of China , Chengdu 610054, China",
+       "institution_ids": [
+        "https://openalex.org/I150229711"
+       ]
+      }
+     ]
+    },
+    {
+     "author_position": "middle",
+     "author": {
+      "id": "https://openalex.org/A5045308603",
+      "display_name": "Huang Cheng-bing",
+      "orcid": null,
+      "observed_orcids": []
+     },
+     "institutions": [
+      {
+       "id": "https://openalex.org/I4210108633",
+       "display_name": "Aba Teachers University",
+       "ror": "https://ror.org/01gqdjc98",
+       "country_code": "CN",
+       "type": "education",
+       "lineage": [
+        "https://openalex.org/I4210108633"
+       ]
+      }
+     ],
+     "countries": [
+      "CN"
+     ],
+     "is_corresponding": true,
+     "raw_author_name": "Cheng-Bing Huang",
+     "raw_affiliation_strings": [
+      "School of Computer Science and Technology, Aba Teachers University , Aba, China"
+     ],
+     "raw_orcid": null,
+     "affiliations": [
+      {
+       "raw_affiliation_string": "School of Computer Science and Technology, Aba Teachers University , Aba, China",
+       "institution_ids": [
+        "https://openalex.org/I4210108633"
+       ]
+      }
+     ]
+    },
+    {
+     "author_position": "last",
+     "author": {
+      "id": "https://openalex.org/A5100635305",
+      "display_name": "Ning Lin",
+      "orcid": "https://orcid.org/0000-0001-6374-8823",
+      "observed_orcids": [
+       "https://orcid.org/0000-0001-6374-8823"
+      ]
+     },
+     "institutions": [
+      {
+       "id": "https://openalex.org/I150229711",
+       "display_name": "University of Electronic Science and Technology of China",
+       "ror": "https://ror.org/04qr3zq92",
+       "country_code": "CN",
+       "type": "education",
+       "lineage": [
+        "https://openalex.org/I150229711"
+       ]
+      },
+      {
+       "id": "https://openalex.org/I4400573292",
+       "display_name": "Chengdu Neusoft University",
+       "ror": "https://ror.org/04p9p1r69",
+       "country_code": "CN",
+       "type": "education",
+       "lineage": [
+        "https://openalex.org/I4400573292"
+       ]
+      }
+     ],
+     "countries": [
+      "CN"
+     ],
+     "is_corresponding": true,
+     "raw_author_name": "Lin Ning",
+     "raw_affiliation_strings": [
+      "School of Healthcare Technology, Chengdu Neusoft University , Chengdu 611844, China",
+      "Yangtze Delta Region Institute (Quzhou), University of Electronic Science and Technology of China , Quzhou, Zhejiang, China"
+     ],
+     "raw_orcid": null,
+     "affiliations": [
+      {
+       "raw_affiliation_string": "School of Healthcare Technology, Chengdu Neusoft University , Chengdu 611844, China",
+       "institution_ids": [
+        "https://openalex.org/I4400573292"
+       ]
+      },
+      {
+       "raw_affiliation_string": "Yangtze Delta Region Institute (Quzhou), University of Electronic Science and Technology of China , Quzhou, Zhejiang, China",
+       "institution_ids": [
+        "https://openalex.org/I150229711"
+       ]
+      }
+     ]
+    }
+   ]
+  }
+ ],
+ "group_by": []
+}

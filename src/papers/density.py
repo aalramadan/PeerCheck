@@ -171,7 +171,7 @@ def _spans(page: pymupdf.Page) -> list[tuple[float, int, tuple[float, float, flo
             if line["dir"][0] <= 0.99:
                 continue
             for span in line["spans"]:
-                characters = sum(not char.isspace() for char in span["text"])
+                characters = len("".join(span["text"].split()))
                 if characters:
                     spans.append((span["size"], characters, tuple(span["bbox"]), span["text"]))
     return spans

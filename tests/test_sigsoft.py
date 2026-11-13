@@ -15,6 +15,13 @@ from peercheck.models import Paper, Person
 from peercheck.papers import sigsoft
 
 PAPERS = Path(__file__).parent / "fixtures" / "papers"
+IDENTITY = Path(__file__).parent / "fixtures" / "identity"
+FIGURE_AUTHOR = "figure metadata (PTEX.InfoDict Author)"
+OWN_LINK = "https://github.com/brandt-lab/order-flakes"
+CITED_LINKS = ["https://github.com/tessera-tools/tessera", "https://github.com/harbor-ci/harbor/releases/tag/v2.1"]
+DRIVE_LINK = "https://drive.google.com/drive/folders/1AbCdEfGhIjKlMnOpQrStUv"
+ANONYMITY_CODES = {"sigsoft.author-revealing-email", "sigsoft.possibly-author-revealing-meta-data",
+                   "sigsoft.identity-link", "sigsoft.previous-work-mentioned", "sigsoft.acknowledgments-present"}
 needs_jar = pytest.mark.skipif(not shutil.which("java") or not tools.submission_checker().is_file(),
                                reason="needs Java and the bundled jar")
 
@@ -48,6 +55,13 @@ class FakeJar:
                 return subprocess.CompletedProcess(command, 1, output, stderr)
             lines.append(json.dumps({"file": pdf, "issues": []}) + "\n")
         return subprocess.CompletedProcess(command, 0, "".join(lines), "")
+
+
+def _found(code: str, *details: str | tuple[str, int]) -> list[tuple[Severity, str, int | None]]:
+    """Return the severity, the evidence, and the page of the findings for issues of one code with the details."""
+    issues = [{"code": code, "detail": detail, "page": None} if isinstance(detail, str)
+              else {"code": code, "detail": detail[0], "page": detail[1]} for detail in details]
+    return [(f.severity, f.evidence, f.page) for f in sigsoft.findings({"file": "x.pdf", "issues": issues})]
 
 
 def _batch(tmp_path, monkeypatch, jar, count=3):
@@ -179,3 +193,140 @@ def test_errors_of_the_checker_name_no_path_or_file(tmp_path, monkeypatch):
     record = {"file": str(pdf), "error": f"FileNotFoundException: {pdf} (No such file or directory)"}
     (finding,) = sigsoft.findings(record)
     assert str(tmp_path) not in finding.message and pdf.name not in finding.message
+
+
+def test_names_that_the_xmp_metadata_repeats_are_reported_once():
+    found = _found("possibly-author-revealing-meta-data", "Lena Brandt; Omar Haddad", "Lena Brandt (XMP dc:creator)",
+                   "Omar Haddad (XMP dc:creator)")
+    assert found == [(Severity.WARNING, "Lena Brandt; Omar Haddad", None)]
+
+
+def test_names_in_one_place_of_the_metadata_form_one_finding():
+    found = _found("possibly-author-revealing-meta-data", "Lena Brandt (XMP dc:creator)",
+                   "Omar Haddad (XMP dc:creator)")
+    assert found == [(Severity.WARNING, "Lena Brandt; Omar Haddad (XMP dc:creator)", None)]
+
+
+def test_author_of_several_figures_is_one_finding_on_the_first_of_their_pages():
+    name = f"Lena Brandt ({FIGURE_AUTHOR})"
+    found = _found("possibly-author-revealing-meta-data", (name, 2), (name, 4), (name, 5))
+    assert found == [(Severity.WARNING, name, 2)]
+
+
+def test_longer_name_in_the_metadata_is_no_repeat_of_a_shorter_one():
+    found = _found("possibly-author-revealing-meta-data", "Lena Brandtner", "Lena Brandt (XMP dc:creator)")
+    assert [evidence for _, evidence, _ in found] == ["Lena Brandtner", "Lena Brandt (XMP dc:creator)"]
+
+
+def test_metadata_string_whose_names_other_issues_give_is_left_out_whatever_the_order_and_the_case():
+    found = _found("possibly-author-revealing-meta-data", "Lena Brandt (XMP dc:creator)",
+                   "Omar Haddad (XMP dc:creator)", "LENA BRANDT and Omar Haddad", "Haddad, Omar",
+                   "Lena Brandt; Omar Haddad", "Omar Haddad & Lena Brandt")
+    assert found == [(Severity.WARNING, "Lena Brandt; Omar Haddad (XMP dc:creator)", None)]
+
+
+def test_metadata_issue_without_a_name_stays_a_finding():
+    found = _found("possibly-author-revealing-meta-data", "Lena Brandt (XMP dc:creator)", "")
+    assert found == [(Severity.WARNING, "Lena Brandt (XMP dc:creator)", None), (Severity.WARNING, "", None)]
+
+
+def test_metadata_name_that_the_author_list_confirms_is_reported_as_the_error_alone():
+    record = {"file": "x.pdf", "issues": [
+        {"code": "possibly-author-revealing-meta-data", "detail": "Lena Brandt", "page": None},
+        {"code": "possibly-identity-revealing-data", "detail": "Lena Brandt", "page": 1},
+        {"code": "possibly-identity-revealing-data", "detail": "Lena Brandt (document information Author)",
+         "page": None}]}
+    assert [(f.check, f.evidence) for f in sigsoft.findings(record)] == [
+        ("sigsoft.possibly-identity-revealing-data", "Lena Brandt"),
+        ("sigsoft.possibly-identity-revealing-data", "Lena Brandt (document information Author)")]
+
+
+def test_metadata_name_beside_an_author_in_the_page_text_alone_stays_a_warning():
+    record = {"file": "x.pdf", "issues": [
+        {"code": "possibly-author-revealing-meta-data", "detail": "Lena Brandt", "page": None},
+        {"code": "possibly-identity-revealing-data", "detail": "Lena Brandt", "page": 1}]}
+    assert [f.check for f in sigsoft.findings(record)] == [
+        "sigsoft.possibly-author-revealing-meta-data", "sigsoft.possibly-identity-revealing-data"]
+
+
+def test_metadata_string_with_a_name_that_no_other_issue_gives_stays_a_warning():
+    record = {"file": "x.pdf", "issues": [
+        {"code": "possibly-author-revealing-meta-data", "detail": "Lena Brandt; Omar Haddad", "page": None},
+        {"code": "possibly-identity-revealing-data", "detail": "Lena Brandt (document information Author)",
+         "page": None}]}
+    assert [(f.severity, f.evidence) for f in sigsoft.findings(record)] == [
+        (Severity.WARNING, "Lena Brandt; Omar Haddad"),
+        (Severity.ERROR, "Lena Brandt (document information Author)")]
+
+
+def test_links_to_one_repository_form_one_finding_on_their_first_page():
+    found = _found("identity-link", ("https://github.com/quillbuild/quill/issues/412 (code host account)", 3),
+                   ("https://github.com/brandt-lab/order-flakes (code host account)", 3),
+                   ("https://github.com/quillbuild/quill/issues/518 (code host account)", 5))
+    assert found == [
+        (Severity.WARNING, "https://github.com/quillbuild/quill/issues/412 and 1 more (code host account)", 3),
+        (Severity.WARNING, "https://github.com/brandt-lab/order-flakes (code host account)", 3)]
+
+
+def test_two_repositories_of_one_account_stay_two_findings():
+    found = _found("identity-link", ("https://github.com/brandt-lab/order-flakes (code host account)", 1),
+                   ("https://github.com/brandt-lab/rerun-logs (code host account)", 2))
+    assert found == [(Severity.WARNING, "https://github.com/brandt-lab/order-flakes (code host account)", 1),
+                     (Severity.WARNING, "https://github.com/brandt-lab/rerun-logs (code host account)", 2)]
+
+
+@pytest.mark.parametrize("link", [
+    "http://github.com/brandt-lab/order-flakes/issues/7", "https://www.github.com/brandt-lab/order-flakes/issues/7",
+    "https://GitHub.com/Brandt-Lab/Order-Flakes/issues/7", "github.com/brandt-lab/order-flakes/issues/7",
+    " https://github.com/brandt-lab/order-flakes/issues/7"])
+def test_links_to_one_repository_merge_whatever_their_scheme_www_case_and_white_space_before(link):
+    found = _found("identity-link", f"{OWN_LINK} (code host account)", f"{link} (code host account)")
+    assert [evidence for _, evidence, _ in found] == [f"{OWN_LINK} and 1 more (code host account)"]
+
+
+def test_links_of_two_kinds_on_one_host_stay_two_findings():
+    found = _found("identity-link", "https://people.uni-nowhere.edu/~lbrandt (personal page)",
+                   "https://people.uni-nowhere.edu/share/outcomes (cloud drive share)")
+    assert [evidence for _, evidence, _ in found] == [
+        "https://people.uni-nowhere.edu/~lbrandt (personal page)",
+        "https://people.uni-nowhere.edu/share/outcomes (cloud drive share)"]
+
+
+def test_personal_pages_on_one_host_form_one_finding():
+    found = _found("identity-link", ("https://orcid.org/0000-0002-1825-0097 (personal page)", 1),
+                   ("https://orcid.org/0000-0000-0000-0001 (personal page)", 1),
+                   ("https://people.uni-nowhere.edu/~lbrandt (personal page)", 1))
+    assert [evidence for _, evidence, _ in found] == [
+        "https://orcid.org/0000-0002-1825-0097 and 1 more (personal page)",
+        "https://people.uni-nowhere.edu/~lbrandt (personal page)"]
+
+
+def test_link_that_only_the_reference_list_or_a_section_after_it_names_keeps_its_warning(tmp_path, monkeypatch):
+    details = [f"{CITED_LINKS[0]} (code host account)", f"{OWN_LINK} (code host account)",
+               f"{DRIVE_LINK} (cloud drive share)"]
+    record = {"file": "paper1.pdf", "issues": [{"code": "identity-link", "detail": detail, "page": 1}
+                                               for detail in details]}
+    monkeypatch.setattr(tools, "program", lambda name: name)
+    monkeypatch.setattr(sigsoft, "_run", lambda command, papers, timeout: ([record], ""))
+    found = sigsoft.check_batch([Paper(1, IDENTITY / "cited-repositories.pdf")], profile.load("icse-2027"), tmp_path)[1]
+    assert [(f.severity, f.message, f.evidence) for f in found] == [
+        (Severity.WARNING, "link that may identify the authors", detail) for detail in details]
+
+
+@needs_jar
+def test_bundled_jar_warns_of_each_repository_and_drive_that_the_text_or_the_reference_list_links(tmp_path):
+    paper = Paper(1, IDENTITY / "cited-repositories.pdf")
+    found = sigsoft.check_batch([paper], profile.load("icse-2027"), tmp_path)[1]
+    assert [(f.severity, f.evidence) for f in found if f.check == "sigsoft.identity-link"] == [
+        (Severity.WARNING, "https://github.com/quillbuild/quill/issues/412 and 1 more (code host account)"),
+        (Severity.WARNING, f"{CITED_LINKS[0]} (code host account)"),
+        (Severity.WARNING, f"{CITED_LINKS[1]} (code host account)"),
+        (Severity.WARNING, f"{OWN_LINK} (code host account)"),
+        (Severity.WARNING, f"{DRIVE_LINK} (cloud drive share)")]
+
+
+@needs_jar
+def test_bundled_jar_finds_no_identity_in_an_anonymous_paper_with_an_anonymized_artifact(tmp_path):
+    paper = Paper(1, IDENTITY / "anonymous-artifact.pdf")
+    found = sigsoft.check_batch([paper], profile.load("icse-2027"), tmp_path)[1]
+    assert not ANONYMITY_CODES & {f.check for f in found}

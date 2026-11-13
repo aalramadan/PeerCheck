@@ -211,13 +211,29 @@ def test_installed_package_finds_the_external_files_that_its_wheel_holds(tmp_pat
     assert all(path.is_file() for path in (installed.banal(), installed.submission_checker(), installed.census_surnames()))
 
 
+def test_interrupt_ends_a_command_with_one_line_and_the_exit_status_of_the_signal(monkeypatch, capsys):
+    def interrupted(args):
+        raise KeyboardInterrupt
+
+    monkeypatch.setitem(cli.RUNNERS, "setup", interrupted)
+    assert cli.main(["--setup"]) == 130
+    assert capsys.readouterr().err == "peercheck: stopped\n"
+
+
 def test_no_command_prints_the_help(capsys):
     assert cli.main([]) == 0
     assert capsys.readouterr().out.startswith("usage: peercheck")
 
 
+def test_help_lists_the_commands_before_one_group_of_options():
+    text = cli.parser().format_help()
+    assert text.count("options:") == 1 and text.index("commands, one per run:") < text.index("options:")
+    assert all(option in text.split("options:")[1] for option in ("--template", "--help", "--version"))
+
+
 def test_setup_downloads_the_reference_database(monkeypatch, tmp_path):
     calls = []
-    monkeypatch.setattr(cli.references, "install_tools", lambda *args: calls.append(args) or [tmp_path / "dblp.db"])
+    monkeypatch.setattr(cli.reference_setup, "install_tools",
+                        lambda *args: calls.append(args) or [tmp_path / "dblp.db"])
     assert cli.main(["--setup", "--refresh"]) == 0
     assert calls == [(cli.tools.cache_dir(), None, True)]

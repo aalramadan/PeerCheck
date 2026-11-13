@@ -1,0 +1,31 @@
+% An anonymous paper that links two issue reports in the text, cites the repositories of other tools and its own
+% repository in the reference list, and links a cloud drive in a section after the list.
+\input{common}
+\begin{document}
+\begin{center}
+{\Large Order-Dependent Flaky Tests in Java Projects}\\[1ex]
+Anonymous Author(s)
+\end{center}
+
+\visibleintro
+
+Two reports to the Quill project describe the first flaky tests that the study found.
+
+https://github.com/quillbuild/quill/issues/412
+
+https://github.com/quillbuild/quill/issues/518
+
+The reruns use the Tessera runner [1] on the Harbor service [2], and the scripts are archived [3].
+
+\begin{thebibliography}{9}
+\bibitem{tessera} The Tessera developers. Tessera, a test runner for Java.\newline
+https://github.com/tessera-tools/tessera
+\bibitem{harbor} The Harbor developers. Harbor 2.1, a build service.\newline
+https://github.com/harbor-ci/harbor/releases/tag/v2.1
+\bibitem{scripts} Anonymous. Scripts of the study of order-dependent flaky tests.\newline
+https://github.com/brandt-lab/order-flakes
+\end{thebibliography}
+
+\section*{Data Availability}
+The recorded outcomes are at https://drive.google.com/drive/folders/1AbCdEfGhIjKlMnOpQrStUv.
+\end{document}

@@ -1,6 +1,7 @@
-"""Marks of an incomplete LaTeX build in the text of a submission PDF, such as ?? for an undefined reference.
+"""Marks of a lost cross-reference in the text of a submission PDF: ?? or [?] from an incomplete LaTeX build and the
+error text that Word prints.
 
-A mark counts as a bold run of its own, as LaTeX sets it, or as ?? after a word such as Section or Fig.
+A LaTeX mark counts as a bold run of its own, as LaTeX sets it, or as ?? after a word such as Section or Fig.
 """
 
 from __future__ import annotations
@@ -21,6 +22,9 @@ LIGATURES = {"\u2047": "??"}
 # A bold run of nothing but question marks, such as ?? for \ref, ? for \cite, or ? ? for two citations of natbib.
 MARK_RUN = re.compile(r"\?+(?:[\s,;]+\?+)*")
 QUESTION_MARKS = re.compile(r"\?+")
+MARK_CHARACTERS = re.compile("[?" + "".join(LIGATURES) + "]")
+# Word prints this text in place of a cross-reference or a bookmark that no longer exists.
+WORD_ERROR = re.compile(r"Error! (?:Reference source not found|Bookmark not defined)")
 # ?? after a word that opens a cross-reference, in any type, as in Section ??, Fig.??, Eq. (??), or RQ??. The plural
 # pages and pp. stay out, since a reference list may give the pages of a work to appear as pp. ??.
 WORD_MARK = re.compile(
@@ -61,15 +65,27 @@ def check(paper: Paper, profile: Profile, workdir: Path) -> list[Finding]:
 
 
 def _page_marks(page: pymupdf.Page) -> list[tuple[str, int, int]]:
-    """Return the text of the line, the start, and the end of each mark on a page."""
+    """Return the text of the line or the paragraph, the start, and the end of each mark on a page."""
     marks = []
     for block in page.get_text("dict", flags=pymupdf.TEXTFLAGS_TEXT)["blocks"]:
-        for line in block.get("lines", []):
+        lines = block.get("lines", [])
+        for line in lines:
+            if not any(MARK_CHARACTERS.search(span["text"]) for span in line["spans"]):
+                continue
             text, bold = _line_text(line)
             found = dict.fromkeys(_bold_marks(text, bold))
             found.update(dict.fromkeys(match.span(1) for match in WORD_MARK.finditer(text)))
             marks += [(text, start, end) for start, end in sorted(found)]
+        marks += _word_errors(lines)
     return marks
+
+
+def _word_errors(lines: list[dict]) -> list[tuple[str, int, int]]:
+    """Return the text of the paragraph, the start, and the end of each error text of Word, which may wrap."""
+    if not any("Error!" in span["text"] for line in lines for span in line["spans"]):
+        return []
+    text = " ".join("".join(span["text"] for span in line["spans"]).strip() for line in lines)
+    return [(text, *match.span()) for match in WORD_ERROR.finditer(text)]
 
 
 def _line_text(line: dict) -> tuple[str, list[bool]]:

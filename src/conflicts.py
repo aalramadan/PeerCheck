@@ -15,7 +15,10 @@ and of the committee.
   placeholders such as N/A to the stop words, and country names, generic words of other languages
   and of fields, such as politecnica and data, and words of at most two letters to the weak words.
   Strong words of five letters or more, without digits, also match a strong word with a rapidfuzz
-  ratio of at least affiliation_min, which absorbs typing errors such as Stutgart.
+  ratio of at least affiliation_min, which absorbs typing errors such as Stutgart. A strong word that
+  many institutions share, such as normal or key, joins no two institutions that each hold a name the
+  other affiliation lacks. A country, a generic word, a kind of unit, and a legal form, such as
+  laboratory or corporation, are no names.
 - The CLOSET scripts (github.com/pchrszon/ec-closet-support, MIT) and the scripts of
   ISCA 2018 and ISCA 2021 (github.com/mdrumond/pc-chair-kit, github.com/hibagus/ISCA-2021-Script)
   flag co-authorship in dblp within a number of years. ec-closet-support counts a joint paper when
@@ -43,6 +46,12 @@ Options (profile key "conflicts"):
 - affiliation_min (90): the rapidfuzz ratio at or above which two affiliation words of five letters
   or more count as the same word. ISCA-2021-Script uses 90 as the cutoff of its fuzzy name matches.
 - webmail: further email domains to treat as webmail, as a list or as one domain.
+- advisor_papers (unset, which leaves the rule out): the number of a person's first ten dblp papers that a
+  senior co-author wrote to count as a possible advisor. The reviewer assignment of AAAI 2021 (Leyton-Brown
+  et al., Artificial Intelligence 331, 2024, Section 2.1 of arXiv 2202.12273) infers an advisor who began
+  publishing at least 5 years earlier, has at least 10 more papers, and wrote at least 3 of the first 10
+  papers, the rule used here for people whom dblp knows as one person. The policies of ACM SIGSOFT and of the IEEE Computer Society set no time limit for
+  advisors and students.
 """
 
 from __future__ import annotations
@@ -52,6 +61,7 @@ import functools
 import json
 import re
 from dataclasses import dataclass
+from itertools import islice
 
 from rapidfuzz import fuzz
 
@@ -59,9 +69,12 @@ from peercheck import tools
 from peercheck.dblp import DblpIndex, Publication, fold, parse_pid
 from peercheck.models import Person
 
-DEFAULTS = {"coauthor_years": 3, "reference_year": None, "affiliation_min": 90, "webmail": ()}
+DEFAULTS = {"coauthor_years": 3, "reference_year": None, "affiliation_min": 90, "webmail": (), "advisor_papers": None}
 COLUMNS = ("Paper", "PC member", "PC member email", "With", "Kinds", "Reasons")
 LISTED_PAPERS = 3
+FIRST_PAPERS = 10
+ADVISOR_YEARS = 5
+ADVISOR_PAPERS = 10
 FUZZY_WORD_MIN = 5
 
 # The affiliation matching below follows AuthorMatcher::test_affiliation in src/authormatcher.php of HotCRP.
@@ -141,11 +154,24 @@ KINDS = {
     ]),
     "normal": frozenset(["normal", "normale"]),
 }
+# The words of the kinds and words of unit names, such as key of State Key Laboratory, which many institutions share.
+SHARED_WORDS = frozenset().union(*KINDS.values(), [
+    "big", "communication", "communications", "innovation", "key", "posts", "processing", "space", "telecommunication",
+    "telecommunications",
+])
+# Words for a kind of unit or a legal form, which name no institution.
+UNIT_WORDS = frozenset([
+    "center", "centre", "company", "corp", "corporation", "group", "lab", "laboratories", "laboratory", "labs",
+    "limited", "ltd",
+])
+# The words that tell no institution from another.
+NAMELESS_WORDS = SHARED_WORDS | COUNTRY_WORDS | GENERIC_WORDS | UNIT_WORDS
 # The kinds that state what an institution is, as against the kinds that qualify it, such as technical.
 BASE_KINDS = frozenset(["academy", "college", "institute", "university"])
 # Commas, parentheses, slashes, and spaced dashes part an affiliation, such as a department from its university.
 PART_BREAK = re.compile(r"[,;()\[\]/|]|\s[-\u2013\u2014]\s")
-# The common domains of OpenReview's conflict code, then further webmail providers.
+# The common domains of OpenReview's conflict code, then further webmail providers and, last, the member addresses
+# of societies.
 WEBMAIL = frozenset([
     "gmail.com", "qq.com", "126.com", "163.com", "outlook.com", "hotmail.com", "yahoo.com", "foxmail.com", "aol.com",
     "msn.com", "ymail.com", "googlemail.com", "live.com", "independent-researcher.org",
@@ -159,6 +185,7 @@ WEBMAIL = frozenset([
     "onet.pl", "op.pl", "interia.pl", "abv.bg", "freemail.hu", "virgilio.it", "tiscali.it", "alice.it", "sfr.fr",
     "wanadoo.fr", "freenet.de", "arcor.de", "sapo.pt", "uol.com.br", "bol.com.br", "terra.com.br", "ig.com.br",
     "btinternet.com", "comcast.net", "verizon.net", "att.net", "sbcglobal.net", "bigpond.com", "shaw.ca", "walla.co.il",
+    "ieee.org", "acm.org", "computer.org",
 ])
 # Providers whose country domains, such as yahoo.co.uk or hotmail.fr, are webmail as well.
 WEBMAIL_PROVIDERS = frozenset(["gmail", "googlemail", "hotmail", "outlook", "live", "yahoo", "ymail", "aol", "icloud",
@@ -188,23 +215,24 @@ def find_conflicts(
     extra = settings["webmail"] or ()
     webmail = WEBMAIL | {domain.strip().lower() for domain in ([extra] if isinstance(extra, str) else extra)}
     minimum = int(settings["affiliation_min"])
-    works = _Works(index)
+    advisor = int(settings["advisor_papers"] or 0)
+    profiles = _Profiles(index, since, webmail)
+    members = [profiles.of(member) for member in dict.fromkeys(committee)]
     found = []
-    committee = list(dict.fromkeys(committee))
     for paper_id in sorted(authors):
-        people = list(dict.fromkeys(authors[paper_id]))
-        for member in committee:
+        people = [profiles.of(author) for author in dict.fromkeys(authors[paper_id])]
+        for member in members:
             kinds: list[str] = []
             reasons: list[str] = []
             others: list[Person] = []
             for author in people:
-                pair = _pair(author, member, works, since, webmail, minimum)
+                pair = _pair(author, member, since, minimum, advisor)
                 if pair:
-                    others.append(author)
+                    others.append(author.person)
                     kinds.extend(kind for kind, _ in pair if kind not in kinds)
                     reasons.extend(reason for _, reason in pair)
             if kinds:
-                found.append(Conflict(paper_id, member, tuple(others), tuple(kinds), tuple(reasons)))
+                found.append(Conflict(paper_id, member.person, tuple(others), tuple(kinds), tuple(reasons)))
     return found
 
 
@@ -219,6 +247,7 @@ def rows(conflicts: list[Conflict]) -> list[dict[str, str]]:
     ]
 
 
+@functools.cache
 def affiliation_match(first: str, second: str, minimum: int = DEFAULTS["affiliation_min"]) -> str:
     """Return the affiliation words that make two affiliations match, or an empty string."""
     for one in first.split(";"):
@@ -245,65 +274,103 @@ def org_domain(email: str) -> str:
     return ""
 
 
-class _Works:
-    """The dblp publications of each person from a year on, looked up once per person and year."""
+@dataclass
+class _Profile:
+    """What the comparison of two people reads of one person, prepared once."""
 
-    def __init__(self, index: DblpIndex | None) -> None:
-        self.index = index
-        self.cache: dict[tuple[Person, int | None], dict[str, Publication]] = {}
-        self.pids: dict[Person, str] = {}
+    person: Person
+    email: str
+    domain: str
+    pid: str
+    name: str
+    records: int
+    papers: dict[str, Publication]
+    works: dict[str, Publication]
 
-    def joint(self, first: Person, second: Person, since: int | None) -> list[Publication]:
-        """Return the publications of two people together from a year on, empty without an index."""
-        if self.index is None:
-            return []
-        mine = self._of(first, since)
-        return [publication for key, publication in self._of(second, since).items() if key in mine]
 
-    def pid(self, person: Person) -> str:
-        """Return the dblp person ID that the index resolves for a person, or else the one given, or nothing."""
-        if person not in self.pids:
+class _Profiles:
+    """The profile of each person, with the dblp papers of every year and from a year on, and no webmail domain."""
+
+    def __init__(self, index: DblpIndex | None, since: int, webmail: frozenset[str]) -> None:
+        self.index, self.since, self.webmail = index, since, webmail
+        self.cache: dict[Person, _Profile] = {}
+
+    def of(self, person: Person) -> _Profile:
+        """Return the profile of a person, whose dblp person ID is the one the index resolves or else the one given."""
+        if person not in self.cache:
             identity = self.index.identity(person) if self.index is not None else None
-            resolved = identity.pid if identity is not None and not identity.ambiguous else ""
-            self.pids[person] = resolved or parse_pid(person.dblp)
-        return self.pids[person]
+            ambiguous = identity is not None and identity.ambiguous
+            domain = org_domain(person.email)
+            papers = self.index.publications_of(person) if identity is not None else []
+            dated = [p for p in papers if p.year is not None]
+            self.cache[person] = _Profile(
+                person=person,
+                email=person.email.strip().lower(),
+                domain="" if _webmail(domain, self.webmail) else domain,
+                pid=(identity.pid if identity is not None and not ambiguous else "") or parse_pid(person.dblp),
+                name=fold(person.name),
+                records=identity.records if ambiguous else 0,
+                papers={p.key: p for p in sorted(dated, key=lambda p: p.year)},
+                works={p.key: p for p in dated if p.year >= self.since},
+            )
+        return self.cache[person]
 
-    def _of(self, person: Person, since: int | None) -> dict[str, Publication]:
-        if (person, since) not in self.cache:
-            self.cache[person, since] = {p.key: p for p in self.index.publications_of(person, since)}
-        return self.cache[person, since]
 
-
-def _pair(author: Person, member: Person, works: _Works, since: int, webmail: frozenset[str],
-          minimum: int) -> list[tuple[str, str]]:
-    how = _same(author, member, works)
+def _pair(author: _Profile, member: _Profile, since: int, minimum: int, advisor: int) -> list[tuple[str, str]]:
+    how = _same(author, member)
     if how:
-        return [("author", f"{member.name} is an author of the paper (same {how})")]
+        return [("author", f"{member.person.name} is an author of the paper (same {how})")]
     found = []
-    joint = works.joint(author, member, since)
+    joint = [author.works[key] for key in author.works.keys() & member.works.keys()]
     if joint:
-        found.append(("co-author", _coauthor_reason(member, author, joint, works.index, since)))
-    domain = org_domain(author.email) if author.email and member.email else ""
-    if domain and domain == org_domain(member.email) and not _webmail(domain, webmail):
-        found.append(("email domain", f"{member.name} and {author.name} share the email domain {domain}"))
-    words = affiliation_match(author.affiliation, member.affiliation, minimum)
+        found.append(("co-author", _coauthor_reason(member, author, joint, since)))
+    advised = advisor and _advisor_reason(member, author, advisor)
+    if advised:
+        found.append(("advisor", advised))
+    if author.domain and author.domain == member.domain:
+        reason = f"{member.person.name} and {author.person.name} share the email domain {author.domain}"
+        found.append(("email domain", reason))
+    words = affiliation_match(author.person.affiliation, member.person.affiliation, minimum)
     if words:
-        reason = f"{member.name} ({member.affiliation}) and {author.name} ({author.affiliation}) share the words {words}"
+        reason = (f"{member.person.name} ({member.person.affiliation}) and {author.person.name} "
+                  f"({author.person.affiliation}) share the words {words}")
         found.append(("affiliation", reason))
     return found
 
 
-def _coauthor_reason(member: Person, other: Person, joint: list[Publication], index: DblpIndex, since: int) -> str:
+def _coauthor_reason(member: _Profile, other: _Profile, joint: list[Publication], since: int) -> str:
     joint = sorted(joint, key=lambda p: (-(p.year or 0), p.key))
     listed = "; ".join(f"{p.title} ({p.year}, dblp {p.key})" for p in joint[:LISTED_PAPERS])
     more = f"; and {len(joint) - LISTED_PAPERS} more" if len(joint) > LISTED_PAPERS else ""
     papers = "1 dblp paper" if len(joint) == 1 else f"{len(joint)} dblp papers"
-    reason = f"{member.name} and {other.name} wrote {papers} together since {since}: {listed}{more}"
-    for person in (member, other):
-        identity = index.identity(person)
-        if identity is not None and identity.ambiguous:
-            reason += f". The name {person.name} matches {identity.records} dblp person records; confirm the person"
+    reason = f"{member.person.name} and {other.person.name} wrote {papers} together since {since}: {listed}{more}"
+    for profile in (member, other):
+        if profile.records:
+            reason += (f". The name {profile.person.name} matches {profile.records} dblp person records; "
+                       "confirm the person")
     return reason
+
+
+def _advisor_reason(first: _Profile, second: _Profile, minimum: int) -> str:
+    # Only people whom dblp knows as one person have a first paper and a number of papers.
+    if first.records or second.records or not first.papers or not second.papers:
+        return ""
+    for senior, junior in ((first, second), (second, first)):
+        earlier = _start(junior) - _start(senior)
+        more = len(senior.papers) - len(junior.papers)
+        if earlier < ADVISOR_YEARS or more < ADVISOR_PAPERS:
+            continue
+        early = list(islice(junior.papers, FIRST_PAPERS))
+        joint = sum(key in senior.papers for key in early)
+        if joint >= minimum:
+            return (f"{senior.person.name} may have advised {junior.person.name}: {senior.person.name} wrote "
+                    f"{joint} of the first {len(early)} dblp papers of {junior.person.name}, began publishing "
+                    f"{earlier} years earlier, and has {more} more dblp papers; confirm the relation")
+    return ""
+
+
+def _start(profile: _Profile) -> int:
+    return next(iter(profile.papers.values())).year
 
 
 def _shared_words(text: str, subject: str, minimum: int) -> str:
@@ -320,7 +387,9 @@ def _seen(word: str, text: str, subject: str, minimum: int) -> tuple[str, bool]:
     weak = _weak(word)
     same = found & {word} or (frozenset() if weak else _similar(word, found, minimum))
     if same:
-        label = word if _same_kind(_scope(text, frozenset([word])), _scope(subject, same)) else ""
+        held = frozenset([word])
+        apart = not weak and word in SHARED_WORDS and _named_apart(text, held, subject, same, minimum)
+        label = word if _same_kind(_scope(text, held), _scope(subject, same)) and not apart else ""
     else:
         label = ""
         for alternate in rule.get("alternate", ()):
@@ -357,6 +426,22 @@ def _same_kind(mine: frozenset[str], theirs: frozenset[str]) -> bool:
     return not (qualified or base_one - base_other and base_other - base_one)
 
 
+def _named_apart(text: str, held: frozenset[str], subject: str, same: frozenset[str], minimum: int) -> bool:
+    # A shared word, such as normal or key, joins no two institutions that each hold a word the other affiliation
+    # lacks, as Northgate Normal University and Eastfield Normal University do.
+    hosts = [(one, other) for one in _hosts(text, held) for other in _hosts(subject, same)]
+    return bool(hosts) and all(
+        _own(one, _words(subject), minimum) and _own(other, _words(text), minimum) for one, other in hosts)
+
+
+def _own(name: frozenset[str], other: frozenset[str], minimum: int) -> bool:
+    # A word of a name that another affiliation lacks, even with a typing error, and that tells institutions apart.
+    return any(
+        len(word) > 2 and word not in NAMELESS_WORDS and not any(fuzz.ratio(word, seen) >= minimum for seen in other)
+        for word in name - other
+    )
+
+
 @functools.cache
 def _scope(text: str, held: frozenset[str]) -> frozenset[str]:
     # Kinds come from the parts that hold the word and state a base kind, such as Tsinghua University and not
@@ -366,10 +451,27 @@ def _scope(text: str, held: frozenset[str]) -> frozenset[str]:
     holding = [i for i, part in enumerate(parts) if part & held]
     named = [i for i in holding if _kinds(parts[i]) & BASE_KINDS]
     if not named and holding:
-        stated = [i for i, part in enumerate(parts) if _kinds(part) & BASE_KINDS]
-        nearest = min(stated, key=lambda i: (abs(i - holding[0]), i < holding[0]), default=None)
+        nearest = _nearest(parts, holding[0])
         named = holding if nearest is None else [*holding, nearest]
     return frozenset().union(*(parts[i] for i in named))
+
+
+@functools.cache
+def _hosts(text: str, held: frozenset[str]) -> tuple[frozenset[str], ...]:
+    # The institutions that a word may belong to: each part that holds it and states a base kind, or else the
+    # nearest part that states one, or else the first part with the parts that hold the word.
+    parts = _parts(text)
+    holding = [part for part in parts if part & held]
+    named = tuple(part for part in holding if _kinds(part) & BASE_KINDS)
+    if named or not holding:
+        return named
+    nearest = _nearest(parts, parts.index(holding[0]))
+    return (frozenset().union(parts[0], *holding) if nearest is None else parts[nearest],)
+
+
+def _nearest(parts: tuple[frozenset[str], ...], at: int) -> int | None:
+    stated = [i for i, part in enumerate(parts) if _kinds(part) & BASE_KINDS]
+    return min(stated, key=lambda i: (abs(i - at), i < at), default=None)
 
 
 @functools.cache
@@ -419,19 +521,13 @@ def _public_suffixes() -> tuple[frozenset[str], frozenset[str]]:
     return frozenset(r for r in rules if r[0] != "!") | {"*"}, frozenset(r[1:] for r in rules if r[0] == "!")
 
 
-def _same(first: Person, second: Person, works: _Works) -> str:
-    if first.email and second.email and first.email.strip().lower() == second.email.strip().lower():
+def _same(first: _Profile, second: _Profile) -> str:
+    if first.email and first.email == second.email:
         return "email"
-    one, other = works.pid(first), works.pid(second)
-    if one and other:
+    if first.pid and second.pid:
         # Two dblp persons are two people, even under one name.
-        return "dblp person ID" if one == other else ""
-    return "name" if _name(first.name) and _name(first.name) == _name(second.name) else ""
-
-
-@functools.cache
-def _name(name: str) -> str:
-    return fold(name)
+        return "dblp person ID" if first.pid == second.pid else ""
+    return "name" if first.name and first.name == second.name else ""
 
 
 def _webmail(domain: str, webmail: frozenset[str]) -> bool:

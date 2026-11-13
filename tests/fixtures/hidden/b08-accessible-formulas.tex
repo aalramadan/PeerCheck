@@ -1,0 +1,17 @@
+% Formulas of an accessible paper. The axessibility package stores the LaTeX source of each formula
+% as replacement text, which a screen reader speaks.
+\input{common}
+\usepackage{amsmath}
+\usepackage[accsupp]{axessibility}
+\begin{document}
+\visibleintro{} The share of flaky tests among the $n$ tests is
+\begin{equation}
+  \hat{p}_{\mathrm{flaky}} = \frac{1}{n} \sum_{i=1}^{n} \mathbf{1}\left[ \min_{j} o_{i,j} \neq \max_{j} o_{i,j} \right],
+\end{equation}
+and the weights of the rerun policy minimize the expected cost of a failure that stays hidden,
+\begin{equation}
+  \mathbf{w}^{*} = \operatorname*{argmin}_{\mathbf{w}} \sum_{i=1}^{n} \ell\left(y_i, f(x_i; \mathbf{w})\right) + \lambda \lVert \mathbf{w} \rVert_2^2 .
+\end{equation}
+
+\visibleresults
+\end{document}

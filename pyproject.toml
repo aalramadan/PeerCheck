@@ -19,6 +19,8 @@ dependencies = [
     "pymupdf>=1.28.2,<2",
     # The integrity check reads the structure of a PDF with qpdf.
     "pikepdf>=8",
+    # The hidden-text check compares the renders of a page with numpy, which pdfguardrail needs as well.
+    "numpy",
     # The AI detectors CoCoDet and EditLens.
     "torch>=2.6",
     "transformers>=4.56",

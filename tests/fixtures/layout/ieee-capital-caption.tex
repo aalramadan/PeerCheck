@@ -1,0 +1,37 @@
+% An IEEEtran paper without a conclusion section whose table caption, which IEEEtran prints in capital
+% letters, opens with the word Conclusions. The caption is no section heading, therefore the format check
+% must still report the missing heading.
+\pdftrailerid{}
+\pdfinfoomitdate=1
+\pdfsuppressptexinfo=-1
+\documentclass[10pt,conference,letterpaper]{IEEEtran}
+\usepackage{lipsum}
+\begin{document}
+\title{Ranking Flaky Test Failures with\\Build Histories and Change Distance}
+\author{\IEEEauthorblockN{Anonymous Author(s)}}
+\maketitle
+
+\begin{abstract}
+Flaky tests pass and fail on the same code. This paper ranks the failures of a build by the
+chance that each failure is flaky.
+\end{abstract}
+
+\section{Introduction}
+\lipsum[1-4]
+
+\begin{table}[t]
+\caption{Conclusions of Earlier Studies}
+\centering
+\begin{tabular}{ll}
+Study & Result \\
+First & Flaky failures are common \\
+Second & Reruns cost build time \\
+\end{tabular}
+\end{table}
+
+\section{Approach}
+\lipsum[5-9]
+
+\section{Discussion}
+\lipsum[10-12]
+\end{document}

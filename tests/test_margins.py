@@ -246,6 +246,83 @@ def test_text_above_the_text_block_beyond_its_width_is_no_running_head(tmp_path)
     assert "into the right margin" in finding.message
 
 
+def test_running_head_whose_letters_reach_below_its_text_box_over_a_white_box_gives_no_finding(tmp_path):
+    def draw(page, number):
+        if number == 1:
+            page.draw_rect(pymupdf.Rect(40, 31, 470, 273), color=None, fill=(1, 1, 1))
+        page.insert_font(fontname="head", fontbuffer=pymupdf.Font("helv").buffer)
+        page.insert_text((300, 70), "Sample pages", fontname="head", fontsize=8)
+        page.insert_text((46, 110), "Body text inside the text block.", fontsize=10)
+
+    drawn = write_pdf(tmp_path / "drawn.pdf", draw, pages=3, size=(486, 720))
+    with pymupdf.open(drawn) as document:
+        for xref in range(1, document.xref_length()):
+            if document.xref_get_key(xref, "Type")[1] == "/FontDescriptor":
+                # With these heights, as a subset without letters below the line names them, MuPDF ends the box
+                # of a word at its baseline.
+                document.xref_set_key(xref, "Ascent", "455")
+                document.xref_set_key(xref, "Descent", "-3")
+        document.save(tmp_path / "paper.pdf")
+    assert run(tmp_path / "paper.pdf", "fse-2027") == []
+
+
+def preprint_stamp(page, text: str = "arXiv:2701.00000v1 [cs.SE] 1 Jan 2027") -> None:
+    """Draw gray text that runs up the left margin of the page, as arXiv stamps the first page of a preprint."""
+    page.insert_text((38, 560), text, fontsize=20, rotate=90, color=(0.5, 0.5, 0.5))
+    page.insert_text((72, 100), "Body text inside the text block.", fontsize=10)
+
+
+def test_preprint_stamp_in_the_left_margin_gives_no_finding():
+    assert run(FIXTURES / "ieee-preprint-stamp.pdf") == []
+
+
+def test_note_in_the_margin_of_a_page_with_a_preprint_stamp_is_still_found(tmp_path):
+    def draw(page, number):
+        preprint_stamp(page)
+        page.insert_text((570, 300), "note", fontsize=10)
+
+    (finding,) = run(write_pdf(tmp_path / "paper.pdf", draw))
+    assert finding.evidence == "note"
+    assert "left" not in finding.message
+
+
+def test_figure_in_the_left_margin_beside_a_preprint_stamp_is_found(tmp_path):
+    def draw(page, number):
+        preprint_stamp(page)
+        page.draw_rect(pymupdf.Rect(22, 300, 300, 400), color=None, fill=(0.2, 0.2, 0.2))
+
+    (finding,) = run(write_pdf(tmp_path / "paper.pdf", draw))
+    assert finding.message.startswith("content (drawing) runs")
+    assert reach(finding, "left") == pytest.approx(26, abs=1)
+
+
+def test_note_in_the_left_margin_that_stands_apart_from_a_preprint_stamp_is_found(tmp_path):
+    def draw(page, number):
+        preprint_stamp(page)
+        page.insert_text((6, 650), "note", fontsize=8)
+
+    (finding,) = run(write_pdf(tmp_path / "paper.pdf", draw))
+    assert finding.evidence == "note"
+    assert "into the left margin" in finding.message
+
+
+def test_preprint_identifier_that_runs_across_the_left_margin_is_found(tmp_path):
+    def draw(page, number):
+        page.insert_text((4, 650), "arXiv:2701.00000v1", fontsize=4)
+        page.insert_text((72, 100), "Body text inside the text block.", fontsize=10)
+
+    (finding,) = run(write_pdf(tmp_path / "paper.pdf", draw))
+    assert finding.evidence == "arXiv:2701.00000v1"
+
+
+def test_text_up_the_left_margin_without_a_preprint_identifier_is_found(tmp_path):
+    def draw(page, number):
+        preprint_stamp(page, "Table 9 continues with the results of each project")
+
+    (finding,) = run(write_pdf(tmp_path / "paper.pdf", draw))
+    assert "into the left margin" in finding.message
+
+
 def test_profile_without_margins_gives_no_finding():
     profile = load("icse-2027")
     profile = dataclasses.replace(profile, format=dataclasses.replace(profile.format, margins=None))

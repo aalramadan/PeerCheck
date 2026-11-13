@@ -1,0 +1,28 @@
+% An IEEEtran paper without page numbers whose last page ends with a line that holds only a year. banal
+% reads a number below the other text of a page as a page number, which the format check must not report.
+\pdftrailerid{}
+\pdfinfoomitdate=1
+\pdfsuppressptexinfo=-1
+\documentclass[10pt,conference,letterpaper]{IEEEtran}
+\usepackage{lipsum}
+\begin{document}
+\title{Ranking Flaky Test Failures with\\Build Histories and Change Distance}
+\author{\IEEEauthorblockN{Anonymous Author(s)}}
+\maketitle
+
+\begin{abstract}
+Flaky tests pass and fail on the same code. This paper ranks the failures of a build by the
+chance that each failure is flaky.
+\end{abstract}
+
+\section{Introduction}
+\lipsum[1-7]
+
+\section{Approach}
+\lipsum[8-9]
+
+\section{Conclusion}
+\lipsum[14]
+The builds of the study ran from the first release of each project until the last day of\\
+2026.
+\end{document}

@@ -7,7 +7,6 @@ from __future__ import annotations
 
 import functools
 import re
-import unicodedata
 from collections import Counter
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -37,6 +36,9 @@ COMMON_SHARE = 0.05
 # A page covered by one image with fewer words has no text to read, while a cover page shows a title and authors.
 MIN_IMAGE_WORDS = 20
 WORD = re.compile(r"[^\W\d_]+(?:'[^\W\d_]+)*")
+# The replacement character, the private-use characters, and the control characters other than white space.
+UNREADABLE = re.compile("[\ufffd\ue000-\uf8ff\U000f0000-\U000ffffd\U00100000-\U0010fffd"
+                        "\x00-\x08\x0e-\x1b\x7f-\x84\x86-\x9f]")
 SUBSET_TAG = re.compile(r"^[A-Z]{6}\+")
 # MuPDF keeps 31 characters of a font name with its subset tag of seven.
 NAME_LENGTH = 24
@@ -99,29 +101,35 @@ def _measure(page: pymupdf.Page, number: int) -> PageText:
     lines = []
     for block in page.get_text("dict", flags=FLAGS)["blocks"]:
         for line in block.get("lines", ()):
-            lines.append("".join(span["text"] for span in line["spans"]))
-            for span in line["spans"]:
-                unreadable = sum(_unreadable(char) for char in span["text"])
-                if unreadable:
-                    measured.fonts[SUBSET_TAG.sub("", span["font"])] += unreadable
-                measured.unreadable += unreadable
-                measured.characters += sum(not char.isspace() for char in span["text"])
+            text = "".join(span["text"] for span in line["spans"])
+            lines.append(text)
+            measured.characters += len("".join(text.split()))
+            if UNREADABLE.search(text):
+                for span in line["spans"]:
+                    unreadable = len(UNREADABLE.findall(span["text"]))
+                    if unreadable:
+                        measured.fonts[SUBSET_TAG.sub("", span["font"])] += unreadable
+                        measured.unreadable += unreadable
+    common = _common_words()
     words = [word.lower() for word in WORD.findall("\n".join(lines).replace("\u2019", "'")) if len(word) > 1]
     measured.words = len(words)
-    measured.common = sum(word in _common_words() for word in words)
+    measured.common = sum(word in common for word in words)
+    # Only a page with few words or without English words can be an image page, and the images need a second reading.
+    if not measured.garbled and (measured.words < MIN_IMAGE_WORDS or measured.foreign):
+        measured.cover = _largest_image(page)
+    return measured
+
+
+def _largest_image(page: pymupdf.Page) -> float:
+    """Return the share of the page that its largest image covers."""
     area = abs(page.rect)
+    cover = 0.0
     for image in page.get_image_info():
         # MuPDF gives the box of an image on the unrotated page.
         box = pymupdf.Rect(image["bbox"]) * page.rotation_matrix & page.rect
         if area and not box.is_empty:
-            measured.cover = max(measured.cover, abs(box) / area)
-    return measured
-
-
-def _unreadable(char: str) -> bool:
-    """Return True for a replacement, private-use, or control character, which carries no text."""
-    category = unicodedata.category(char)
-    return char == "\ufffd" or category == "Co" or (category == "Cc" and not char.isspace())
+            cover = max(cover, abs(box) / area)
+    return cover
 
 
 @functools.cache

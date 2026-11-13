@@ -31,5 +31,6 @@ checks:
   editlens:
   duplicates:
   citations:
+  short_reviews:
   canary:
   conflicts:

@@ -26,6 +26,7 @@ PC_MULLER = Person("Jürgen", "Müller", "J.Mueller@testville.example", "Univers
 AUTHORS = {1: [MULLER, OKAFOR], 2: [PEREZ, GROSS], 3: [UNRELATED]}
 COMMITTEE = [KIM, LEMAITRE, BRANDT, PAT, PC_MULLER]
 OPTIONS = {"reference_year": 2026}
+ADVISOR_OPTIONS = {**OPTIONS, "advisor_papers": 3}
 
 
 @pytest.fixture(scope="module")
@@ -131,6 +132,67 @@ class TestAffiliations:
     def test_placeholders_and_generic_words_make_no_match(self, first, second):
         assert conflicts.affiliation_match(first, second) == ""
 
+    @pytest.mark.parametrize("first, second", [
+        ("Northgate Normal University", "Eastfield Normal University"),
+        ("Vrije Universiteit Northgate", "Vrije Universiteit Eastfield"),
+        ("Hogeschool Northgate", "Hogeschool van Eastfield"),
+        ("Northgate University, State Key Laboratory of Software",
+         "Eastfield University, State Key Laboratory of Networks"),
+        ("Northgate University, School of Big Data", "Eastfield University, Center for Big Data"),
+        ("Northgate University of Posts and Telecommunications",
+         "Eastfield University of Posts and Telecommunications"),
+        ("Northgate University, Laboratory of Image Processing", "Eastfield University, Signal Processing Group"),
+        ("Northgate University, School of Communication", "Eastfield University, Communication Networks Group"),
+        ("Northgate Communications", "Eastfield University, Communications Laboratory"),
+        ("Northgate University, School of Telecommunication", "Eastfield University, Telecommunication Networks Group"),
+        ("Northgate Innovation", "Eastfield University, Innovation Center"),
+        ("Northgate University, Laboratory of Space Information", "Eastfield Space Center"),
+    ])
+    def test_a_word_that_many_institutions_share_never_joins_institutions_of_different_names(self, first, second):
+        assert conflicts.affiliation_match(first, second) == ""
+
+    @pytest.mark.parametrize("first, second, words", [
+        ("Northgate Normal University", "Northgate Normal Univ., School of Computing, Eastfield", "normal northgate"),
+        ("East China Normal University, School of Music", "East China Normal University, Department of Astronomy",
+         "normal"),
+        ("Northgate University, Key Laboratory of Networks", "Key Laboratory of Networks, Northgate University",
+         "key northgate"),
+        ("University of Hong Kong, Key Laboratory of Networks", "University of Hong Kong, Key Laboratory of Compilers",
+         "key"),
+        ("Vrije Universiteit", "Vrije Universiteit Northgate", "vrije"),
+        ("Shangai Normal University", "Shanghai Normal University, School of Music", "normal"),
+        ("East China Normal University II", "East China Normal University Minhang", "normal"),
+        ("Central China Normal University / East China Normal University", "East China Normal University Minhang",
+         "normal"),
+    ])
+    def test_such_a_word_still_matches_within_one_institution(self, first, second, words):
+        assert conflicts.affiliation_match(first, second) == words
+
+    @pytest.mark.parametrize("first, second, words", [
+        ("Key Laboratory of Networks", "Key Lab of Networks", "key"),
+        ("Big Data Research Lab", "Big Data Research Laboratory", "big"),
+        ("China Mobile Communications Corporation", "China Mobile Communications Corp.", "communications"),
+        ("China Telecommunications Corporation", "China Telecommunications Group", "telecommunications"),
+        ("Communications Research Centre Canada", "Communications Research Center, Ottawa", "communications"),
+        ("National Space Science Center", "National Space Science Centre, Beijing", "space"),
+    ])
+    def test_such_a_word_still_matches_two_spellings_of_one_organization(self, first, second, words):
+        assert conflicts.affiliation_match(first, second) == words
+
+    @pytest.mark.parametrize("word", [
+        "Center", "Centre", "Company", "Corp.", "Corporation", "Group", "Lab", "Laboratories", "Laboratory", "Labs",
+        "Limited", "Ltd.", "Japan", "Laboratoire",
+    ])
+    def test_a_unit_a_legal_form_a_country_or_a_generic_word_is_no_name_of_an_institution(self, word):
+        assert conflicts.affiliation_match(f"Big Data {word}", "Northgate Big Data") == "big"
+
+    def test_a_weak_word_that_many_institutions_share_parts_no_short_form_from_its_long_form(self):
+        words = conflicts.affiliation_match("Penn State University", "Pennsylvania State University")
+        assert words == "penn (pennsylvania) state university"
+
+    def test_a_name_joins_two_institutions_that_hold_further_names_of_their_own(self):
+        assert conflicts.affiliation_match("Northgate Alpha University", "Northgate Beta University") == "northgate"
+
 
 class TestDomains:
     @pytest.mark.parametrize("email, domain", [
@@ -154,6 +216,11 @@ class TestDomains:
 
     @pytest.mark.parametrize("domain", ["mail.com", "seznam.cz", "wp.pl", "uol.com.br", "tuta.io", "189.cn"])
     def test_common_webmail_providers_never_make_a_conflict(self, domain):
+        authors = {1: [Person("A", "One", f"a@{domain}")]}
+        assert conflicts.find_conflicts(authors, [Person("B", "Two", f"b@{domain}")], options=OPTIONS) == []
+
+    @pytest.mark.parametrize("domain", ["ieee.org", "acm.org", "computer.org"])
+    def test_member_addresses_of_societies_never_make_a_conflict(self, domain):
         authors = {1: [Person("A", "One", f"a@{domain}")]}
         assert conflicts.find_conflicts(authors, [Person("B", "Two", f"b@{domain}")], options=OPTIONS) == []
 
@@ -226,11 +293,122 @@ class TestFindConflicts:
             (("author",), ("Robin X. Okafor is an author of the paper (same dblp person ID)",)),
         ]
 
+    def test_blank_emails_do_not_make_two_people_one_author(self):
+        found = conflicts.find_conflicts({1: [Person("A", "One", " ")]}, [Person("B", "Two", " ")], options=OPTIONS)
+        assert found == []
+
     def test_people_listed_twice_give_one_row_with_one_set_of_reasons(self):
         author = Person("Robin", "Okafor", "robin@riverside.example", "Riverside Research Lab")
         member = Person("Ana", "Ruiz", "ana@riverside.example", "Riverside Research Lab")
         found = conflicts.find_conflicts({1: [author, author]}, [member, member], options=OPTIONS)
         assert [(c.others, c.kinds, len(c.reasons)) for c in found] == [((author,), ("email domain", "affiliation"), 2)]
+
+
+def papers_dump(folder: Path, papers: list[tuple[int | None, list[str]]]) -> Path:
+    """Write a dblp dump with one person record per author and one article per year and list of authors."""
+    people = sorted({author for _, authors in papers for author in authors})
+    records = [f'<www key="homepages/{number}"><author>{name}</author><title>Home Page</title></www>'
+               for number, name in enumerate(people)]
+    records += [f'<article key="journals/x/{number:03}">{"".join(f"<author>{a}</author>" for a in authors)}'
+                f"<title>Synthetic Study {number}.</title>{'' if year is None else f'<year>{year}</year>'}</article>"
+                for number, (year, authors) in enumerate(papers)]
+    shutil.copyfile(DUMP.with_name("dblp.dtd"), folder / "dblp.dtd")
+    path = folder / "dblp.xml"
+    lines = ['<?xml version="1.0"?>', '<!DOCTYPE dblp SYSTEM "dblp.dtd">', "<dblp>", *records, "</dblp>"]
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    return path
+
+
+class TestHomonyms:
+    AUTHOR = Person("Tavi", "Quellmar", "tavi@northgate.example")
+    COAUTHOR = Person("Ilka", "Varn", "ilka@eastfield.example")
+    PELL = Person("Orin", "Pell", "orin@harbor.example")
+    MORROW = Person("Dax", "Morrow", "dax@westbrook.example")
+    NOTE = "The name Tavi Quellmar matches 2 dblp person records; confirm the person"
+
+    def found(self, folder: Path, papers: list[tuple[int, list[str]]]) -> list[tuple[str, tuple[str, ...], bool]]:
+        """Return the member, the kinds, and whether the note stands for each conflict of the two authors."""
+        committee = [self.PELL, self.MORROW]
+        index = dblp.build_index(papers_dump(folder, papers), [self.AUTHOR, self.COAUTHOR, *committee])
+        found = conflicts.find_conflicts({1: [self.AUTHOR, self.COAUTHOR]}, committee, index, options=OPTIONS)
+        return [(c.member.name, c.kinds, c.reasons[0].endswith(self.NOTE)) for c in found]
+
+    def test_joint_paper_with_a_coauthor_of_the_submission_leaves_no_person_record_out(self, tmp_path):
+        papers = [(2019, ["Tavi Quellmar 0001", "Ilka Varn"]), (2025, ["Tavi Quellmar 0002", "Orin Pell"]),
+                  (2025, ["Tavi Quellmar 0001", "Dax Morrow"])]
+        assert self.found(tmp_path, papers) == [
+            ("Orin Pell", ("co-author",), True), ("Dax Morrow", ("co-author",), True)]
+
+    def test_two_dblp_forms_of_one_name_count_together_beside_a_coauthor_of_the_submission(self, tmp_path):
+        papers = [(2024, ["Tavi R. Quellmar", "Orin Pell"]), (2025, ["Tavi Quellmar", "Ilka Varn"])]
+        assert self.found(tmp_path, papers) == [("Orin Pell", ("co-author",), True)]
+
+
+class TestAdvisor:
+    SENIOR = Person("Ines", "Varga", "ines@northgate.example")
+    JUNIOR = Person("Tomas", "Lind", "tomas@harbor.example")
+
+    def index(self, folder, start=2000, alone=13, joint=3, senior="Ines Varga", more=()) -> dblp.DblpIndex:
+        """Return the index of a senior with papers alone from a year on and a junior with four papers from 2010 on."""
+        papers = [(start + number, [senior]) for number in range(alone)] + list(more)
+        papers += [(2010, ["Tomas Lind", senior])] * joint + [(2011, ["Tomas Lind"])] * (4 - joint)
+        return dblp.build_index(papers_dump(folder, papers), [self.SENIOR, self.JUNIOR])
+
+    def test_senior_coauthor_of_the_first_papers_is_a_possible_advisor(self, tmp_path):
+        found = conflicts.find_conflicts(
+            {1: [self.JUNIOR]}, [self.SENIOR], self.index(tmp_path), options=ADVISOR_OPTIONS)
+        assert [(c.kinds, c.reasons) for c in found] == [(("advisor",), ((
+            "Ines Varga may have advised Tomas Lind: Ines Varga wrote 3 of the first 4 dblp papers of Tomas Lind, "
+            "began publishing 10 years earlier, and has 12 more dblp papers; confirm the relation"
+        ),))]
+
+    def test_author_who_may_have_advised_the_member_is_reported_as_well(self, tmp_path):
+        found = conflicts.find_conflicts(
+            {1: [self.SENIOR]}, [self.JUNIOR], self.index(tmp_path), options=ADVISOR_OPTIONS)
+        assert [c.kinds for c in found] == [("advisor",)]
+        assert found[0].reasons[0].startswith("Ines Varga may have advised Tomas Lind")
+
+    @pytest.mark.parametrize("change", [{"joint": 2}, {"start": 2006, "alone": 11}, {"alone": 10}])
+    def test_fewer_joint_papers_a_later_start_or_too_few_papers_make_no_advisor(self, tmp_path, change):
+        index = self.index(tmp_path, **change)
+        assert conflicts.find_conflicts({1: [self.JUNIOR]}, [self.SENIOR], index, options=ADVISOR_OPTIONS) == []
+
+    def test_template_without_the_key_reports_no_advisor(self, tmp_path):
+        assert conflicts.find_conflicts({1: [self.JUNIOR]}, [self.SENIOR], self.index(tmp_path), options=OPTIONS) == []
+
+    def test_name_of_several_dblp_people_makes_no_advisor(self, tmp_path):
+        index = self.index(tmp_path, senior="Ines Varga 0001", more=[(2001, ["Ines Varga 0002"])])
+        assert conflicts.find_conflicts({1: [self.JUNIOR]}, [self.SENIOR], index, options=ADVISOR_OPTIONS) == []
+
+    def test_start_of_five_years_earlier_and_ten_papers_more_are_enough(self, tmp_path):
+        index = self.index(tmp_path, start=2005, alone=11)
+        found = conflicts.find_conflicts({1: [self.JUNIOR]}, [self.SENIOR], index, options=ADVISOR_OPTIONS)
+        assert "began publishing 5 years earlier, and has 10 more dblp papers" in found[0].reasons[0]
+
+    def career(self, folder, papers) -> list[conflicts.Conflict]:
+        """Return the conflicts of the junior with the senior, who wrote a paper alone each year from 2000 to 2023."""
+        papers = papers + [(2000 + number, ["Ines Varga"]) for number in range(24)]
+        index = dblp.build_index(papers_dump(folder, papers), [self.SENIOR, self.JUNIOR])
+        return conflicts.find_conflicts({1: [self.JUNIOR]}, [self.SENIOR], index, options=ADVISOR_OPTIONS)
+
+    def test_joint_papers_after_the_first_ten_papers_make_no_advisor(self, tmp_path):
+        assert self.career(tmp_path, [(2012, ["Tomas Lind", "Ines Varga"])] * 3 + [(2010, ["Tomas Lind"])] * 10) == []
+
+    def test_first_papers_follow_the_years_and_not_the_dblp_keys(self, tmp_path):
+        found = self.career(tmp_path, [(2015, ["Tomas Lind"])] * 10 + [(2010, ["Tomas Lind", "Ines Varga"])] * 3)
+        assert found[0].reasons[0].startswith(
+            "Ines Varga may have advised Tomas Lind: Ines Varga wrote 3 of the first 10")
+
+    def test_person_without_dblp_papers_has_no_advisor_and_advised_no_one(self, tmp_path):
+        committee = [Person("Nobody", "Here"), self.SENIOR]
+        found = conflicts.find_conflicts({1: [self.JUNIOR]}, committee, self.index(tmp_path), options=ADVISOR_OPTIONS)
+        assert [(c.member, c.kinds) for c in found] == [(self.SENIOR, ("advisor",))]
+
+    def test_paper_without_a_year_counts_for_no_rule(self, tmp_path):
+        index = self.index(tmp_path, more=[(None, ["Tomas Lind", "Ines Varga"])])
+        found = conflicts.find_conflicts({1: [self.JUNIOR]}, [self.SENIOR], index, options=ADVISOR_OPTIONS)
+        assert [c.kinds for c in found] == [("advisor",)]
+        assert "wrote 3 of the first 4 dblp papers" in found[0].reasons[0]
 
 
 class TestRows:

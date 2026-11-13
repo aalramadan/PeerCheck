@@ -10,7 +10,7 @@ from pathlib import Path
 
 import pikepdf
 
-from peercheck.findings import Finding, Severity
+from peercheck.findings import Finding, Severity, excerpt
 from peercheck.models import Paper
 from peercheck.profile import Profile, ProfileError
 
@@ -39,7 +39,6 @@ EXECUTABLE_SUFFIXES = (".exe", ".bat", ".cmd", ".com", ".scr", ".pif", ".msi", "
 LINE_SUFFIX = re.compile(r":\d*$")
 # Nesting and chains of next actions stop at this depth, as in mubanal, and a PDF may nest objects without end.
 MAX_DEPTH = 64
-EXCERPT_LIMIT = 120
 # A small script stream may inflate to gigabytes, therefore decoding stops at this size.
 SCRIPT_LIMIT = 1 << 16
 # The target of each indirect action that the walk of a trigger reached, None for a chain without such a target.
@@ -304,7 +303,7 @@ def _findings(hits: list[Hit], pages: dict[int, int], severity: Severity) -> lis
             continue
         where = sorted({pages[hit.number] for hit in found if hit.number in pages})
         message = description + (f", on pages {_join(where)}" if len(where) > 1 else "")
-        evidence = _excerpt(next((hit.evidence for hit in found if hit.evidence), ""))
+        evidence = excerpt(next((hit.evidence for hit in found if hit.evidence), ""))
         level = severity if category in DANGEROUS else Severity.INFO
         findings.append(Finding(f"{CHECK}.{category}", level, message, where[0] if where else None, evidence))
     return findings
@@ -324,11 +323,6 @@ def _text(value: object) -> str:
 
 def _entry(value: object, key: str) -> object:
     return value.get(key) if isinstance(value, pikepdf.Dictionary) else None
-
-
-def _excerpt(text: str) -> str:
-    text = " ".join(text.split())
-    return text if len(text) <= EXCERPT_LIMIT else text[: EXCERPT_LIMIT - 3].rstrip() + "..."
 
 
 def _join(numbers: list[int]) -> str:

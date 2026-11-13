@@ -55,6 +55,8 @@ class PdfSet:
 
 def find_pdfs(folder: Path, profile: Profile | None = None) -> PdfSet:
     """Give each PDF of a folder its paper ID, the number in its name, or the next free ID for a name without one."""
+    if folder.is_file():
+        raise InputError(f"{folder} is a file; give the folder that holds the PDFs")
     if not folder.is_dir():
         raise InputError(f"PDF folder not found: {folder}")
     found = PdfSet()
@@ -137,7 +139,7 @@ def read_reviews(path: Path) -> list[Review]:
     if path.suffix.lower() != ".csv":
         raise InputError(f"{path.name} is no CSV file; --reviews takes the CSV file of the reviews, whose columns the "
                          "README shows")
-    lines = [line for line in _csv_rows(_csv_file(path)) if any(line)]
+    lines = [line for line in _csv_rows(path) if any(line)]
     # The fixed columns may be capitalized, such as Paper, while the fields keep their names for the report.
     header = [name.lower() if name.lower() in HOTCRP_COLUMNS else name for name in lines[0]] if lines else []
     missing = [name for name in ("paper", "review") if name not in header]
@@ -184,11 +186,8 @@ def _columns(rows: list[dict[str, str]], path: Path, with_paper: bool) -> dict[s
         names = [alias for alias in aliases if alias in header]
         if not names and key in OPTIONAL_COLUMNS:
             names = [name for name in header if any(alias in name for alias in aliases)]
-        if key == "paper":
-            # A title column may be named Paper or Submission beside the ID column, such as Paper ID or Submission #.
-            names.sort(key=lambda name: sum(_paper_id(row[name]) is None for row in rows))
         if names:
-            columns[key] = names[0]
+            columns[key] = id_column(rows) if key == "paper" else names[0]
     required = ["first", "last"] + (["paper"] if with_paper else [])
     missing = [key for key in required if key not in columns]
     if missing:

@@ -1,0 +1,75 @@
+{
+ "status": "ok",
+ "message-type": "work-list",
+ "message-version": "1.0.0",
+ "message": {
+  "facets": {},
+  "total-results": 3,
+  "items": [
+   {
+    "DOI": "10.1007/978-3-031-73143-3_7",
+    "title": [
+     "Automated Requirements Relations Extraction"
+    ],
+    "author": [
+     {
+      "given": "Quim",
+      "family": "Motger",
+      "sequence": "first"
+     },
+     {
+      "given": "Xavier",
+      "family": "Franch",
+      "sequence": "additional"
+     }
+    ]
+   },
+   {
+    "DOI": "10.1145/3180155.3180167",
+    "title": [
+     "Deep code search"
+    ],
+    "author": [
+     {
+      "given": "Xiaodong",
+      "family": "Gu",
+      "sequence": "first"
+     },
+     {
+      "given": "Hongyu",
+      "family": "Zhang",
+      "sequence": "additional"
+     },
+     {
+      "given": "Sunghun",
+      "family": "Kim",
+      "sequence": "additional"
+     }
+    ]
+   },
+   {
+    "DOI": "10.1093/biomet/26.4.404",
+    "title": [
+     "THE USE OF CONFIDENCE OR FIDUCIAL LIMITS ILLUSTRATED IN THE CASE OF THE BINOMIAL"
+    ],
+    "author": [
+     {
+      "given": "C. J.",
+      "family": "CLOPPER",
+      "sequence": "first"
+     },
+     {
+      "given": "E. S.",
+      "family": "PEARSON",
+      "sequence": "additional"
+     }
+    ]
+   }
+  ],
+  "items-per-page": 50,
+  "query": {
+   "start-index": 0,
+   "search-terms": null
+  }
+ }
+}

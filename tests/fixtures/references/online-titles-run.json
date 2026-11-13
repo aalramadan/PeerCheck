@@ -1,0 +1,145 @@
+[
+ {
+  "filename": "online.bib",
+  "verdict": null,
+  "stats": {
+   "total": 2,
+   "verified": 1,
+   "not_found": 1,
+   "author_mismatch": 0,
+   "retracted": 0,
+   "skipped": 0,
+   "inconclusive": 0,
+   "problematic_pct": 50.0
+  },
+  "references": [
+   {
+    "index": 1,
+    "original_number": 2,
+    "title": "Self-healing test oracles for microservice regression suites",
+    "raw_citation": "M. Hartmann, P. Venkataraman. Self-healing test oracles for microservice regression suites",
+    "status": "not_found",
+    "effective_status": "not_found",
+    "url_check_skipped": false,
+    "inconclusive": false,
+    "fp_reason": null,
+    "source": null,
+    "ref_authors": [
+     "M. Hartmann",
+     "P. Venkataraman"
+    ],
+    "found_authors": [],
+    "paper_url": null,
+    "failed_dbs": [],
+    "doi_info": null,
+    "arxiv_info": null,
+    "retraction_info": null,
+    "db_results": [
+     {
+      "db": "Standards",
+      "status": "no_match",
+      "elapsed_ms": 3,
+      "authors": [],
+      "url": null
+     },
+     {
+      "db": "ACL Anthology",
+      "status": "no_match",
+      "elapsed_ms": 188,
+      "authors": [],
+      "url": null
+     },
+     {
+      "db": "Open Library",
+      "status": "no_match",
+      "elapsed_ms": 301,
+      "authors": [],
+      "url": null
+     },
+     {
+      "db": "PubMed",
+      "status": "no_match",
+      "elapsed_ms": 356,
+      "authors": [],
+      "url": null
+     },
+     {
+      "db": "CrossRef",
+      "status": "no_match",
+      "elapsed_ms": 590,
+      "authors": [],
+      "url": null
+     }
+    ]
+   },
+   {
+    "index": 0,
+    "original_number": 1,
+    "title": "Observation of a new particle in the search for the Standard Model Higgs boson with the ATLAS detector at the LHC",
+    "raw_citation": "G. Aad, T. Abajyan, B. Abbott. Observation of a new particle in the search for the Standard Model Higgs boson with the ATLAS detector at the LHC",
+    "status": "verified",
+    "effective_status": "verified",
+    "url_check_skipped": false,
+    "inconclusive": false,
+    "fp_reason": null,
+    "source": "CrossRef",
+    "ref_authors": [
+     "G. Aad",
+     "T. Abajyan",
+     "B. Abbott"
+    ],
+    "found_authors": [
+     "G. Aad",
+     "T. Abajyan",
+     "B. Abbott"
+    ],
+    "paper_url": "https://doi.org/10.1016/j.physletb.2012.08.020",
+    "failed_dbs": [],
+    "doi_info": null,
+    "arxiv_info": null,
+    "retraction_info": null,
+    "db_results": [
+     {
+      "db": "Standards",
+      "status": "no_match",
+      "elapsed_ms": 0,
+      "authors": [],
+      "url": null
+     },
+     {
+      "db": "ACL Anthology",
+      "status": "no_match",
+      "elapsed_ms": 39,
+      "authors": [],
+      "url": null
+     },
+     {
+      "db": "Open Library",
+      "status": "no_match",
+      "elapsed_ms": 143,
+      "authors": [],
+      "url": null
+     },
+     {
+      "db": "CrossRef",
+      "status": "match",
+      "elapsed_ms": 324,
+      "authors": [
+       "G. Aad",
+       "T. Abajyan",
+       "B. Abbott"
+      ],
+      "url": "https://doi.org/10.1016/j.physletb.2012.08.020"
+     },
+     {
+      "db": "PubMed",
+      "status": "no_match",
+      "elapsed_ms": 4671,
+      "authors": [],
+      "url": null
+     }
+    ]
+   }
+  ]
+ }
+]

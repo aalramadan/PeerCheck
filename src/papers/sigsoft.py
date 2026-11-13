@@ -4,7 +4,8 @@ The SIGSOFT submission checker was built for ICSE 2021 and reads each PDF with P
 in external/submission-checker scans every page, the metadata, and the links of a PDF for the authors of the
 paper, author emails, links that point to a person, acknowledgments, and self-citations, and prints one
 JSON object per PDF. Options come from the profile: style, page limits, and file pattern from the format
-rules, and allowed_hosts and flag_acknowledgments under checks.anonymity.
+rules, and allowed_hosts and flag_acknowledgments under checks.anonymity. The findings give each name of the
+metadata once and the links to one repository as one finding.
 """
 
 from __future__ import annotations
@@ -28,6 +29,16 @@ LINK_PATTERN = r"paper(\d+)\.pdf$"
 # The exit status of the checker when it rejects its arguments, such as a file it cannot find.
 USAGE_ERROR = 2
 JAVA_EXCEPTION = re.compile(r'Exception in thread "[^"]*" ([\w.$]+)')
+META_AUTHOR, IDENTITY_DATA, IDENTITY_LINK = (
+    "possibly-author-revealing-meta-data", "possibly-identity-revealing-data", "identity-link")
+# The kind that the checker gives a link to an account or a repository, Kind.CODE_HOST_ACCOUNT in LinkClassifier.java.
+CODE_HOST_ACCOUNT = "code host account"
+# A detail of the checker with its place or kind in parentheses, such as Lena Brandt (XMP dc:creator).
+LABELED = re.compile(r"(.*?) \(((?:[^()]|\([^()]*\))*)\)")
+# The signs between the names of one metadata string, such as Lena Brandt; Omar Haddad.
+NAME_SEPARATOR = re.compile(r"\s*(?:[;,&]|\band\b)\s*")
+# The start of a link that linkKey in PdfChecker.java drops before it compares two links.
+LINK_START = re.compile(r"^(?:[a-z][a-z0-9+.-]*://)?(?:www\.)?")
 SEVERITY = {
     "wrong-template": Severity.ERROR,
     "author-revealing-email": Severity.ERROR,
@@ -82,11 +93,6 @@ def check_batch(papers: list[Paper], profile: Profile, workdir: Path) -> dict[in
     return results
 
 
-def check(paper: Paper, profile: Profile, workdir: Path) -> list[Finding]:
-    """Return the findings of the checker for one paper."""
-    return check_batch([paper], profile, workdir)[paper.paper_id]
-
-
 def findings(record: dict) -> list[Finding]:
     """Turn one JSON record of the checker into findings, keeping the issues of a PDF that opened."""
     found = []
@@ -99,7 +105,7 @@ def findings(record: dict) -> list[Finding]:
         found.append(_error(f"the SIGSOFT checker could not read the PDF: {error}"))
         if not record.get("pages"):
             return found
-    for issue in record.get("issues") or []:
+    for issue in _merged(record.get("issues") or []):
         code = str(issue.get("code", "unknown"))
         if code.startswith("non-references-after"):
             code = "non-references-after-limit"
@@ -108,6 +114,65 @@ def findings(record: dict) -> list[Finding]:
         found.append(Finding(f"sigsoft.{code}", severity, message, page=issue.get("page"),
                              evidence=str(issue.get("detail") or "")))
     return found
+
+
+def _merged(issues: list[dict]) -> list[dict]:
+    """Return the issues with one issue for the names that one place of the metadata gives and one for the links to
+    one repository or host. A name that another issue gives is left out."""
+    names = [text for issue in issues if issue.get("code") == IDENTITY_DATA
+             for text, label in [_labeled(issue)] if label]
+    merged: dict[object, dict] = {}
+    for number, issue in enumerate(issues):
+        code = issue.get("code")
+        text, label = _labeled(issue)
+        if code == META_AUTHOR:
+            if _repeats(text, names):
+                continue
+            names.append(text)
+            key = (code, label)
+        elif code == IDENTITY_LINK:
+            key = (code, label, _link_group(text, label))
+        else:
+            merged[number] = issue
+            continue
+        group = merged.setdefault(key, {"code": code, "page": issue.get("page"), "texts": [], "label": label})
+        group["texts"].append(text)
+    for issue in merged.values():
+        if "texts" in issue:
+            issue["detail"] = _joined(issue["code"], issue["texts"], issue["label"])
+    return list(merged.values())
+
+
+def _labeled(issue: dict) -> tuple[str, str]:
+    """Split the detail of an issue into its text and the label in parentheses that may follow it."""
+    detail = str(issue.get("detail") or "")
+    match = LABELED.fullmatch(detail)
+    return (match[1], match[2]) if match else (detail, "")
+
+
+def _joined(code: str, texts: list[str], label: str) -> str:
+    """Return the detail of merged issues: every name, or the first link with the number of the other links."""
+    if code == META_AUTHOR:
+        text = "; ".join(texts)
+    else:
+        text = texts[0] + (f" and {len(texts) - 1} more" if len(texts) > 1 else "")
+    return f"{text} ({label})" if label else text
+
+
+def _repeats(name: str, names: list[str]) -> bool:
+    """Tell whether each name of a metadata string stands in a name that another issue gives, whatever its case."""
+    parts = [part for part in NAME_SEPARATOR.split(name.casefold()) if part]
+    return bool(parts) and all(any(_holds(other.casefold(), part) for other in names) for part in parts)
+
+
+def _holds(text: str, words: str) -> bool:
+    return re.search(rf"(?<!\w){re.escape(words)}(?!\w)", text) is not None
+
+
+def _link_group(link: str, kind: str) -> str:
+    """Return the host of a link, and for a code host also the account and the repository."""
+    host, *path = LINK_START.sub("", link.strip().lower()).split("/")
+    return "/".join([host, *path[:2]]) if kind == CODE_HOST_ACCOUNT else host
 
 
 def _command(papers: list[Paper], profile: Profile, workdir: Path) -> list[str]:

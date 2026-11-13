@@ -36,6 +36,12 @@ def test_missing_pdf_folder_is_an_input_error(tmp_path):
         inputs.find_pdfs(tmp_path / "missing", profile.load("icse-2027"))
 
 
+def test_pdf_given_in_place_of_the_folder_is_an_input_error_that_asks_for_the_folder(tmp_path):
+    (tmp_path / "paper1.pdf").write_bytes(b"%PDF-1.4")
+    with pytest.raises(inputs.InputError, match="paper1.pdf is a file; give the folder that holds the PDFs"):
+        inputs.find_pdfs(tmp_path / "paper1.pdf")
+
+
 def test_pdf_folder_skips_the_dot_files_of_macos(tmp_path):
     for name in ("CONF_2026_paper_0041.pdf", "._CONF_2026_paper_0041.pdf"):
         shutil.copy(FIXTURES / "papers" / "corrupt.pdf", tmp_path / name)

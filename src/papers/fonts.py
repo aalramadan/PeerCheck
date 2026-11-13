@@ -6,8 +6,8 @@ from __future__ import annotations
 
 import re
 from collections import Counter
-from dataclasses import dataclass
 from pathlib import Path
+from typing import NamedTuple
 
 import pymupdf
 
@@ -32,8 +32,7 @@ SUBSET_TAG = re.compile(r"^[A-Z]{6}\+")
 FAMILY_END = re.compile(r"[-,]")
 
 
-@dataclass(frozen=True)
-class Span:
+class Span(NamedTuple):
     """A run of text in one font and one size on one page, with the characters of its whole line."""
 
     page: int
@@ -66,15 +65,18 @@ def check(paper: Paper, profile: Profile, workdir: Path) -> list[Finding]:
 def _spans(document: pymupdf.Document) -> list[Span]:
     """Return the spans of every page that hold a character other than a space."""
     spans = []
+    names: dict[str, str] = {}
     for number, page in enumerate(document, start=1):
         for block in page.get_text("dict", flags=pymupdf.TEXTFLAGS_TEXT)["blocks"]:
             for line in block.get("lines", ()):
-                counts = [sum(not char.isspace() for char in span["text"]) for span in line["spans"]]
+                counts = [len("".join(span["text"].split())) for span in line["spans"]]
+                line_characters = sum(counts)
                 horizontal = line["dir"][0] > 0.99
                 for span, characters in zip(line["spans"], counts):
                     if characters:
-                        font = SUBSET_TAG.sub("", span["font"])
-                        spans.append(Span(number, font, span["size"], characters, sum(counts), horizontal))
+                        name = span["font"]
+                        font = names.get(name) or names.setdefault(name, SUBSET_TAG.sub("", name))
+                        spans.append(Span(number, font, span["size"], characters, line_characters, horizontal))
     return spans
 
 
@@ -97,10 +99,13 @@ def _template_font(spans: list[Span], style: str, families: tuple[str, ...]) -> 
     if not accepted or not main:
         return []
     prefixes = tuple(_plain(name) for name in accepted)
-    counts = Counter()
+    fonts = Counter()
     for span in main:
-        family = None if _plain(span.font).startswith(prefixes) else FAMILY_END.split(span.font, maxsplit=1)[0]
-        counts[family] += span.characters
+        fonts[span.font] += span.characters
+    counts = Counter()
+    for font, characters in fonts.items():
+        family = None if _plain(font).startswith(prefixes) else FAMILY_END.split(font, maxsplit=1)[0]
+        counts[family] += characters
     family, count = counts.most_common(1)[0]
     if family is None:
         return []

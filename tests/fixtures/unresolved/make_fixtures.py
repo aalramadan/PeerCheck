@@ -20,6 +20,7 @@ BUILDS = {
     "ieee-missing.pdf": ("ieee-missing.tex", "pdflatex", True),
     "acm-once.pdf": ("acm.tex", "pdflatex", False),
     "lualatex-once.pdf": ("lualatex.tex", "lualatex", False),
+    "word-errors.pdf": ("word-errors.tex", "pdflatex", False),
 }
 
 

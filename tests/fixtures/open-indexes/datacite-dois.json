@@ -1,0 +1,110 @@
+{
+ "data": [
+  {
+   "id": "10.48550/arxiv.1706.03762",
+   "type": "dois",
+   "attributes": {
+    "titles": [
+     {
+      "title": "Attention Is All You Need"
+     }
+    ],
+    "creators": [
+     {
+      "nameType": "Personal",
+      "givenName": "Ashish",
+      "familyName": "Vaswani",
+      "name": "Vaswani, Ashish",
+      "affiliation": [],
+      "nameIdentifiers": []
+     },
+     {
+      "nameType": "Personal",
+      "givenName": "Noam",
+      "familyName": "Shazeer",
+      "name": "Shazeer, Noam",
+      "affiliation": [],
+      "nameIdentifiers": []
+     },
+     {
+      "nameType": "Personal",
+      "givenName": "Niki",
+      "familyName": "Parmar",
+      "name": "Parmar, Niki",
+      "affiliation": [],
+      "nameIdentifiers": []
+     },
+     {
+      "nameType": "Personal",
+      "givenName": "Jakob",
+      "familyName": "Uszkoreit",
+      "name": "Uszkoreit, Jakob",
+      "affiliation": [],
+      "nameIdentifiers": []
+     },
+     {
+      "nameType": "Personal",
+      "givenName": "Llion",
+      "familyName": "Jones",
+      "name": "Jones, Llion",
+      "affiliation": [],
+      "nameIdentifiers": []
+     },
+     {
+      "nameType": "Personal",
+      "givenName": "Aidan N.",
+      "familyName": "Gomez",
+      "name": "Gomez, Aidan N.",
+      "affiliation": [],
+      "nameIdentifiers": []
+     },
+     {
+      "nameType": "Personal",
+      "givenName": "Lukasz",
+      "familyName": "Kaiser",
+      "name": "Kaiser, Lukasz",
+      "affiliation": [],
+      "nameIdentifiers": []
+     },
+     {
+      "nameType": "Personal",
+      "givenName": "Illia",
+      "familyName": "Polosukhin",
+      "name": "Polosukhin, Illia",
+      "affiliation": [],
+      "nameIdentifiers": []
+     }
+    ]
+   },
+   "relationships": {}
+  },
+  {
+   "id": "10.48550/arxiv.1207.7214",
+   "type": "dois",
+   "attributes": {
+    "titles": [
+     {
+      "title": "Observation of a new particle in the search for the Standard Model Higgs boson with the ATLAS detector at the LHC"
+     }
+    ],
+    "creators": [
+     {
+      "nameType": "Organizational",
+      "affiliation": [],
+      "name": "The ATLAS Collaboration",
+      "nameIdentifiers": []
+     }
+    ]
+   },
+   "relationships": {}
+  }
+ ],
+ "meta": {
+  "total": 2,
+  "totalPages": 1,
+  "page": 1
+ },
+ "links": {
+  "self": "https://api.datacite.org/dois?query=doi%3A%28%2210.48550%2Farxiv.1207.7214%22+OR+%2210.48550%2Farxiv.1706.03762%22%29&page%5Bsize%5D=50&fields%5Bdois%5D=titles%2Ccreators"
+ }
+}

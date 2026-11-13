@@ -14,6 +14,7 @@ import re
 import statistics
 import subprocess
 import tempfile
+from collections import Counter
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -28,6 +29,26 @@ BANAL_TIMEOUT = 300
 REFERENCES = re.compile(r"^(references|bibliography|r e f e r e n c e s)$")
 NUMBERING = re.compile(r"^\s*(?:[ivxlcdm]+|\d+(?:\.\d+)*|[a-z])[.)]?\s+", re.IGNORECASE)
 ABSTRACT = re.compile(r"\babstract\b", re.IGNORECASE)
+# What follows the abstract on a first page: the first section or the top matter of acmart, whose one-column formats
+# print the abstract without a label.
+AFTER_ABSTRACT = re.compile(r"^(?:CCS Concepts|Additional Key Words and Phrases|ACM Reference Format|"
+                            r"(?:(?:\d+|I)\.?\s+)?Introduction\s*$)", re.IGNORECASE | re.MULTILINE)
+WORD = re.compile(r"[^\W\d_]+")
+# An abstract runs in full lines, a title with its authors in short ones. Of 74 arXiv papers, the 23 without the label
+# hold 205 words or more on lines of 8 words or more above the first section, and 49 of the 50 others at most 69.
+MIN_LINE_WORDS = 8
+MIN_WORDS_BEFORE = 130
+# Two forms of a long word differ in their last four letters, as conclusion and concluding do. A word that would keep
+# fewer than six letters counts only as written, so that Threat Model is no heading of threats.
+ENDING = 4
+STEM = 6
+# IEEEtran prints a section heading as a Roman number, a period, and a title in capital letters. A table caption
+# stands in capital letters as well, without the number.
+SECTION_LINE = re.compile(r"[IVXL]+\.\s+[^a-z]+")
+# The characters that banal reads as a page number, such as 2, - 2 -, or 2/4, where the first number counts.
+PAGE_NUMBER = re.compile(r"[- ,.:/]*(\d+)[- ,.:/\d]*")
+SAME_LINE = 2.0
+READ_ERRORS = (OSError, RuntimeError, ValueError, pymupdf.mupdf.FzErrorBase)
 # Fewer words per page than this marks slides, scans, or a draft; banal counts about 900 on an IEEE page.
 MIN_WORDS_PER_PAGE = 150
 # A paper this long with no references section is likely missing its bibliography.
@@ -199,12 +220,12 @@ def evaluate(layout: Layout, rules: FormatRules, first_page_text: str | None) ->
             f"reference font {layout.reference_font:g} pt, minimum {rules.reference_font_min:g} pt")
     if layout.columns and layout.columns != rules.columns:
         add("columns", Severity.ERROR, f"{layout.columns} column(s), expected {rules.columns}")
-    if rules.margins and layout.margins and len(layout.margins) == 4:
-        off = [abs(got - want) > rules.margin_tolerance for got, want in zip(layout.margins, rules.margins)]
-        if any(off):
-            add("margins", Severity.ERROR,
-                f"margins {_join(layout.margins)} pt, expected {_join(rules.margins)} "
-                f"within {rules.margin_tolerance:g} pt")
+    # Only a narrower margin gains space for text, therefore a wider one breaks no rule.
+    if rules.margins and layout.margins and len(layout.margins) == 4 and any(
+            want - got > rules.margin_tolerance for got, want in zip(layout.margins, rules.margins)):
+        add("margins", Severity.ERROR,
+            f"margins {_join(layout.margins)} pt, narrower than the {_join(rules.margins)} pt of the template "
+            f"by more than {rules.margin_tolerance:g} pt")
     if layout.page_number_margin is not None and rules.page_numbers != "ignore":
         severity = Severity.ERROR if rules.page_numbers == "error" else Severity.WARNING
         add("page-numbers", severity, "page numbers present")
@@ -215,11 +236,11 @@ def evaluate(layout: Layout, rules: FormatRules, first_page_text: str | None) ->
         add("blank-pages", Severity.WARNING, f"{layout.blank_pages} blank page(s)")
     if layout.headings:
         for heading in rules.required_headings:
-            if not any(heading in name for name in layout.headings):
+            if not _holds(heading, layout.headings):
                 add("missing-heading", Severity.WARNING, f"no heading containing {heading!r}")
     elif rules.required_headings:
         add("no-headings", Severity.INFO, "banal found no section headings")
-    if rules.require_abstract and first_page_text is not None and not ABSTRACT.search(first_page_text):
+    if rules.require_abstract and first_page_text is not None and not _has_abstract(first_page_text):
         add("missing-abstract", Severity.WARNING, "no abstract on the first page")
     return findings
 
@@ -235,6 +256,10 @@ def inspect(paper: Paper, profile: Profile) -> LayoutResult:
     if layout.exempt_start and opens_page(paper.pdf, layout.exempt_start, rules.exempt_sections, top):
         layout.exempt_pages += 1
         layout.main_pages -= 1
+    if layout.page_number_margin is not None and rules.page_numbers != "ignore" and not _numbers_pages(paper.pdf):
+        layout.page_number_margin = None
+    if layout.headings and not all(_holds(heading, layout.headings) for heading in rules.required_headings):
+        layout.headings += _section_lines(paper.pdf)
     return LayoutResult(layout, evaluate(layout, rules, _first_page_text(paper.pdf)))
 
 
@@ -248,11 +273,6 @@ def opens_page(pdf: Path, number: int, sections: tuple[str, ...], top: float) ->
     # Running heads sit in the top margin, above the text block of the template.
     body = [block[4] for block in blocks if block[1] >= top - 1 and block[4].strip()]
     return bool(body) and _normalize(body[0].splitlines()[0]).startswith(sections)
-
-
-def check(paper: Paper, profile: Profile, workdir: Path) -> list[Finding]:
-    """Return the format findings of a paper."""
-    return inspect(paper, profile).findings
 
 
 def _readable(pdf: Path, folder: Path) -> Path:
@@ -281,6 +301,61 @@ def _main_text_leading(pages: list[dict], start: int, leading: float | None) -> 
     values = [page.get("leading", leading) for number, page in enumerate(pages, 1)
               if number < start or page.get("type") != "bib"]
     return statistics.mode(values) if values else leading
+
+
+def _has_abstract(first_page: str) -> bool:
+    """Tell whether a first page holds the label Abstract or the lines of an abstract above its first section."""
+    if ABSTRACT.search(first_page):
+        return True
+    follows = AFTER_ABSTRACT.search(first_page)
+    if follows is None:
+        return False
+    lines = [len(WORD.findall(line)) for line in first_page[:follows.start()].splitlines()]
+    return sum(words for words in lines if words >= MIN_LINE_WORDS) >= MIN_WORDS_BEFORE
+
+
+def _holds(required: str, headings: list[str]) -> bool:
+    """Tell whether a heading holds the required words, a long word also in another form, as Concluding Remarks."""
+    stems = [word[:-ENDING] if len(word) >= STEM + ENDING else word for word in required.split()]
+    return any(required in heading or all(any(word.startswith(stem) for word in heading.split()) for stem in stems)
+               for heading in headings)
+
+
+def _section_lines(pdf: Path) -> list[str]:
+    """Return the numbered lines of a PDF in capital letters, among them the section headings that banal missed."""
+    try:
+        with pymupdf.open(pdf) as document:
+            lines = [line for page in document for line in page.get_text().splitlines()]
+    except READ_ERRORS:
+        return []
+    return [_normalize(line) for line in lines if SECTION_LINE.fullmatch(line.strip())]
+
+
+def _numbers_pages(pdf: Path) -> bool:
+    """Tell whether the lowest lines of the pages are numbers that count up with the pages.
+
+    banal also takes a number that ends a page, such as a year or a table cell, for a page number. Printed page
+    numbers stand on more than half of the pages, where a title page may carry none, and one alone is the number of
+    its page.
+    """
+    try:
+        with pymupdf.open(pdf) as document:
+            lowest = [_lowest_number(page) for page in document]
+    except READ_ERRORS:
+        return True
+    starts = Counter(number - index for index, number in enumerate(lowest) if number is not None)
+    if not starts:
+        return False
+    start, numbered = starts.most_common(1)[0]
+    return 2 * numbered > len(lowest) - (lowest[0] is None) and (numbered > 1 or start == 1)
+
+
+def _lowest_number(page: pymupdf.Page) -> int | None:
+    """Return the first number of the lowest line of a page if the line holds only numbers and marks, or None."""
+    words = page.get_text("words")
+    bottom = max((word[3] for word in words), default=0.0)
+    alone = PAGE_NUMBER.fullmatch(" ".join(word[4] for word in words if word[3] > bottom - SAME_LINE))
+    return int(alone.group(1)) if alone else None
 
 
 def _first_page_text(pdf: Path) -> str | None:

@@ -35,7 +35,6 @@ REQUEST_ERRORS = (OSError, TypeError, ValueError)
 # The upload fields of the page: the folder field takes many PDFs, and a single field takes one CSV file.
 FOLDER_FIELDS = ("pdfs",)
 SINGLE_FIELDS = ("authors", "submissions", "canaries", "pc", "reviews")
-KINDS = ("papers", "reviews", "conflicts")
 RUN_FILES = {"report.html": "text/html; charset=utf-8",
              "report.csv": "text/csv; charset=utf-8"}
 LOG_LINES = 40

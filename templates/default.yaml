@@ -7,7 +7,7 @@
 #
 # templates/icse-2027.yaml and templates/fse-2027.yaml show the rules of two venues.
 
-name: Default template                                 # required: the venue, as the reports name it
+name: Default template                              # required: the venue, as the browser interface names it
 source: templates/default.yaml                       # required: the call for papers that the rules come from
 
 format:
@@ -17,7 +17,7 @@ format:
   main_pages: 10                                    # required: the page limit of the main text, figures and appendices included
   reference_pages: 2                                # required: the extra pages for references only
   paper_size_tolerance: 5                           # default 5: the allowed difference from paper_size in points
-  margin_tolerance: 18                              # default 18: the allowed difference from margins in points
+  margin_tolerance: 18                              # default 18: the points that a margin may be narrower than margins
   page_numbers: ignore                              # default ignore: ignore, warning, or error for printed page numbers
   require_abstract: true                            # default true: an abstract on the first page
   # margins: [52, 48, 72, 48]                       # default none: top, right, bottom, and left margins in points
@@ -39,9 +39,10 @@ checks:                                             # a check runs while its key
     # Runs with it: the PDF integrity check, unresolved references such as Section ??, unreadable text, and the
     # checks that the sections fonts, margins, line_numbers, images, accessibility, title, and density set.
   sigsoft:                                          # the anonymity and template check
-    # Runs with it: author names and home folders hidden in the PDF metadata. The section anonymity sets both.
+    # Runs with it: author names and home folders hidden in the PDF, and a funding statement, an ORCID iD, and an
+    # email address on the first page. The section anonymity sets both.
   anonymity:
-    flag_acknowledgments: true                      # default true: report an acknowledgments section
+    flag_acknowledgments: true                      # default true: report an acknowledgments section and a funding statement on the first page
     # allowed_hosts: [anonymous.4open.science, zenodo.org, figshare.com, osf.io, doi.org]   # default none: hosts that links may name
   hidden_text:                                      # the hidden-text check
     # Runs with it: scripts and other active content, which the section active_content sets.
@@ -50,7 +51,7 @@ checks:                                             # a check runs while its key
   references:                                       # the reference check, after peercheck --setup
     online: true                                    # default true: look up online what the local DBLP copy lacks, false keeps the check offline
     online_titles: true                             # default true: send those titles online, false sends only their DOIs and arXiv IDs
-    timeout: 600                                    # default 600: the seconds before the check of one PDF stops
+    timeout: 600                                    # default 600: the seconds before the lookups of one PDF stop, with ten more per reference for the online run
     # local_corpus: ~/corpus                        # default none: a local corpus of Hallucinator with further known works
   fonts:
     title_tolerance: 1                              # default 1: the allowed difference from title_size in points
@@ -81,8 +82,11 @@ checks:                                             # a check runs while its key
     min_chars: 150                                  # default 150: the shortest paragraph to compare
   citations:                                        # the citation requests of the reviews
     title_min: 90                                   # default 90: how close, from 0 to 100, a cited title must be
+  short_reviews:                                    # reviews of one or two sentences
+    min_sentences: 3                                # default 3: the fewest sentences of a review without this note
   canary:                                           # the planted citation, with --canaries
     fwer: 0.001                                     # default 0.001: the chance of any wrong hit among all reviews
   conflicts:                                        # the conflict check of --conflicts
     coauthor_years: 3                               # default 3: the years of co-authorship that make a conflict
     affiliation_min: 90                             # default 90: how close, from 0 to 100, two affiliations must be
+    # advisor_papers: 3                             # default none: the fewest of a person's first 10 dblp papers with one senior co-author that suggest an advisor

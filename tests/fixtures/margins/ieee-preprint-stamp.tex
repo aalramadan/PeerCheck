@@ -1,0 +1,33 @@
+% A clean IEEEtran paper that carries the stamp of a preprint server in the left margin of its first
+% page, as arXiv prints it: gray text of 20 pt that runs up the page with a made-up identifier. The second page has
+% no stamp. The stamp belongs to no part of the paper and must never count as content in the margin.
+\pdftrailerid{}
+\pdfinfoomitdate=1
+\pdfsuppressptexinfo=-1
+\documentclass[10pt,conference,letterpaper]{IEEEtran}
+\usepackage{graphicx}
+\usepackage{xcolor}
+\usepackage{eso-pic}
+\usepackage{lipsum}
+\begin{document}
+\title{Ranking Flaky Test Failures with\\Build Histories and Change Distance}
+\author{\IEEEauthorblockN{Anonymous Author(s)}}
+\maketitle
+\AddToShipoutPictureBG*{\AtPageLowerLeft{\put(22,230){\rotatebox{90}{\textcolor{gray}{%
+  \fontsize{20}{20}\selectfont arXiv:2701.00000v1 [cs.SE] 1 Jan 2027}}}}}
+
+\begin{abstract}
+Flaky tests pass and fail on the same code. This paper ranks the failures of a build by the
+chance that each failure is flaky. On 4,210 failures of ten projects, the ranking places the
+flaky failure first in 71\% of the builds.
+\end{abstract}
+
+\section{Introduction}
+\lipsum[1-6]
+
+\section{Approach}
+\lipsum[7-14]
+
+\section{Conclusion}
+\lipsum[15-16]
+\end{document}

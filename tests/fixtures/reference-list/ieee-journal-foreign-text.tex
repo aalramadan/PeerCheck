@@ -1,0 +1,51 @@
+% A made-up paper for the tests of the reference list. Every entry is invented. Build twice with pdflatex.
+% The footnote, the caption of the figure, and the biographies stand in the type of the list. Entry 4 starts above
+% the footnote of the first column and ends below the figure at the top of the second column. The last line of
+% entry 5 reads like the heading of a part after the list, and the biographies follow entry 8 over two pages.
+\documentclass[journal]{IEEEtran}
+\usepackage[T1]{fontenc}
+\usepackage{lipsum}
+\begin{document}
+\title{A Made-up Study of Patch Backporting}
+\author{Ada Quill and Bo Reed}
+\maketitle
+\begin{abstract}
+\lipsum[1][1-4]
+\end{abstract}
+\section{Introduction}
+\lipsum[2][1-5]
+The tool is available online.\footnote{The replication package of this made-up study has no address, since the
+study does not exist. This footnote stands below the first column of the reference list.}
+\lipsum[3][1-2]
+
+\begin{thebibliography}{9}
+\bibitem{b1} A. Quill and B. Reed, ``Tracing backported patches across stable branches of long-lived projects,'' in
+\emph{Proc. Int. Symp. Made-up Softw. Maintenance}, 2021, pp. 101--112.
+\bibitem{b2} C. Marsh and D. Okafor, ``Merge conflicts in cherry-picked commits and their resolution by the
+maintainers,'' \emph{J. Made-up Softw. Evol.}, vol. 12, no. 3, pp. 44--55, 2022.
+\bibitem{b3} F. Tanaka and G. He, ``Flaky tests in the continuous integration of large made-up repositories,'' in
+\emph{Proc. Int. Symp. Made-up Softw. Maintenance}, 2023, pp. 201--212.
+\bibitem{b4} H. Yilmaz, I. Petrov, and J. Abara, ``Do the stable branches of long-lived projects receive the\pagebreak{}
+fixes that the users
+\begin{figure}[!t]
+\centering\rule{0.8\linewidth}{2cm}
+\caption{The share of the made-up patches that reach the stable branches of the studied projects within a year, for
+each project.}
+\end{figure}
+of these branches need?'' \emph{J. Made-up Softw. Evol.}, vol. 13, no. 1, pp. 1--12, 2023.
+\bibitem{b5} K. Lindqvist, ``Refactoring recommendations from the history of invented code reviews,'' in
+\emph{Proc. Int. Symp. Made-up Softw. Maintenance}, 2024, pp. 301--312,\linebreak{} Supplementary Material.
+\bibitem{b6} L. Moreau and M. Santos, ``Incremental compilation for the regression suites of imaginary compilers,''
+\emph{J. Made-up Softw. Evol.}, vol. 14, no. 2, pp. 77--88, 2024.
+\bibitem{b7} N. Ferro, ``The detection of configuration errors in distributed made-up systems,'' in
+\emph{Proc. Int. Symp. Made-up Softw. Maintenance}, 2025, pp. 401--412.
+\bibitem{b8} O. Varga and P. Nilsen, ``A made-up benchmark of backported patches,'' \emph{J. Made-up Softw. Evol.},
+vol. 15, no. 4, pp. 120--131, 2025.
+\end{thebibliography}
+\begin{IEEEbiographynophoto}{Ada Quill}
+is a made-up researcher who studies the maintenance of stable branches. \lipsum[4][1-6]
+\end{IEEEbiographynophoto}
+\begin{IEEEbiographynophoto}{Bo Reed}
+is a made-up engineer who maintains the regression suites of invented projects. \lipsum[5-9]
+\end{IEEEbiographynophoto}
+\end{document}

@@ -1,0 +1,8 @@
+paper,review,Overall evaluation,Comments for authors
+21,A,2,Good paper. Accept.
+21,B,1,"The submission studies order-dependent tests in twelve open source projects. The detector is simple and the write-up is clear. The evaluation seeds the dependencies by hand, which limits what the recall says about real projects. Please report the run time on the largest project."
+22,A,-1,
+22,B,0,"- the topic is relevant
+- the evaluation covers one project
+- the threats to validity are missing"
+22,C,1,本文研究了不稳定的测试。实验充分。

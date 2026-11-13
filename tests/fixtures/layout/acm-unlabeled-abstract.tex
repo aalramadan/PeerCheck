@@ -1,0 +1,25 @@
+% An anonymous acmart acmsmall submission. acmsmall prints the abstract without the label Abstract, above the CCS
+% concepts and the keywords, and the format check must still find the abstract.
+\pdftrailerid{}
+\pdfinfoomitdate=1
+\pdfsuppressptexinfo=-1
+\documentclass[acmsmall,screen,review,anonymous]{acmart}
+\usepackage{lipsum}
+\begin{document}
+\title{Ranking Flaky Test Failures with Build Histories and Change Distance}
+\author{Jane Example}
+\affiliation{\institution{Example University}\city{Example City}\country{Exampleland}}
+\email{jane@example.org}
+\begin{abstract}
+\input{abstract}
+\end{abstract}
+\ccsdesc[500]{Software and its engineering~Software testing and debugging}
+\keywords{flaky tests, regression testing, continuous integration}
+\maketitle
+
+\section{Introduction}
+\lipsum[1-4]
+
+\section{Conclusion}
+\lipsum[5]
+\end{document}

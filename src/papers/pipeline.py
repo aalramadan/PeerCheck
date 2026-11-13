@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import concurrent.futures
 import sys
 import tempfile
 from dataclasses import dataclass, field
@@ -28,12 +29,13 @@ from peercheck.papers import (
     unreadable_text,
     unresolved_references,
 )
+from peercheck.papers.paper_processes import Failed, PaperProcesses, processors
 from peercheck.profile import Profile
 
 PAPER_CHECKS = ("layout", "sigsoft", "hidden-text", "references")
 # The template key of each check. A check runs only while its key stands in the template.
 PROFILE_KEYS = {"layout": "layout", "sigsoft": "sigsoft", "hidden-text": "hidden_text", "references": "references"}
-SINGLE_CHECKS = {"hidden-text": hidden_text.check, "references": references.check}
+SINGLE_CHECKS = {"hidden-text": hidden_text.check}
 # Checks of PeerCheck that run with a check of an external tool and share its switch, under their own code prefix.
 COMPANION_CHECKS = {
     "layout": (("pdf", pdf_integrity.check), ("fonts", fonts.check), ("margins", margins.check),
@@ -45,6 +47,10 @@ COMPANION_CHECKS = {
 }
 # A PDF that cannot open makes every other check fail, and these failures repeat the cause.
 UNOPENED = {"pdf.password", "pdf.unreadable"}
+# Papers that the checks read at the same time, each in a process of its own.
+WORKERS = min(8, processors())
+# Seconds that the checks of one paper get before their process ends, since a damaged PDF may never return.
+PAPER_SECONDS = 900
 
 
 @dataclass
@@ -88,7 +94,7 @@ def run_papers(pdf_folder: Path, profile: Profile, submissions: Path | None = No
     papers = [Paper(paper_id, path, titles.get(paper_id, ""), tuple(people.get(paper_id, ())))
               for paper_id, path in sorted(found.papers.items())]
     names = selected_checks(checks, profile)
-    with tempfile.TemporaryDirectory(prefix="peercheck-") as scratch:
+    with tempfile.TemporaryDirectory(prefix="peercheck-") as scratch, _pool(len(papers)) as pool:
         folder = workdir or Path(scratch)
         results = {paper.paper_id: PaperResult(paper) for paper in papers}
         if submissions:
@@ -103,21 +109,17 @@ def run_papers(pdf_folder: Path, profile: Profile, submissions: Path | None = No
             if repeated in results:
                 results[repeated].findings.append(Finding(
                     "input.repeated-pdf", Severity.WARNING, "another PDF has this paper number and was not checked"))
+        # The pool checks each paper while this process runs the checks that take all papers in one run.
+        jobs = [pool.submit(_paper_checks, paper, profile, names, folder) for paper in papers]
         if "sigsoft" in names:
             for paper_id, found_issues in sigsoft.check_batch(papers, profile, folder).items():
                 results[paper_id].findings.extend(found_issues)
-        for number, paper in enumerate(papers, start=1):
+        looked_up = _references(papers, profile, folder) if "references" in names else {}
+        for number, (paper, job) in enumerate(zip(papers, jobs), start=1):
             result = results[paper.paper_id]
-            if "layout" in names:
-                inspected = layout.inspect(paper, profile)
-                result.layout = inspected.layout
-                result.findings[:0] = inspected.findings
-            for name in names:
-                for prefix, companion in COMPANION_CHECKS.get(name, ()):
-                    result.findings.extend(_guarded(prefix, companion, paper, profile, folder))
-                if name in SINGLE_CHECKS:
-                    result.findings.extend(_guarded(name, SINGLE_CHECKS[name], paper, profile, folder))
-            result.findings = _without_repeats(result.findings)
+            result.layout, format_findings, findings = _outcome(job)
+            result.findings = _without_repeats(
+                format_findings + result.findings + findings + looked_up.get(paper.paper_id, []))
             _progress(number, len(papers), paper, result.findings)
         if "layout" in names:
             for paper_id, found_issues in _density(results, profile).items():
@@ -126,8 +128,61 @@ def run_papers(pdf_folder: Path, profile: Profile, submissions: Path | None = No
                      sorted(set(titles) - set(found.papers)))
 
 
+class _SameProcess(concurrent.futures.Executor):
+    """Runs each job in this process as soon as it comes in."""
+
+    def submit(self, fn, /, *args, **kwargs):
+        future: concurrent.futures.Future = concurrent.futures.Future()
+        future.set_result(fn(*args, **kwargs))
+        return future
+
+
+def _pool(papers: int) -> concurrent.futures.Executor:
+    """Return processes for the checks of several papers, or this process for a single paper."""
+    workers = min(WORKERS, papers)
+    return PaperProcesses(workers, PAPER_SECONDS) if workers > 1 else _SameProcess()
+
+
+def _paper_checks(paper: Paper, profile: Profile, names: tuple[str, ...],
+                  folder: Path) -> tuple[layout.Layout | None, list[Finding], list[Finding]]:
+    """Run the checks that look at one paper alone and return its layout, the findings of the format check, and the
+    findings of the other checks."""
+    try:
+        inspected = layout.inspect(paper, profile) if "layout" in names else layout.LayoutResult(None, [])
+    except Exception as exc:  # noqa: BLE001
+        failure = Finding("layout.error", Severity.WARNING, f"{type(exc).__name__}: {exc}")
+        inspected = layout.LayoutResult(None, [failure])
+    findings = []
+    for name in names:
+        for prefix, companion in COMPANION_CHECKS.get(name, ()):
+            findings.extend(_guarded(prefix, companion, paper, profile, folder))
+        if name in SINGLE_CHECKS:
+            findings.extend(_guarded(name, SINGLE_CHECKS[name], paper, profile, folder))
+    return inspected.layout, inspected.findings, findings
+
+
+def _outcome(job: concurrent.futures.Future) -> tuple[layout.Layout | None, list[Finding], list[Finding]]:
+    """Return the outcome of the checks of one paper. A paper whose checks end their process or run out of time, as
+    on a damaged PDF, goes without them."""
+    try:
+        return job.result()
+    except Failed as failure:
+        return None, [Finding("pdf.error", Severity.WARNING, str(failure))], []
+
+
+def _references(papers: list[Paper], profile: Profile, folder: Path) -> dict[int, list[Finding]]:
+    # A failure inside the reference check must never stop the batch.
+    print(f"Looking up the references of {len(papers)} papers.", file=sys.stderr)
+    try:
+        return references.check_batch(papers, profile, folder)
+    except Exception as exc:  # noqa: BLE001
+        return {paper.paper_id: [Finding("references.error", Severity.WARNING, f"{type(exc).__name__}: {exc}")]
+                for paper in papers}
+
+
 def _without_repeats(findings: list[Finding]) -> list[Finding]:
-    """Drop the failures that a PDF which cannot open causes, a second note of a repair, and a second note of a script."""
+    """Drop the failures that a PDF which cannot open causes, a second note of a repair, and a second note of a
+    script."""
     codes = {f.check for f in findings}
     unopened = codes & UNOPENED
     return [f for f in findings

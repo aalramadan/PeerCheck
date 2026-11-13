@@ -5,6 +5,9 @@ from __future__ import annotations
 import enum
 from dataclasses import dataclass
 
+# The most characters of the text that a finding shows as its evidence.
+EVIDENCE_LIMIT = 120
+
 
 class Severity(enum.Enum):
     """How much a finding matters for the decision on a paper or a review."""
@@ -28,6 +31,12 @@ class Finding:
         """Return the finding as one line for a report cell, such as ERROR layout.pages: 12 main pages (page 12)."""
         where = f" (page {self.page})" if self.page else ""
         return f"{self.severity.value.upper()} {self.check}: {self.message}{where}"
+
+
+def excerpt(text: str, limit: int = EVIDENCE_LIMIT) -> str:
+    """Return a text on one line for the evidence of a finding, cut with an ellipsis at the limit."""
+    text = " ".join(text.split())
+    return text if len(text) <= limit else text[: limit - 3].rstrip() + "..."
 
 
 def needs_review(findings: list[Finding]) -> bool:
