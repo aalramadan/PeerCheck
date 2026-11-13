@@ -1732,6 +1732,17 @@ def test_reference_that_openalex_does_not_answer_gets_a_note_and_no_warning(tmp_
     assert not by_check(findings, "references.not-found")
 
 
+@pytest.mark.parametrize(("down", "key", "named"), [
+    ({"openalex"}, None, True), ({"openalex"}, "not-a-real-key", False), (set(), None, False)])
+def test_run_whose_openalex_lookups_fail_without_a_key_names_the_free_key(tmp_path, cache, monkeypatch, indexes,
+                                                                           capsys, down, key, named):
+    indexes.down = down
+    if key:
+        monkeypatch.setenv("OPENALEX_KEY", key)
+    run(tmp_path, cache, FakeHallucinator(report({})), monkeypatch)
+    assert ("OPENALEX_KEY" in capsys.readouterr().err) is named
+
+
 def test_record_of_other_authors_is_not_reported_while_openalex_does_not_answer(tmp_path, cache, monkeypatch, indexes):
     # OpenAlex may hold the cited work under the same title.
     indexes.down = {"openalex"}

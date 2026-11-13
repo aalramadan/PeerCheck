@@ -59,6 +59,8 @@ EVIDENCE_LIMIT, TITLE_LIMIT, NAMES_LIMIT = 200, 90, 4
 UNCONFIRMED = ("not found, as is common for a book, a report, a talk, a web page, a dataset, a title of fewer than "
                "four words, or a work registered in another script or at another DOI agency")
 FAILED_LOOKUP = "not looked up, since the lookup failed at {sources}. A later run repeats the lookup"
+OPENALEX_KEY_NOTE = ("OpenAlex did not answer every request. A free key in OPENALEX_KEY raises its daily limit from 100 "
+                     "to 1,000 searches.")
 PASSED_OVER = ("not looked up. Such an entry hides a work for the review, names a web page, or bears no title of four "
                "words or more")
 DOI_IN_TEXT = re.compile(r"10\.\d{4,9}/[^\s\",]+")
@@ -211,6 +213,8 @@ def check_batch(papers: list[Paper], profile: Profile, workdir: Path) -> dict[in
     answers, failures = _online_lookups(settings, [refs[paper_id][index] for paper_id, index in places], folder)
     for (paper_id, index), answer in zip(places, answers):
         refs[paper_id][index] = answer
+    if not os.environ.get("OPENALEX_KEY") and any("OpenAlex" in answer.failed for answer in answers):
+        print(OPENALEX_KEY_NOTE, file=sys.stderr)
     failed_run = {places[place][0]: failure for place, failure in failures.items()}
     findings = {}
     for paper, (_found, error) in zip(papers, local):
