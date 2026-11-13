@@ -378,10 +378,8 @@ def test_mismatch_of_hallucinator_names_the_authors_of_the_dblp_record_that_is_n
 
 def test_mismatch_of_hallucinator_stays_for_a_dblp_record_under_the_cited_title_that_the_search_does_not_reach(
         tmp_path, cache, monkeypatch):
-    # The search asks for one word of the venue, which the record of the report does not hold.
-    monkeypatch.setattr(references, "RARE_WORDS", 1)
-    dblp_database(cache, (TITLE, ["Carla Marsh"]), (f"{TITLE} again", ["Carla Marsh"]),
-                  (f"{TITLE} once more", ["Carla Marsh"]), ("Softw eng int conf proc", ["Dele Okafor"]))
+    monkeypatch.setattr(references, "CANDIDATES", 0)
+    dblp_database(cache, (TITLE, ["Carla Marsh"]))
     entry = {**OTHER_AUTHORS, "paper_url": "https://dblp.org/rec/conf/made-up/1"}
     findings = run(tmp_path, cache, FakeHallucinator(report(entry)), monkeypatch, online=False)
     [mismatch] = by_check(findings, "references.author-mismatch")
@@ -426,15 +424,45 @@ def test_mismatch_of_hallucinator_with_a_record_of_another_offline_database_stay
     assert mismatch.message.endswith("matches a title in ACL Anthology whose authors differ: Petra Zeller, Hana Novak")
 
 
-def test_dblp_search_takes_its_rare_words_from_the_entry_after_the_authors(tmp_path, cache, monkeypatch):
-    # The family name of the author is the rarest word of the entry among the titles of the database.
-    monkeypatch.setattr(references, "RARE_WORDS", 1)
-    dblp_database(cache, ("Backporting stable patches", ["Ada Quill"]),
-                  ("Backporting stable patches again", ["Hana Novak"]), ("The quill of a porcupine", ["Petra Zeller"]))
-    cited = {"title": "Backporting stable patches",
-             "raw_citation": "A. Quill, “Backporting stable patches,” in Proc. Int. Conf. Softw. Eng., 2021."}
-    findings = run(tmp_path, cache, FakeHallucinator(report(cited)), monkeypatch, online=False)
+def test_dblp_search_finds_a_title_whose_words_are_more_common_than_the_words_of_its_venue(tmp_path, cache,
+                                                                                         monkeypatch):
+    # Each word of the venue stands in one title of the database, and each word of the cited title in two.
+    dblp_database(cache, ("Do stable branches receive the fixes they need?",
+                          ["Carla Marsh", "Dele Okafor", "Erik Lindqvist"]),
+                  ("They need the fixes that stable branches receive", ["Hana Novak"]),
+                  ("Proc IEEE ACM 44th int conf softw eng", ["Petra Zeller"]))
+    venue = "in Proc. IEEE/ACM 44th Int. Conf. Softw. Eng. (ICSE), Pittsburgh, PA, USA, May 2022, pp. 44–55."
+    entry = {**QUESTION, "raw_citation": QUESTION["raw_citation"].split("in Proc.")[0] + venue}
+    findings = run(tmp_path, cache, FakeHallucinator(report(entry)), monkeypatch, online=False)
     assert by_check(findings, "references.summary")[0].message.startswith("1 reference checked offline: 1 found")
+
+
+def test_dblp_search_finds_a_title_that_hallucinator_read_from_another_part_of_the_entry(tmp_path, cache,
+                                                                                         monkeypatch):
+    # One other record holds two words of the title that Hallucinator read, and one a family name of the entry.
+    dblp_database(cache, (TITLE, ["Ada Quill", "Ben Reed"]), ("The url of an arxiv preprint", ["Hana Novak"]),
+                  ("The quill of a porcupine", ["Petra Zeller"]))
+    address = {"title": "URL https://arxiv.org/abs/2101",
+               "raw_citation": f"A. Quill and B. Reed. {TITLE}. arXiv preprint arXiv:2101.00001 (2021). "
+                               "URL https://arxiv.org/abs/2101.00001"}
+    findings = run(tmp_path, cache, FakeHallucinator(report(address)), monkeypatch, online=False)
+    assert by_check(findings, "references.summary")[0].message.startswith("1 reference checked offline: 1 found")
+
+
+def test_dblp_search_counts_the_titles_of_each_word_once_for_the_references_of_a_paper(tmp_path, cache, monkeypatch):
+    dblp_database(cache, (TITLE, ["Ada Quill", "Ben Reed"]))
+    asked = []
+    connect = sqlite3.connect
+
+    def traced(*args, **kwargs):
+        records = connect(*args, **kwargs)
+        records.set_trace_callback(asked.append)
+        return records
+
+    monkeypatch.setattr(references.sqlite3, "connect", traced)
+    run(tmp_path, cache, FakeHallucinator(report({}, {})), monkeypatch, online=False)
+    counted = [statement for statement in asked if "temp.vocabulary where term = 'porting'" in statement]
+    assert len(counted) == 1
 
 
 @pytest.mark.parametrize("answer", [
@@ -468,7 +496,7 @@ def test_dblp_title_of_fewer_than_16_letters_does_not_confirm_a_reference(tmp_pa
 
 def test_rare_word_cut_at_a_line_end_still_finds_the_dblp_title(tmp_path, cache, monkeypatch):
     # Every other word of the title stands in too many titles to search for.
-    monkeypatch.setattr(references, "COMMON_WORD", 2)
+    monkeypatch.setattr(references, "COMMON_TITLE_WORD", 2)
     dblp_database(cache, ("Backporting considered harmful", ["Ada Quill"]),
                   ("Mocking considered harmful", ["Hana Novak"]), ("Refactoring considered harmful", ["Petra Zeller"]))
     cut = {"title": "Back- porting considered harmful",
@@ -1852,8 +1880,36 @@ def test_record_that_the_online_run_accepts_confirms_an_entry_that_names_its_aut
     assert [finding.check for finding in findings] == ["references.summary"]
 
 
+def test_reference_that_the_online_run_passes_over_for_its_title_gets_the_note_on_such_entries(tmp_path, cache,
+                                                                                              monkeypatch):
+    passed = report({"status": "skipped", "skip_reason": "short_title", "db_results": []})
+    fake = FakeHallucinator(report({}), passed)
+    findings = run(tmp_path, cache, fake, monkeypatch)
+    assert len(fake.calls) == 2
+    note = ("Reference [1] was not looked up. Such an entry hides a work for the review, names a web page, or bears "
+            "no title of four words or more")
+    assert [(finding.check, finding.message) for finding in findings[:-1]] == [("references.unchecked", note)]
+
+
+def test_reference_that_the_online_run_passes_over_is_found_once_an_index_confirms_it(tmp_path, cache, monkeypatch,
+                                                                                      indexes):
+    indexes.openalex[TITLE] = [Work(TITLE, ("Ada Quill", "Ben Reed"))]
+    passed = report({"status": "skipped", "skip_reason": "short_title", "db_results": []})
+    findings = run(tmp_path, cache, FakeHallucinator(report({}), passed), monkeypatch)
+    assert [finding.check for finding in findings] == ["references.summary"]
+
+
+def test_reference_that_the_online_run_passes_over_keeps_the_warning_that_names_the_work_of_its_doi(
+        tmp_path, cache, monkeypatch, indexes):
+    indexes.crossref_dois[DOI.lower()] = OTHER_WORK
+    passed = report({"status": "skipped", "skip_reason": "short_title", "db_results": []})
+    findings = run(tmp_path, cache, FakeHallucinator(report(WITH_DOI), passed), monkeypatch)
+    [missing] = by_check(findings, "references.not-found")
+    assert missing.message.endswith('Its DOI or arXiv ID belongs to "Another made-up title on flaky builds"')
+    assert not by_check(findings, "references.unchecked")
+
+
 @pytest.mark.parametrize("online", [
-    report({"status": "skipped", "skip_reason": "short_title", "db_results": []}),
     [{"references": []}],
     report({"db_results": [{"db": "CrossRef", "status": "skipped"}, {"db": "PubMed", "status": "no_match"}]})])
 def test_reference_that_crossref_was_not_asked_about_is_not_looked_up(tmp_path, cache, monkeypatch, online):

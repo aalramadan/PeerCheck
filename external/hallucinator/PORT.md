@@ -137,8 +137,10 @@ PubMed, and the ACL Anthology. The reason for each of the eleven follows.
 
 PeerCheck adds two kinds of lookups to the runs of the tool. First, it compares each reference that the local
 run leaves open with the DBLP records whose title the entry holds (`_confirmed_in_dblp` in `references.py`). The
-tool looks up only the title that it reads from an entry and may read a part of the venue into that title. Second,
-`src/papers/open_indexes.py` asks five services. The lookups by identifier come before the online run
+tool looks up only the title that it reads from an entry and may read a part of the venue into that title.
+PeerCheck therefore searches the DBLP copy for the records that hold two of the six rarest words of that title.
+Where no such record bears the title, as for a title read from another part of the entry, the search uses two of
+the 16 rarest words among all words of the entry. Second, `src/papers/open_indexes.py` asks five services. The lookups by identifier come before the online run
 of the tool, while the lookups by title come after that run. A reference that one lookup confirms goes to no
 later lookup.
 
@@ -157,6 +159,9 @@ later lookup.
   and counts as not looked up.
 - A warning rests on the answers of DBLP, CrossRef, and OpenAlex. A reference whose lookup failed at one of the
   three or at the registry of its DOI counts as not looked up, never as not found. A later run repeats the lookup.
+- A reference that the online run passes over, since its title has fewer than four words for the tool, counts
+  as not looked up as well. Its note is the note on such entries, since a later run passes over the reference
+  again.
 
 ## Matching rules of the tool
 
@@ -186,6 +191,10 @@ the cited authors.
   Second, it names only cited authors, as a record with a cut author list does. Third, it names the first author
   of an entry that goes on with et al. A record without an author to compare counts as a record of the cited
   authors. The same holds for every record of an entry that names a group and no person.
+- A record names a cited author by the family name. A record with the cited family name as another word of a
+  name, such as a name with the family name first or with two family names, names that author only when a cited
+  initial opens one more word of that name or when the entry gives no initial. A given name of a cited author
+  names no author of a record.
 - A record under nearly the cited title that names other authors gives `references.author-mismatch`, once DBLP,
   CrossRef, OpenAlex, and the registry of the DOI answered. The record of a DOI or an arXiv ID that names another
   work gives `references.identifier-mismatch`. Where the reference also gets `references.not-found`, that warning

@@ -40,8 +40,17 @@ class Citation:
     def __init__(self, text: str, title: str, authors: Iterable[str]):
         self.entry = folded(text)
         self.title = title
-        self.cites_group = any(GROUP_NAME.search(name) for name in authors)
-        self.families = _name_keys(family_names(name for name in authors if not GROUP_NAME.search(name)))
+        names = list(authors)
+        people = [name for name in names if not GROUP_NAME.search(name)]
+        self.cites_group = len(people) < len(names)
+        # The first letters of the other words of each cited name, by its family name.
+        self._initials: dict[str, set[str]] = {}
+        for name in people:
+            for family in family_names([name]):
+                others = (word for word in _words(name) if word != family)
+                self._initials.setdefault(_name_key(family), set()).update(word[0] for word in others)
+        self.families = set(self._initials)
+        self._given = _name_keys(word for name in people for word in _words(name)) - self.families
         self._places = [index for index, letter in enumerate(self.entry) if letter.isalnum()]
         self._letters = "".join(self.entry[index] for index in self._places)
 
@@ -59,10 +68,6 @@ class Citation:
         return bool(words) and any(held[start:start + len(words)] == words
                                    for start in range(len(held) - len(words) + 1))
 
-    def after_authors(self) -> str:
-        """Return the entry from its title on, or the whole entry when the title has no place in it."""
-        return self.entry[self._place(self.title, field=False) or 0:]
-
     def same_authors(self, authors: Iterable[str], title: str = "") -> bool:
         """Tell whether a record under a title names the authors of the reference.
 
@@ -73,8 +78,8 @@ class Citation:
         if not names or (self.cites_group and not self.families):
             return True
         named = self._named(names, title)
-        words = _name_keys(word for name in names for word in _words(name))
-        if 2 * len(self.families & words) >= len(self.families) > 0 or named == len(names):
+        cited = sum(1 for family in self.families if any(self._is_author(family, name) for name in names))
+        if 2 * cited >= len(self.families) > 0 or named == len(names):
             return True
         if not self.families and 2 * named >= len(names):
             return True
@@ -82,10 +87,21 @@ class Citation:
 
     def _named(self, names: list[str], title: str) -> int:
         """Count the authors of a record that the reference names, among the authors that Hallucinator read or by
-        the family name in the entry before the title."""
-        part = _name_keys(WORD.findall(ET_AL.sub(" ", self._author_part(title))))
-        return sum(1 for name in names
-                   if _name_keys([_family_name(name)]) & part or self.families & _name_keys(_words(name)))
+        the family name in the entry before the title, unless Hallucinator read that word as a given name."""
+        part = _name_keys(WORD.findall(ET_AL.sub(" ", self._author_part(title)))) - self._given
+        return sum(1 for name in names if _name_key(_family_name(name)) in part
+                   or any(self._is_author(family, name) for family in self.families))
+
+    def _is_author(self, family: str, name: str) -> bool:
+        """Tell whether the cited author of a family name is the author of a record under a name.
+
+        The two bear the same family name. Otherwise the record bears the cited family name as another word, as a
+        name with the family name first or with two family names does, and a cited initial opens one more word of
+        that name, unless the entry gives no initial."""
+        if family == _name_key(_family_name(name)):
+            return True
+        words, initials = _name_keys(_words(name)), self._initials[family]
+        return family in words and (not initials or any(word[0] in initials for word in words - {family}))
 
     def _author_part(self, title: str) -> str:
         """Return the entry before the title of a record, or before the title that Hallucinator read."""
@@ -167,7 +183,11 @@ def _words(name: str) -> list[str]:
 
 def _name_keys(words: Iterable[str]) -> set[str]:
     """Return folded words of names with each written-out umlaut as one letter, as muller for mueller."""
-    return {WRITTEN_UMLAUT.sub("", word) for word in words}
+    return {_name_key(word) for word in words}
+
+
+def _name_key(word: str) -> str:
+    return WRITTEN_UMLAUT.sub("", word)
 
 
 def _unaccented(text: str) -> str:

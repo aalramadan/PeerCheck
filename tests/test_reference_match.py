@@ -74,14 +74,6 @@ def test_entry_holds_the_words_of_the_name_of_its_venue_in_their_order():
     assert not cited().holds_words("")
 
 
-def test_entry_after_its_authors_starts_at_the_title_that_hallucinator_read():
-    assert cited().after_authors().startswith("a made-up title on the porting of patches,” in proc.")
-
-
-def test_entry_whose_title_has_no_place_in_it_counts_as_a_whole_after_its_authors():
-    assert cited(title="Another made-up title on flaky builds").after_authors().startswith("a. quill and b. reed")
-
-
 @pytest.mark.parametrize("authors", [(), ("张伟", "陈丽"), ("Иван Иванов",), ("X", "Y")])
 def test_record_without_a_family_name_in_latin_letters_counts_as_a_record_of_the_cited_authors(authors):
     assert cited().same_authors(authors)
@@ -115,6 +107,27 @@ def test_names_of_one_word_are_family_names_in_an_entry_and_in_a_record_of_sever
     assert not cited(authors=("Quill", "Reed")).same_authors(["Hana Novak", "Petra Zeller"])
     assert not cited(authors=("Quill",)).same_authors(["Hana Novak"])
     assert not cited().same_authors(["Novak", "Zeller"])
+
+
+def test_given_name_of_a_cited_author_names_no_author_of_a_record():
+    names = ("Thomas Brennan", "Kenji Ito")
+    entry = ENTRY.replace("A. Quill and B. Reed", "Thomas Brennan and Kenji Ito")
+    assert not cited(entry, authors=names).same_authors(["David Thomas"], TITLE)
+    assert not cited(entry, authors=names).same_authors(["David Thomas", "Brenda Kenji"], TITLE)
+    assert cited(entry, authors=names).same_authors(["Tom Brennan", "Kenji Ito"], TITLE)
+
+
+@pytest.mark.parametrize(("names", "record", "same"), [
+    (("J. Yang", "M. Lin"), ("Yang Liu", "Lin Chen", "Wei Zhang", "Yu Wang"), False),
+    (("L. Yang", "C. Lin"), ("Yang Liu", "Lin Chen", "Wei Zhang", "Yu Wang"), True),
+    (("Yang", "Lin"), ("Yang Liu", "Lin Chen", "Wei Zhang", "Yu Wang"), True),
+    (("Kim Sung-Hun",), ("Sung-Hun Kim",), True),
+    (("H. Garcia",), ("Hector Garcia-Molina",), True),
+    (("P. Garcia",), ("Hector Garcia-Molina",), False)])
+def test_cited_family_name_that_is_another_word_of_a_record_name_names_its_author_only_with_a_fitting_initial(
+        names, record, same):
+    entry = ENTRY.replace("A. Quill and B. Reed", " and ".join(names))
+    assert cited(entry, authors=names).same_authors(record, TITLE) is same
 
 
 @pytest.mark.parametrize(("names", "record", "same"), [

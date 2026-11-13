@@ -9,6 +9,7 @@ import concurrent.futures
 import contextlib
 import dataclasses
 import datetime
+import itertools
 import json
 import os
 import re
@@ -139,8 +140,11 @@ LINE_END_WORD = re.compile(r"([a-z]+)- ([a-z]+)")
 # No online source gets a title of fewer words, since many works share a short title. Hallucinator passes over
 # such a title unless its entry gives an identifier.
 MIN_TITLE_WORDS = 4
-# The search asks for the rarest words of an entry and passes over a word that this many titles hold.
-RARE_WORDS, COMMON_WORD, CANDIDATES = 8, 50_000, 50
+# The search asks for the records that hold two of the rarest words of a title or of an entry and passes over a word
+# that this many titles hold. An entry adds names and short words of a venue, which are rarer than a word of a title.
+TITLE_WORDS, COMMON_TITLE_WORD = 6, 1_000_000
+ENTRY_WORDS, COMMON_ENTRY_WORD = 16, 50_000
+CANDIDATES = 50
 BIB_ESCAPES = str.maketrans({"{": "", "}": "", "\\": "", "%": r"\%", "&": r"\&", "#": r"\#", "_": r"\_", "$": r"\$"})
 
 
@@ -167,7 +171,7 @@ class Reference:
     up, and failed the core sources and the registries that did not answer for it. A mismatch names the source, the
     authors, and the address of a record under the title of the reference. other_title is the title of another work
     under the DOI or the arXiv ID of the reference. registered marks a DOI that exists without a record that
-    PeerCheck reads."""
+    PeerCheck reads. passed_over marks a reference that CrossRef did not get, since the online run passed it over."""
 
     number: int
     title: str
@@ -183,6 +187,7 @@ class Reference:
     arxiv_id: str = ""
     other_title: str = ""
     registered: bool = False
+    passed_over: bool = False
 
 
 def check_batch(papers: list[Paper], profile: Profile, workdir: Path) -> dict[int, list[Finding]]:
@@ -369,28 +374,21 @@ def _confirmed_in_dblp(refs: list[Reference], database: Path) -> list[Reference]
     try:
         with contextlib.closing(sqlite3.connect(f"{database.resolve().as_uri()}?mode=ro", uri=True)) as records:
             records.execute("create virtual table temp.vocabulary using fts5vocab(main, publications_fts, row)")
-            return [_in_dblp(ref, records) if _is_open(ref) else ref for ref in refs]
+            counts: dict[str, int] = {}
+            return [_in_dblp(ref, records, counts) if _is_open(ref) else ref for ref in refs]
     except sqlite3.Error:
         return refs
 
 
-def _in_dblp(ref: Reference, records: sqlite3.Connection) -> Reference:
-    """Return a reference after the comparison with the DBLP records that hold the rarest words of its entry.
+def _in_dblp(ref: Reference, records: sqlite3.Connection, counts: dict[str, int]) -> Reference:
+    """Return a reference after the comparison with the DBLP records that share rare words with it.
 
-    The words come from the entry after its authors, since a family name is rarer than a word of a title."""
+    The words come from the title that Hallucinator read. Where no record with these words bears the title, as for
+    a title read from another part of the entry, the words come from the whole entry."""
     cited = _citation(ref)
-    text = cited.after_authors()
-    words = set(reference_match.WORD.findall(text)) | {first + second for first, second in LINE_END_WORD.findall(text)}
-    counts = {}
-    for word in words:
-        row = records.execute("select doc from temp.vocabulary where term = ?", (word,)).fetchone()
-        if row and row[0] < COMMON_WORD and len(word) > 2 and not word.isdigit():
-            counts[word] = row[0]
-    rare = sorted(counts, key=counts.__getitem__)[:RARE_WORDS]
-    titles = records.execute(
-        "select p.id, p.title from publications_fts join publications p on p.id = publications_fts.rowid "
-        f"where publications_fts match ? order by rank limit {CANDIDATES}",
-        (" OR ".join(f'"{word}"' for word in rare),)).fetchall() if rare else []
+    titles = _dblp_titles(reference_match.folded(ref.title), TITLE_WORDS, COMMON_TITLE_WORD, records, counts)
+    if not any(cited.bears(title) for _record, title in titles):
+        titles += _dblp_titles(cited.entry, ENTRY_WORDS, COMMON_ENTRY_WORD, records, counts)
     # The DBLP lookup of Hallucinator accepts a title from a ratio of 0.90, also the title of another work.
     if ref.status == "mismatch" and ref.record_source == "DBLP":
         titles += records.execute("select id, title from publications where key = ?",
@@ -400,6 +398,26 @@ def _in_dblp(ref: Reference, records: sqlite3.Connection) -> Reference:
         "select a.name from publication_authors l join authors a on a.id = l.author_id where l.pub_id = ?", (record,))))
         for record, title in dict.fromkeys(titles) if cited.bears(title)]
     return _compared(ref, cited, found, "DBLP")
+
+
+def _dblp_titles(text: str, most: int, common: int, records: sqlite3.Connection,
+                 counts: dict[str, int]) -> list[tuple[int, str]]:
+    """Return the DBLP records that hold two of the rarest words of a folded text, each with its title.
+
+    counts keeps the number of titles that hold each word, since the count of a common word takes long."""
+    words = set(reference_match.WORD.findall(text)) | {first + second for first, second in LINE_END_WORD.findall(text)}
+    words = {word for word in words if len(word) > 2 and not word.isdigit()}
+    for word in words - counts.keys():
+        row = records.execute("select doc from temp.vocabulary where term = ?", (word,)).fetchone()
+        counts[word] = row[0] if row else 0
+    rare = sorted((word for word in words if 0 < counts[word] < common), key=lambda word: (counts[word], word))[:most]
+    if not rare:
+        return []
+    groups = (" AND ".join(f'"{word}"' for word in group) for group in itertools.combinations(rare, min(2, len(rare))))
+    return records.execute(
+        "select p.id, p.title from publications_fts join publications p on p.id = publications_fts.rowid "
+        f"where publications_fts match ? order by rank limit {CANDIDATES}",
+        (" OR ".join(f"({group})" for group in groups),)).fetchall()
 
 
 def _citation(ref: Reference) -> Citation:
@@ -750,10 +768,12 @@ def _halves(title: str) -> list[str]:
 def _with_answer(ref: Reference, answer: Reference | None) -> Reference:
     """Return a reference with the answer of the online run, whose core source is CrossRef.
 
-    A run that failed or passed over the reference says nothing about it. A record with other authors that an
-    earlier source holds stays unless a source confirms the reference."""
+    A run that failed or passed over the reference says nothing about it. A later run passes over the reference
+    again, since its title is too short for the run. A record with other authors that an earlier source holds
+    stays unless a source confirms the reference."""
     if answer is None or answer.status == "skipped":
-        return _asked(ref, "CrossRef")
+        asked = _asked(ref, "CrossRef")
+        return dataclasses.replace(asked, passed_over=answer is not None and asked.failed != ref.failed)
     merged = dataclasses.replace(ref, answered=ref.answered + answer.answered,
                                  failed=(*ref.failed, *(name for name in answer.failed if name not in ref.failed)))
     if answer.status == "verified" or (answer.status == "mismatch"
@@ -849,10 +869,14 @@ def _notes(refs: list[Reference]) -> list[Finding]:
     whose lookup failed get one note for each set of sources that failed."""
     unconfirmed = [ref for ref in refs if _outcome(ref) == "not found" and not _is_warned(ref)]
     failed: dict[frozenset[str], list[Reference]] = {}
+    passed_over = []
     for ref in refs:
-        if _outcome(ref) == "not looked up" and ref.status != "skipped":
+        if _outcome(ref) != "not looked up":
+            continue
+        if ref.status == "skipped" or ref.passed_over:
+            passed_over.append(ref)
+        else:
             failed.setdefault(frozenset(ref.failed), []).append(ref)
-    passed_over = [ref for ref in refs if ref.status == "skipped"]
     notes = (("references.unconfirmed", unconfirmed, UNCONFIRMED),
              *(("references.unchecked", listed, FAILED_LOOKUP.format(sources=", ".join(listed[0].failed)))
                for listed in failed.values()),
